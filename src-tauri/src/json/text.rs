@@ -40,6 +40,9 @@ pub fn decode_scalar(bytes: &[u8], node: &Node) -> (String, bool) {
             let inner = raw.get(1..raw.len().saturating_sub(1)).unwrap_or_default();
             unescape(inner, VALUE_PREVIEW_CHARS, Rendering::Display)
         }
+        // XML carries entities where JSON carries backslash escapes, so the
+        // two need different readers over the same span.
+        kind if kind.is_xml_text() => unescape_xml(raw, VALUE_PREVIEW_CHARS, Rendering::Display),
         _ => truncate_chars(&String::from_utf8_lossy(raw), VALUE_PREVIEW_CHARS),
     }
 }
@@ -65,8 +68,84 @@ pub fn decode_full(bytes: &[u8], node: &Node, max_bytes: usize) -> (String, bool
             let inner = raw.get(1..end).unwrap_or_default();
             (unescape(inner, usize::MAX, Rendering::Verbatim).0, truncated)
         }
+        kind if kind.is_xml_text() => (
+            unescape_xml(raw, usize::MAX, Rendering::Verbatim).0,
+            truncated,
+        ),
         _ => (String::from_utf8_lossy(raw).into_owned(), truncated),
     }
+}
+
+/// XML character data, with entity references resolved.
+///
+/// An unknown entity is left exactly as written rather than dropped: a viewer
+/// that silently deletes `&myref;` is lying about the file, and a document with
+/// a DTD we never read is the normal case, not an error.
+fn unescape_xml(raw: &[u8], max_chars: usize, rendering: Rendering) -> (String, bool) {
+    let text = String::from_utf8_lossy(raw);
+    let mut out = String::with_capacity(text.len());
+    let mut chars = 0usize;
+    let mut rest: &str = &text;
+
+    loop {
+        let Some(amp) = rest.find('&') else { break };
+        for ch in rest[..amp].chars() {
+            if chars >= max_chars {
+                return (out, true);
+            }
+            push(&mut out, ch, rendering);
+            chars += 1;
+        }
+        rest = &rest[amp..];
+        if chars >= max_chars {
+            return (out, true);
+        }
+        match entity(rest) {
+            Some((ch, len)) => {
+                push(&mut out, ch, rendering);
+                rest = &rest[len..];
+            }
+            None => {
+                push(&mut out, '&', rendering);
+                rest = &rest[1..];
+            }
+        }
+        chars += 1;
+    }
+
+    for ch in rest.chars() {
+        if chars >= max_chars {
+            return (out, true);
+        }
+        push(&mut out, ch, rendering);
+        chars += 1;
+    }
+    (out, false)
+}
+
+/// The entity at the start of `s`, with the number of bytes it occupies.
+fn entity(s: &str) -> Option<(char, usize)> {
+    const NAMED: [(&str, char); 5] = [
+        ("&amp;", '&'),
+        ("&lt;", '<'),
+        ("&gt;", '>'),
+        ("&quot;", '"'),
+        ("&apos;", '\''),
+    ];
+    for (name, ch) in NAMED {
+        if s.starts_with(name) {
+            return Some((ch, name.len()));
+        }
+    }
+
+    let body = s.strip_prefix("&#")?;
+    let end = body.find(';')?;
+    let digits = &body[..end];
+    let code = match digits.strip_prefix(['x', 'X']) {
+        Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+        None => digits.parse::<u32>().ok()?,
+    };
+    Some((char::from_u32(code)?, 2 + end + 1))
 }
 
 /// Whether decoded characters are made safe for a single line, or left as they
@@ -79,7 +158,7 @@ enum Rendering {
 
 fn push(out: &mut String, ch: char, rendering: Rendering) {
     match rendering {
-        Rendering::Display => push_display(out, ch),
+        Rendering::Display => push_display(out, ch, true),
         Rendering::Verbatim => out.push(ch),
     }
 }
@@ -97,7 +176,7 @@ fn truncate_chars(text: &str, max_chars: usize) -> (String, bool) {
         if chars >= max_chars {
             return (out, true);
         }
-        push_display(&mut out, ch);
+        push_display(&mut out, ch, true);
         chars += 1;
     }
     (out, false)
@@ -109,13 +188,18 @@ fn truncate_chars(text: &str, max_chars: usize) -> (String, bool) {
 /// characters have no visible glyph at all — showing them the way JSON writes
 /// them is both renderable and truthful. U+2028/U+2029 are included because CSS
 /// treats them as line breaks even though they are not C0 controls.
-fn push_display(out: &mut String, ch: char) {
+///
+/// Shared with the CSV grid, which draws rows the same way and so has the same
+/// constraint. `escape_quotes` is what differs: a JSON preview has to read back
+/// as a JSON string body, while a CSV cell has no such requirement and quotes
+/// are common enough in prose that escaping every one would be noise.
+pub fn push_display(out: &mut String, ch: char, escape_quotes: bool) {
     match ch {
-        // Without these two, `"a\nb"` and `"a\\nb"` — a newline and a literal
-        // backslash — would render identically, and nothing downstream could
-        // tell an escape from text that merely looks like one.
+        // Without escaping the backslash, `"a\nb"` and `"a\\nb"` — a newline
+        // and a literal backslash — would render identically, and nothing
+        // downstream could tell an escape from text that merely looks like one.
         '\\' => out.push_str("\\\\"),
-        '"' => out.push_str("\\\""),
+        '"' if escape_quotes => out.push_str("\\\""),
         '\n' => out.push_str("\\n"),
         '\r' => out.push_str("\\r"),
         '\t' => out.push_str("\\t"),

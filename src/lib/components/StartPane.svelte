@@ -3,7 +3,7 @@
   import { pickFiles } from "../open";
   import { workspace } from "../state/docs.svelte";
   import { recents } from "../state/recents.svelte";
-  import type { DocKind } from "../ipc";
+  import { DOC_KINDS, kindBadge, type DocKind } from "../ipc";
 
   interface Props {
     onOpenSettings: () => void;
@@ -69,7 +69,7 @@
     <header>
       <div class="titles">
         <h1>dviewer</h1>
-        <p>마크다운과 JSON을 열어 보세요. 창에 파일을 끌어다 놓아도 됩니다.</p>
+        <p>마크다운 · JSON · YAML · TOML · XML · CSV · TSV를 엽니다. 창에 파일을 끌어다 놓아도 됩니다.</p>
       </div>
       <!-- The toolbar only exists once a document is open, so without this the
            settings are unreachable from a cold start. -->
@@ -119,27 +119,22 @@
           class="field"
           bind:value={pasted}
           rows="8"
-          placeholder="마크다운이나 JSON을 붙여넣으세요."
+          placeholder="마크다운 · JSON · YAML · TOML · XML · CSV를 붙여넣으세요."
           spellcheck="false"
         ></textarea>
         <div class="row">
-          <div class="segmented">
-            <button
-              type="button"
-              aria-pressed={pastedKind === "auto"}
-              onclick={() => (pastedKind = "auto")}>자동</button
-            >
-            <button
-              type="button"
-              aria-pressed={pastedKind === "markdown"}
-              onclick={() => (pastedKind = "markdown")}>마크다운</button
-            >
-            <button
-              type="button"
-              aria-pressed={pastedKind === "json"}
-              onclick={() => (pastedKind = "json")}>JSON</button
-            >
-          </div>
+          <!-- Pasted text has no file name, and only JSON and XML can be
+               recognised from their content alone, so the rest have to be
+               named here. -->
+          <label class="paste-kind">
+            형식
+            <select bind:value={pastedKind}>
+              <option value="auto">자동</option>
+              {#each DOC_KINDS as entry (entry.kind)}
+                <option value={entry.kind}>{entry.label}</option>
+              {/each}
+            </select>
+          </label>
           <button class="btn btn-primary" type="submit" disabled={!pasted.trim()}>열기</button>
         </div>
       </form>
@@ -155,9 +150,7 @@
           {#each recents.entries as entry (entry.path)}
             <li>
               <button class="recent" onclick={() => workspace.openPath(entry.path)}>
-                <span class="kind" data-kind={entry.kind}>
-                  {entry.kind === "json" ? "{ }" : "M↓"}
-                </span>
+                <span class="kind" data-kind={entry.kind}>{kindBadge(entry.kind)}</span>
                 <span class="name">{fileName(entry.path)}</span>
                 <span class="dir" title={entry.path}>{parentDir(entry.path)}</span>
                 <span class="when">{relativeTime(entry.openedAt)}</span>
@@ -253,6 +246,23 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+  }
+
+  .paste-kind {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted);
+    font-size: 0.9em;
+  }
+
+  .paste-kind select {
+    padding: 0.25rem 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-inset);
+    color: var(--text);
+    font: inherit;
   }
 
   .recents {

@@ -1,4 +1,4 @@
-//! Measures the JSON indexer against a real file, with no window involved.
+//! Measures the tree indexer against a real file, with no window involved.
 //!
 //!   cargo run --release --example scan -- ../fixtures/huge.json [search-term]
 //!
@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::json::JsonDoc;
+use dviewer_lib::json::index::Syntax;
 use dviewer_lib::json::scanner::ScanLimits;
 use dviewer_lib::json::search::{SearchOptions, SearchScope};
 
@@ -53,7 +54,20 @@ fn main() {
     println!("열기      {:.1}ms (mmap + 메타데이터)", map_time.as_secs_f64() * 1000.0);
 
     let started = Instant::now();
-    let doc = match JsonDoc::build(Arc::clone(&bytes), &ScanLimits::default(), |_| {}, &|| false) {
+    // An .xml file goes through the XML scanner; everything else is read as
+    // JSON, which is what this measurement was written for.
+    let syntax = if path.to_ascii_lowercase().ends_with(".xml") {
+        Syntax::Xml
+    } else {
+        Syntax::Json
+    };
+    let doc = match JsonDoc::build(
+        Arc::clone(&bytes),
+        syntax,
+        &ScanLimits::default(),
+        |_| {},
+        &|| false,
+    ) {
         Ok(doc) => doc,
         Err(err) => {
             eprintln!("실패: {err}");

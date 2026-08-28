@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::bytes::DocBytes;
 use crate::error::Result;
-use index::{DEFAULT_EXPAND_DEPTH, JsonIndex, Visibility};
+use index::{DEFAULT_EXPAND_DEPTH, JsonIndex, Syntax, Visibility};
 use scanner::{ScanLimits, scan};
 use search::{SearchOptions, SearchResult};
 
@@ -75,14 +75,23 @@ pub struct JsonDoc {
 }
 
 impl JsonDoc {
+    /// Build the tree for a document.
+    ///
+    /// `syntax` picks the scanner. Everything after it — visibility, rows,
+    /// search, copying — is shared, which is the whole reason XML is worth
+    /// scanning into this shape instead of converting it to JSON first.
     pub fn build(
         bytes: Arc<DocBytes>,
+        syntax: Syntax,
         limits: &ScanLimits,
         progress: impl FnMut(usize),
         should_stop: &dyn Fn() -> bool,
     ) -> Result<Self> {
-        let scanned = scan(&bytes, limits, progress, should_stop)?;
-        let index = Arc::new(JsonIndex::new(scanned.nodes, scanned.synthetic_root));
+        let scanned = match syntax {
+            Syntax::Json => scan(&bytes, limits, progress, should_stop)?,
+            Syntax::Xml => crate::xml::scan(&bytes, limits, progress, should_stop)?,
+        };
+        let index = Arc::new(JsonIndex::new(scanned.nodes, scanned.synthetic_root, syntax));
         let visibility = Visibility::new(&index.nodes, DEFAULT_EXPAND_DEPTH);
         Ok(Self {
             index,
@@ -260,6 +269,7 @@ mod tests {
     fn doc(src: &str) -> JsonDoc {
         JsonDoc::build(
             Arc::new(DocBytes::from(src.as_bytes().to_vec())),
+            Syntax::Json,
             &ScanLimits::default(),
             |_| {},
             &|| false,
@@ -360,5 +370,191 @@ mod tests {
             assert_eq!(value.lines().count().max(1), 1);
         }
         assert_eq!(page.rows[0].value.as_deref(), Some(r#"x\ny"#));
+    }
+}
+
+/// XML reaches the tree through a different scanner but every stage after it is
+/// shared, so these check the seam: rows, paths, and copying, on real markup.
+#[cfg(test)]
+mod xml_tests {
+    use super::*;
+
+    const CATALOG: &str = concat!(
+        r#"<?xml version="1.0"?>"#,
+        "<catalog>",
+        r#"<book id="b1"><title>Dune</title><note>a &amp; b</note></book>"#,
+        r#"<book id="b2"><title>Emma</title></book>"#,
+        "<!-- end -->",
+        "</catalog>",
+    );
+
+    fn xml_doc(src: &str) -> JsonDoc {
+        JsonDoc::build(
+            Arc::new(DocBytes::from(src.as_bytes().to_vec())),
+            Syntax::Xml,
+            &ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("scan failed")
+    }
+
+    fn row_for(doc: &JsonDoc, key: &str, nth: usize) -> JsonRow {
+        doc.expand_all();
+        doc.rows(0, 500)
+            .into_iter()
+            .filter(|row| row.key.as_deref() == Some(key))
+            .nth(nth)
+            .unwrap_or_else(|| panic!("no row for {key:?} #{nth}"))
+    }
+
+    #[test]
+    fn a_text_only_element_shows_its_text_on_the_element_row() {
+        let doc = xml_doc(CATALOG);
+        let title = row_for(&doc, "title", 0);
+        assert_eq!(title.kind, "elementText");
+        assert!(!title.container);
+        assert_eq!(title.value.as_deref(), Some("Dune"));
+    }
+
+    #[test]
+    fn attributes_appear_as_their_own_rows() {
+        let doc = xml_doc(CATALOG);
+        let id = row_for(&doc, "id", 0);
+        assert_eq!(id.kind, "attribute");
+        assert_eq!(id.value.as_deref(), Some("b1"));
+    }
+
+    /// Entities are resolved for display, so the reader sees the character
+    /// rather than its spelling.
+    #[test]
+    fn entities_are_resolved_in_a_row() {
+        let doc = xml_doc(CATALOG);
+        assert_eq!(row_for(&doc, "note", 0).value.as_deref(), Some("a & b"));
+    }
+
+    #[test]
+    fn a_path_is_written_as_xpath() {
+        let doc = xml_doc(CATALOG);
+        let title = row_for(&doc, "title", 0);
+        assert_eq!(doc.path_of(title.id).as_deref(), Some("/catalog/book[1]/title"));
+        let id = row_for(&doc, "id", 0);
+        assert_eq!(doc.path_of(id.id).as_deref(), Some("/catalog/book[1]/@id"));
+    }
+
+    /// Two elements with one name need the predicate; a lone one does not, and
+    /// `[1]` on it would only be noise.
+    #[test]
+    fn the_predicate_appears_only_when_the_name_repeats() {
+        let doc = xml_doc(CATALOG);
+        let second = row_for(&doc, "title", 1);
+        assert_eq!(doc.path_of(second.id).as_deref(), Some("/catalog/book[2]/title"));
+
+        let single = xml_doc("<root><only>x</only></root>");
+        single.expand_all();
+        let only = single.rows(0, 10)[1].id;
+        assert_eq!(single.path_of(only).as_deref(), Some("/root/only"));
+    }
+
+    #[test]
+    fn a_comment_has_a_path_of_its_own_kind() {
+        let doc = xml_doc(CATALOG);
+        doc.expand_all();
+        let comment = doc
+            .rows(0, 500)
+            .into_iter()
+            .find(|row| row.kind == "comment")
+            .expect("comment row");
+        assert_eq!(comment.value.as_deref(), Some(" end "));
+        assert_eq!(doc.path_of(comment.id).as_deref(), Some("/catalog/comment()"));
+    }
+
+    /// Copying an element gives the markup, which is what you would paste back
+    /// into a file; copying its text gives the text.
+    #[test]
+    fn copying_an_element_gives_its_markup() {
+        let doc = xml_doc(CATALOG);
+        let book = row_for(&doc, "book", 1);
+        assert_eq!(
+            doc.node_text(book.id).expect("book").0,
+            r#"<book id="b2"><title>Emma</title></book>"#
+        );
+        let note = row_for(&doc, "note", 0);
+        assert_eq!(doc.node_text(note.id).expect("note").0, "a & b");
+    }
+
+    /// The tree draws rows at a fixed height, so this holds no matter which
+    /// scanner produced the nodes.
+    #[test]
+    fn every_row_is_a_single_line() {
+        let doc = xml_doc("<a><b>first\nsecond</b><c d=\"x\ty\">z</c></a>");
+        doc.expand_all();
+        for row in doc.rows(0, 100) {
+            for text in [row.key.as_deref(), row.value.as_deref()].into_iter().flatten() {
+                assert_eq!(text.lines().count().max(1), 1, "multi-line: {text:?}");
+                assert!(!text.contains(['\n', '\r', '\t']));
+            }
+        }
+    }
+
+    #[test]
+    fn searching_paths_matches_element_names() {
+        let doc = xml_doc(CATALOG);
+        let options = search::SearchOptions {
+            query: "/catalog/book/@id".into(),
+            case_sensitive: false,
+            scope: search::SearchScope::Paths,
+        };
+        let summary = doc
+            .run_search(&options, &AtomicBool::new(false), |_, _| {})
+            .expect("search");
+        // Both books, because a path search matches names without positions.
+        assert_eq!(summary.total, 2);
+    }
+}
+
+/// YAML and TOML do not have a scanner of their own: they are converted to JSON
+/// and read by the JSON one. These check that the seam holds end to end.
+#[cfg(test)]
+mod converted_tests {
+    use super::*;
+
+    fn tree(json: String) -> JsonDoc {
+        JsonDoc::build(
+            Arc::new(DocBytes::from(json.into_bytes())),
+            Syntax::Json,
+            &ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("scan failed")
+    }
+
+    #[test]
+    fn a_yaml_config_becomes_a_navigable_tree() {
+        let src = b"service:\n  name: api\n  ports:\n    - 80\n    - 443\n";
+        let doc = tree(crate::convert::yaml_to_json(src).expect("convert"));
+        doc.expand_all();
+        let rows = doc.rows(0, 100);
+        let keys: Vec<&str> = rows.iter().filter_map(|r| r.key.as_deref()).collect();
+        assert_eq!(keys, vec!["service", "name", "ports"]);
+
+        let ports = rows.iter().find(|r| r.key.as_deref() == Some("ports")).expect("ports");
+        assert_eq!(doc.path_of(ports.id).as_deref(), Some("$.service.ports"));
+        assert_eq!(ports.child_count, 2);
+    }
+
+    #[test]
+    fn a_toml_table_becomes_a_navigable_tree() {
+        let src = b"[server]\nhost = \"localhost\"\nport = 8080\n";
+        let doc = tree(crate::convert::toml_to_json(src).expect("convert"));
+        doc.expand_all();
+        let host = doc
+            .rows(0, 100)
+            .into_iter()
+            .find(|r| r.key.as_deref() == Some("host"))
+            .expect("host");
+        assert_eq!(host.value.as_deref(), Some("localhost"));
+        assert_eq!(doc.node_text(host.id).expect("host").0, "localhost");
     }
 }

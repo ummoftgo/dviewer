@@ -14,9 +14,11 @@
     jsonRows,
     jsonSetExpandDepth,
     jsonToggle,
+    kindLabel,
     type JsonRow,
   } from "../../ipc";
   import { copyMenuItems, copyPath, copyValue, pathOf } from "./actions";
+  import { anchorRow, rowTop, scrollTopForRow, spacerHeight } from "../../virtual";
   import type { MenuItem } from "../menu";
   import type { DocTab } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
@@ -47,6 +49,10 @@
   const POPOVER_CLEARANCE = 46;
 
   let viewport = $state<HTMLElement>();
+  /** Mirrored into state because row positions depend on it once the document
+   *  outgrows the browser's maximum element height — see lib/virtual.ts. */
+  let scrollTop = $state(0);
+  let viewportHeight = $state(0);
   let rows = $state<JsonRow[]>([]);
   let windowStart = $state(0);
   let selectedRow = $state<number | null>(null);
@@ -72,6 +78,7 @@
     Math.max(18, Math.round(settings.docFontPx * settings.uiScale * 1.7)),
   );
   const totalRows = $derived(tab.stats?.visibleRows ?? 0);
+  const metrics = $derived({ rowHeight, totalRows, viewportHeight });
   const selected = $derived(
     selectedRow === null ? null : (rows[selectedRow - windowStart] ?? null),
   );
@@ -167,7 +174,8 @@
     if (row === null || !viewport || !tab.stats) return;
     tab.pendingRow = null;
     // Park the target a third of the way down rather than at the very top.
-    viewport.scrollTop = Math.max(0, (row - Math.floor(visibleCount() / 3)) * rowHeight);
+    measure();
+    viewport.scrollTop = scrollTopForRow(metrics, Math.max(0, row - Math.floor(visibleCount() / 3)));
     selectedRow = row;
     void ensureWindow(true);
   });
@@ -176,11 +184,19 @@
     return Math.ceil((viewport?.clientHeight ?? 0) / rowHeight) + 1;
   }
 
+  /** Re-read the scroll box and refresh the window it implies. */
+  function measure() {
+    if (!viewport) return;
+    scrollTop = viewport.scrollTop;
+    viewportHeight = viewport.clientHeight;
+  }
+
   async function ensureWindow(force = false) {
     const stats = tab.stats;
     if (!stats || !viewport) return;
 
-    const first = Math.max(0, Math.floor(viewport.scrollTop / rowHeight));
+    measure();
+    const first = Math.max(0, Math.floor(anchorRow(metrics, viewport.scrollTop)));
     const last = Math.min(stats.visibleRows, first + visibleCount());
     if (!force && first >= windowStart && last <= windowStart + rows.length) return;
 
@@ -206,6 +222,7 @@
 
   function onScroll(event: Event) {
     tab.jsonScrollTop = (event.currentTarget as HTMLElement).scrollTop;
+    measure();
     closeOverlays();
     void ensureWindow();
   }
@@ -322,11 +339,12 @@
 
   function scrollRowIntoView(row: number) {
     if (!viewport) return;
-    const top = row * rowHeight;
+    measure();
+    const top = rowTop(metrics, viewport.scrollTop, row);
     const bottom = top + rowHeight;
-    if (top < viewport.scrollTop) viewport.scrollTop = top;
+    if (top < viewport.scrollTop) viewport.scrollTop = scrollTopForRow(metrics, row);
     else if (bottom > viewport.scrollTop + viewport.clientHeight) {
-      viewport.scrollTop = bottom - viewport.clientHeight;
+      viewport.scrollTop = scrollTopForRow(metrics, row - visibleCount() + 2);
     }
     void ensureWindow();
   }
@@ -388,10 +406,28 @@
   // --- formatting ---------------------------------------------------------
 
   function summarize(row: JsonRow): string {
-    if (row.kind === "array") {
-      return row.childCount === 0 ? "[ ]" : `[ ${row.childCount.toLocaleString()} ]`;
-    }
-    return row.childCount === 0 ? "{ }" : `{ ${row.childCount.toLocaleString()} }`;
+    const count = row.childCount === 0 ? "" : ` ${row.childCount.toLocaleString()} `;
+    if (row.kind === "element") return `<${count || " "}>`;
+    if (row.kind === "array") return `[${count || " "}]`;
+    return `{${count || " "}}`;
+  }
+
+  /**
+   * XML nodes that have no name of their own still need a row label. The `#`
+   * spelling is XPath's and reads as "not an element", which is exactly the
+   * distinction being drawn.
+   */
+  const XML_LABELS: Partial<Record<JsonRow["kind"], string>> = {
+    text: "#text",
+    comment: "#comment",
+    cdata: "#cdata",
+    directive: "#directive",
+  };
+
+  function labelClass(kind: JsonRow["kind"]): string {
+    if (kind === "element" || kind === "elementText") return "label tag";
+    if (kind === "attribute") return "label attr";
+    return "label meta";
   }
 
   function formatBytes(bytes: number): string {
@@ -408,6 +444,8 @@
   );
 </script>
 
+<svelte:window onresize={() => void ensureWindow(true)} />
+
 <div class="json">
   <JsonSearchBar {tab} bind:this={searchBar} />
 
@@ -421,7 +459,9 @@
   {#if !tab.stats && !tab.error}
     <div class="loading">
       <p>
-        JSON 구조를 읽는 중… {formatBytes(tab.indexing?.done ?? 0)} / {formatBytes(tab.meta.byteLen)}
+        {kindLabel(tab.kind)} 구조를 읽는 중… {formatBytes(tab.indexing?.done ?? 0)} / {formatBytes(
+          tab.meta.byteLen,
+        )}
       </p>
       <div class="bar"><div class="fill" style="width: {progressPercent}%"></div></div>
     </div>
@@ -494,10 +534,10 @@
     onkeydown={onKeydown}
     tabindex="0"
     role="tree"
-    aria-label="JSON 트리"
+    aria-label="{kindLabel(tab.kind)} 트리"
     style="--row-height: {rowHeight}px"
   >
-    <div class="spacer-box" style="height: {totalRows * rowHeight}px">
+    <div class="spacer-box" style="height: {spacerHeight(metrics)}px">
       {#each rows as row, i (row.id)}
         {@const rowIndex = windowStart + i}
         <!-- The mouseover popover has no focus counterpart by design: keyboard
@@ -511,7 +551,7 @@
           aria-expanded={row.container ? !row.collapsed : undefined}
           aria-level={row.depth + 1}
           tabindex="-1"
-          style="top: {rowIndex * rowHeight}px"
+          style="top: {rowTop(metrics, scrollTop, rowIndex)}px"
           onclick={() => (selectedRow = rowIndex)}
           ondblclick={() => toggle(row)}
           oncontextmenu={(e) => openMenu(e, row, rowIndex)}
@@ -541,7 +581,22 @@
             <span class="twisty placeholder"></span>
           {/if}
 
-          {#if row.key !== null}
+          {#if XML_LABELS[row.kind]}
+            <span class={labelClass(row.kind)}>{XML_LABELS[row.kind]}</span>
+          {:else if row.kind === "attribute"}
+            <span class={labelClass(row.kind)}
+              ><span class="mark">@</span><JsonText text={row.key ?? ""} /></span
+            ><span class="punct">=</span>
+          {:else if row.kind === "element" || row.kind === "elementText"}
+            <!-- An element with nothing in it is written `<a/>` in the file and
+                 reads as empty here too; `<a>` with a blank after it looks like
+                 a value that failed to load. -->
+            <span class={labelClass(row.kind)}
+              ><span class="mark">&lt;</span><JsonText text={row.key ?? ""} /><span class="mark"
+                >{row.kind === "elementText" && !row.value ? "/>" : ">"}</span
+              ></span
+            >
+          {:else if row.key !== null}
             <span class="label key"><JsonText text={row.key} /></span><span class="punct">:</span>
           {:else if row.index !== null}
             <span class="label index">{row.index}</span><span class="punct">:</span>
@@ -850,6 +905,25 @@
   .value[data-kind="number"] { color: var(--json-number); }
   .value[data-kind="bool"] { color: var(--json-bool); }
   .value[data-kind="null"] { color: var(--json-null); font-style: italic; }
+  .value[data-kind="comment"] { color: var(--xml-comment); font-style: italic; }
+  .value[data-kind="directive"] { color: var(--xml-meta); }
+
+  .label.tag { color: var(--xml-tag); }
+  .label.attr { color: var(--xml-attr); }
+  .label.meta { color: var(--xml-meta); font-style: italic; }
+
+  /* An element carries its own separator in the closing bracket, so the gap
+     goes after the whole label rather than after each piece of it. */
+  .label.tag,
+  .label.meta {
+    margin-right: 0.4ch;
+  }
+
+  /* Brackets and the attribute sigil sit inside the name and must not push it
+     apart the way `.punct` does. */
+  .mark {
+    color: var(--json-punct);
+  }
 
   .ellipsis {
     color: var(--text-muted);

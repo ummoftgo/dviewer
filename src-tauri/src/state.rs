@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::bytes::DocBytes;
 use crate::error::{Error, Result};
 use crate::json::JsonDoc;
+use crate::table::TableDoc;
 
 pub type DocId = u32;
 
@@ -17,6 +18,35 @@ pub type DocId = u32;
 pub enum DocKind {
     Markdown,
     Json,
+    Yaml,
+    Toml,
+    Xml,
+    Csv,
+    Tsv,
+}
+
+/// How a document is presented. Seven formats, but only three ways to read
+/// one — which is what the frontend routes on, and what stops the view layer
+/// from growing a branch per format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DocView {
+    /// Rendered or raw text.
+    Prose,
+    /// The collapsible node tree.
+    Tree,
+    /// The row-and-column grid.
+    Table,
+}
+
+impl DocKind {
+    pub fn view(self) -> DocView {
+        match self {
+            DocKind::Markdown => DocView::Prose,
+            DocKind::Json | DocKind::Yaml | DocKind::Toml | DocKind::Xml => DocView::Tree,
+            DocKind::Csv | DocKind::Tsv => DocView::Table,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +65,7 @@ pub struct DocMeta {
     pub id: DocId,
     pub title: String,
     pub kind: DocKind,
+    pub view: DocView,
     pub source: DocSource,
     pub byte_len: usize,
     /// Directory that relative image paths resolve against (file sources only).
@@ -53,7 +84,10 @@ pub struct Document {
 struct DocInner {
     kind: DocKind,
     /// Built lazily and in the background; None until indexing completes.
-    json: Option<Arc<JsonDoc>>,
+    /// Only one of the two is ever populated — a document is a tree or a grid,
+    /// never both.
+    tree: Option<Arc<JsonDoc>>,
+    table: Option<Arc<TableDoc>>,
 }
 
 impl Document {
@@ -71,7 +105,11 @@ impl Document {
             source,
             base_dir,
             bytes: Arc::new(bytes),
-            inner: RwLock::new(DocInner { kind, json: None }),
+            inner: RwLock::new(DocInner {
+                kind,
+                tree: None,
+                table: None,
+            }),
         }
     }
 
@@ -79,22 +117,32 @@ impl Document {
         self.inner.read().kind
     }
 
-    /// Switching the kind drops any JSON index — it is meaningless (and large)
-    /// once the document is being read as markdown.
+    /// Switching the kind drops whatever was built for the old one — an index
+    /// is meaningless, and often large, once the document is being read as
+    /// something else.
     pub fn set_kind(&self, kind: DocKind) {
         let mut inner = self.inner.write();
         if inner.kind != kind {
             inner.kind = kind;
-            inner.json = None;
+            inner.tree = None;
+            inner.table = None;
         }
     }
 
-    pub fn json(&self) -> Option<Arc<JsonDoc>> {
-        self.inner.read().json.clone()
+    pub fn tree(&self) -> Option<Arc<JsonDoc>> {
+        self.inner.read().tree.clone()
     }
 
-    pub fn set_json(&self, json: Arc<JsonDoc>) {
-        self.inner.write().json = Some(json);
+    pub fn set_tree(&self, tree: Arc<JsonDoc>) {
+        self.inner.write().tree = Some(tree);
+    }
+
+    pub fn table(&self) -> Option<Arc<TableDoc>> {
+        self.inner.read().table.clone()
+    }
+
+    pub fn set_table(&self, table: Arc<TableDoc>) {
+        self.inner.write().table = Some(table);
     }
 
     pub fn meta(&self) -> DocMeta {
@@ -102,6 +150,7 @@ impl Document {
             id: self.id,
             title: self.title.clone(),
             kind: self.kind(),
+            view: self.kind().view(),
             source: self.source.clone(),
             byte_len: self.bytes.len(),
             base_dir: self.base_dir.as_ref().map(|p| p.to_string_lossy().into_owned()),

@@ -9,6 +9,7 @@
   import ThemeStyles from "./lib/components/ThemeStyles.svelte";
   import Toolbar from "./lib/components/Toolbar.svelte";
   import JsonView from "./lib/components/json/JsonView.svelte";
+  import TableView from "./lib/components/table/TableView.svelte";
   import MarkdownView from "./lib/components/markdown/MarkdownView.svelte";
   import RawView from "./lib/components/markdown/RawView.svelte";
   import * as ipc from "./lib/ipc";
@@ -89,6 +90,24 @@
         tab.search.running = false;
         tab.search.error = message;
       }),
+      ipc.on("table:progress", ({ docId, bytesDone, bytesTotal }) => {
+        const tab = workspace.tab(docId);
+        if (tab) tab.indexing = { done: bytesDone, total: bytesTotal };
+      }),
+      ipc.on("table:ready", ({ docId, stats, header }) => {
+        const tab = workspace.tab(docId);
+        if (!tab) return;
+        tab.tableStats = stats;
+        tab.header = header;
+        tab.indexing = null;
+        tab.error = null;
+      }),
+      ipc.on("table:error", ({ docId, message }) => {
+        const tab = workspace.tab(docId);
+        if (!tab) return;
+        tab.error = message;
+        tab.indexing = null;
+      }),
     ];
 
     return () => {
@@ -136,13 +155,15 @@
           }
           return;
         case "f":
-          if (active?.kind === "json") {
+          // Both the tree and the grid have a search box; prose has the
+          // browser's own find, which this must not shadow.
+          if (active && active.view !== "prose") {
             event.preventDefault();
             searchBarFocus?.();
           }
           return;
         case "e":
-          if (active?.kind === "markdown") {
+          if (active?.view === "prose") {
             event.preventDefault();
             active.mode = active.mode === "rendered" ? "raw" : "rendered";
           }
@@ -211,8 +232,10 @@
             <div class="spinner" aria-hidden="true"></div>
             <p>{active.meta.title} 여는 중…</p>
           </div>
-        {:else if active.kind === "json"}
+        {:else if active.view === "tree"}
           <JsonView tab={active} bind:focusSearch={searchBarFocus} />
+        {:else if active.view === "table"}
+          <TableView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.mode === "raw"}
           <RawView tab={active} />
         {:else}

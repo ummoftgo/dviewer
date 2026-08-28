@@ -16,7 +16,7 @@ use aho_corasick::{AhoCorasick, MatchKind};
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
 
-use super::index::JsonIndex;
+use super::index::{JsonIndex, Syntax};
 use super::scanner::Kind;
 use super::text;
 use crate::error::{Error, Result};
@@ -251,7 +251,24 @@ fn search_paths(
         let base = if depth == 0 { 0 } else { ends[depth - 1] };
         path.truncate(base);
 
-        if depth == 0 {
+        if index.syntax == Syntax::Xml {
+            // XPath shape, but without the positional predicates `path_of`
+            // adds. They are what makes a copied path point at one node; in a
+            // search box they would only stop `item` from matching every item.
+            match node.kind {
+                Kind::Text | Kind::CData => path.extend_from_slice(b"/text()"),
+                Kind::Comment => path.extend_from_slice(b"/comment()"),
+                Kind::Directive => path.extend_from_slice(b"/processing-instruction()"),
+                _ => {
+                    path.push(b'/');
+                    if node.kind == Kind::Attribute {
+                        path.push(b'@');
+                    }
+                    let key = text::decode_key(bytes, node);
+                    append(&mut path, key.as_bytes(), options.case_sensitive);
+                }
+            }
+        } else if depth == 0 {
             path.push(b'$');
         } else if node.key_len > 0 {
             path.push(b'.');
@@ -321,7 +338,7 @@ mod tests {
 
     fn build(src: &str) -> Arc<JsonIndex> {
         let scanned = scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).unwrap();
-        Arc::new(JsonIndex::new(scanned.nodes, scanned.synthetic_root))
+        Arc::new(JsonIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json))
     }
 
     fn run(src: &str, query: &str, scope: SearchScope, case_sensitive: bool) -> Vec<SearchHit> {

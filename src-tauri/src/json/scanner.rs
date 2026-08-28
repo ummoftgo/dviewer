@@ -32,11 +32,33 @@ pub enum Kind {
     Number = 3,
     Bool = 4,
     Null = 5,
+    // XML. The tree engine is shared, so a node kind describes what the source
+    // format called it rather than what JSON would have called it — see
+    // `crate::xml`.
+    /// An element with attributes or element children.
+    Element = 6,
+    /// An element whose entire content is text, folded into one row: showing
+    /// `<name>John</name>` as a container you have to open to find "John"
+    /// costs a click and a line for no information.
+    ElementText = 7,
+    Attribute = 8,
+    /// Text alongside sibling elements — mixed content.
+    Text = 9,
+    Comment = 10,
+    CData = 11,
+    /// `<?xml ...?>`, a processing instruction, or a doctype.
+    Directive = 12,
 }
 
 impl Kind {
     pub fn is_container(self) -> bool {
-        matches!(self, Kind::Object | Kind::Array)
+        matches!(self, Kind::Object | Kind::Array | Kind::Element)
+    }
+
+    /// True when the node's value is XML text rather than a JSON literal, and
+    /// so carries entities instead of backslash escapes.
+    pub fn is_xml_text(self) -> bool {
+        matches!(self, Kind::ElementText | Kind::Attribute | Kind::Text)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -47,6 +69,13 @@ impl Kind {
             Kind::Number => "number",
             Kind::Bool => "bool",
             Kind::Null => "null",
+            Kind::Element => "element",
+            Kind::ElementText => "elementText",
+            Kind::Attribute => "attribute",
+            Kind::Text => "text",
+            Kind::Comment => "comment",
+            Kind::CData => "cdata",
+            Kind::Directive => "directive",
         }
     }
 }
@@ -88,6 +117,7 @@ impl Default for ScanLimits {
     }
 }
 
+#[derive(Debug)]
 pub struct Scan {
     pub nodes: Vec<Node>,
     /// True when the input held several top-level values (NDJSON and friends)
@@ -180,7 +210,7 @@ impl Scanner<'_, '_> {
         loop {
             if self.p >= self.next_progress {
                 if should_stop() {
-                    return Err(Error::Json("작업이 취소되었습니다.".into()));
+                    return Err(Error::Cancelled);
                 }
                 progress(self.p);
                 self.next_progress = self.p + PROGRESS_STEP;
@@ -436,7 +466,10 @@ fn line_col(b: &[u8], pos: usize) -> (usize, usize) {
 
 /// Prepend a synthetic array root over several top-level values so everything
 /// downstream can assume a single tree.
-fn wrap_in_synthetic_root(nodes: &mut Vec<Node>, root_count: u32, total_len: u32) {
+/// Wrap several top-level values in one array node so the tree has a single
+/// root. Shared with the XML scanner, where a prolog beside the root element
+/// produces the same situation.
+pub(crate) fn wrap_in_synthetic_root(nodes: &mut Vec<Node>, root_count: u32, total_len: u32) {
     for node in nodes.iter_mut() {
         node.depth += 1;
         node.parent = if node.parent == NO_PARENT {

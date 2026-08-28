@@ -1,8 +1,24 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { workspace } from "./state/docs.svelte";
 
+/**
+ * Grouped by view rather than by format: the reader picking a file is choosing
+ * what they want to look at, not which parser will run.
+ */
 const FILTERS = [
-  { name: "문서", extensions: ["md", "markdown", "mdx", "txt", "json", "jsonl", "ndjson"] },
+  {
+    name: "문서",
+    extensions: [
+      "md", "markdown", "mdx", "txt",
+      "json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb",
+      "yaml", "yml", "toml",
+      "xml", "xhtml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml",
+      "csv", "tsv", "tab",
+    ],
+  },
+  { name: "마크다운", extensions: ["md", "markdown", "mdown", "mkd", "mdx", "txt"] },
+  { name: "트리 (JSON · YAML · TOML · XML)", extensions: ["json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb", "yaml", "yml", "toml", "xml", "xhtml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml"] },
+  { name: "표 (CSV · TSV)", extensions: ["csv", "tsv", "tab"] },
   { name: "모든 파일", extensions: ["*"] },
 ];
 

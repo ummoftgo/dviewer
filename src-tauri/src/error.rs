@@ -18,6 +18,14 @@ pub enum Error {
 
     #[error("JSON 구조를 읽지 못했습니다: {0}")]
     Json(String),
+
+    /// A parse or size failure in a format that says so itself, so the message
+    /// carries no prefix of its own.
+    #[error("{0}")]
+    Parse(String),
+
+    #[error("작업이 취소되었습니다.")]
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

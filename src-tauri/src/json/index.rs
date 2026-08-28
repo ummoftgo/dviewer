@@ -374,21 +374,32 @@ impl Visibility {
 }
 
 /// Immutable side of an indexed document.
+/// Which notation the nodes came from. The index itself does not care — every
+/// operation on it is about shape — but a path has to be written the way the
+/// format's readers expect, and `$.a.b[0]` would be nonsense for an XML file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Syntax {
+    Json,
+    Xml,
+}
+
 pub struct JsonIndex {
     pub nodes: Vec<Node>,
     pub synthetic_root: bool,
     /// Computed once at build time. Deriving it per call would put a full scan
     /// of every node behind every collapse — 26ms on a 38M-node document.
     pub max_depth: u16,
+    pub syntax: Syntax,
 }
 
 impl JsonIndex {
-    pub fn new(nodes: Vec<Node>, synthetic_root: bool) -> Self {
+    pub fn new(nodes: Vec<Node>, synthetic_root: bool, syntax: Syntax) -> Self {
         let max_depth = nodes.iter().map(|n| n.depth).max().unwrap_or(0);
         Self {
             nodes,
             synthetic_root,
             max_depth,
+            syntax,
         }
     }
 
@@ -468,6 +479,13 @@ impl JsonIndex {
 
     /// Dotted path of a node, e.g. `root.items[3].name`.
     pub fn path_of(&self, bytes: &[u8], id: u32) -> String {
+        match self.syntax {
+            Syntax::Json => self.json_path_of(bytes, id),
+            Syntax::Xml => self.xml_path_of(bytes, id),
+        }
+    }
+
+    fn json_path_of(&self, bytes: &[u8], id: u32) -> String {
         let mut parts: Vec<String> = Vec::new();
         let mut current = id;
         loop {
@@ -487,6 +505,85 @@ impl JsonIndex {
         parts.reverse();
         format!("${}", parts.concat())
     }
+
+    /// An XPath-shaped location: `/catalog/book[2]/@id`.
+    ///
+    /// The positional predicate counts elements of the *same name*, which is
+    /// what XPath means by `[2]`, so the result can be pasted into any XPath
+    /// tool. It is omitted when the name is unique among its siblings, because
+    /// `[1]` on a lone element is noise.
+    fn xml_path_of(&self, bytes: &[u8], id: u32) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        let mut current = id;
+        loop {
+            let Some(node) = self.node(current) else { break };
+            let is_root = node.parent == NO_PARENT;
+            // A synthetic root is a wrapper this code invented; it is not part
+            // of the document and has no place in a path.
+            if is_root && self.synthetic_root {
+                break;
+            }
+            let key = super::text::decode_key(bytes, node);
+            parts.push(match node.kind {
+                Kind::Attribute => format!("/@{key}"),
+                Kind::Text | Kind::CData => "/text()".to_owned(),
+                Kind::Comment => "/comment()".to_owned(),
+                Kind::Directive => "/processing-instruction()".to_owned(),
+                _ => match self.same_name_position(bytes, current, &key) {
+                    Some(n) => format!("/{key}[{n}]"),
+                    None => format!("/{key}"),
+                },
+            });
+            if is_root {
+                break;
+            }
+            current = node.parent;
+        }
+        parts.reverse();
+        let path = parts.concat();
+        if path.is_empty() { "/".to_owned() } else { path }
+    }
+
+    /// One-based position among same-named sibling elements, or None when the
+    /// name occurs only once and no predicate is needed.
+    ///
+    /// Walking siblings is linear, which is fine for the handful of nodes a
+    /// person hovers or copies. Past `WIDE` children it is not, so the sibling
+    /// position stands in: a parent that wide is a list, and a list's children
+    /// share one name, which makes the two counts identical anyway.
+    fn same_name_position(&self, bytes: &[u8], id: u32, key: &str) -> Option<u32> {
+        const WIDE: u32 = 4096;
+
+        let node = self.node(id)?;
+        let parent = self.node(node.parent)?;
+        if parent.child_count <= 1 {
+            return None;
+        }
+        if parent.child_count > WIDE {
+            return Some(node.sibling_index + 1);
+        }
+
+        let mut position = 1;
+        let mut total = 0;
+        let mut child = node.parent + 1;
+        let end = node.parent + parent.subtree_size;
+        while child < end {
+            let Some(sibling) = self.node(child) else { break };
+            if sibling.kind != Kind::Text
+                && sibling.kind != Kind::Comment
+                && sibling.kind != Kind::CData
+                && sibling.kind != Kind::Directive
+                && super::text::decode_key(bytes, sibling) == key
+            {
+                total += 1;
+                if child < id {
+                    position += 1;
+                }
+            }
+            child += sibling.subtree_size.max(1);
+        }
+        (total > 1).then_some(position)
+    }
 }
 
 #[cfg(test)]
@@ -496,7 +593,7 @@ mod tests {
 
     fn index(src: &str) -> JsonIndex {
         let scanned = scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).unwrap();
-        JsonIndex::new(scanned.nodes, scanned.synthetic_root)
+        JsonIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json)
     }
 
     /// The property everything else depends on: walking rows 0..total must

@@ -96,12 +96,29 @@
     }
   }
 
+  /** The same labels the tree uses, so the two never disagree about a node. */
   function label(row: JsonRow): string {
+    switch (row.kind) {
+      case "element":
+      case "elementText":
+        return `<${row.key ?? ""}>`;
+      case "attribute":
+        return `@${row.key ?? ""}`;
+      case "text":
+        return "#text";
+      case "comment":
+        return "#comment";
+      case "cdata":
+        return "#cdata";
+      case "directive":
+        return "#directive";
+    }
     if (row.key !== null) return row.key;
     return row.index !== null ? `[${row.index}]` : "";
   }
 
   function summary(row: JsonRow): string {
+    if (row.kind === "element") return row.childCount === 0 ? "< >" : "< … >";
     if (row.kind === "array") return row.childCount === 0 ? "[ ]" : "[ … ]";
     return row.childCount === 0 ? "{ }" : "{ … }";
   }
@@ -384,6 +401,8 @@
   .value[data-kind="number"] { color: var(--json-number); }
   .value[data-kind="bool"] { color: var(--json-bool); }
   .value[data-kind="null"] { color: var(--json-null); font-style: italic; }
+  .value[data-kind="comment"] { color: var(--xml-comment); font-style: italic; }
+  .value[data-kind="directive"] { color: var(--xml-meta); }
 
   .more {
     width: calc(100% - 1.2rem);

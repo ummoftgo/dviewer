@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import { DOC_KINDS, type DocKind } from "../ipc";
   import { workspace, type DocTab } from "../state/docs.svelte";
   import { settings } from "../state/settings.svelte";
 
@@ -27,7 +28,7 @@
   </div>
 
   <div class="controls">
-    {#if tab.kind === "markdown"}
+    {#if tab.view === "prose"}
       <div class="segmented" role="group" aria-label="보기 방식">
         <button aria-pressed={tab.mode === "rendered"} onclick={() => (tab.mode = "rendered")}>
           렌더링
@@ -49,18 +50,19 @@
       {/if}
     {/if}
 
-    <div class="segmented" role="group" aria-label="문서 형식">
-      <button
-        aria-pressed={tab.kind === "markdown"}
-        onclick={() => workspace.setKind(tab.id, "markdown")}
-        title="마크다운으로 읽기">M↓</button
+    <!-- Seven formats is past what a row of buttons can carry, and the point
+         of the control is to correct a wrong guess, not to be used often. -->
+    <label class="format" title="이 문서를 다른 형식으로 읽습니다">
+      형식
+      <select
+        value={tab.kind}
+        onchange={(e) => workspace.setKind(tab.id, e.currentTarget.value as DocKind)}
       >
-      <button
-        aria-pressed={tab.kind === "json"}
-        onclick={() => workspace.setKind(tab.id, "json")}
-        title="JSON으로 읽기">{"{ }"}</button
-      >
-    </div>
+        {#each DOC_KINDS as entry (entry.kind)}
+          <option value={entry.kind}>{entry.label}</option>
+        {/each}
+      </select>
+    </label>
 
     <span class="scale" title="인터페이스 배율 (Ctrl + / Ctrl -)">
       {Math.round(settings.uiScale * 100)}%
@@ -114,6 +116,23 @@
   .icon-btn.on {
     background: var(--accent-subtle);
     color: var(--accent);
+  }
+
+  .format {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--text-muted);
+    font-size: 0.85em;
+  }
+
+  .format select {
+    padding: 0.1rem 0.2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-inset);
+    color: var(--text);
+    font: inherit;
   }
 
   .scale {

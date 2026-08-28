@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import { kindBadge } from "../ipc";
   import { workspace } from "../state/docs.svelte";
 
   interface Props {
@@ -42,7 +43,7 @@
         {#if tab.status === "opening"}
           <span class="kind opening" title="여는 중">…</span>
         {:else}
-          <span class="kind" data-kind={tab.kind}>{tab.kind === "json" ? "{ }" : "M↓"}</span>
+          <span class="kind" data-kind={tab.kind}>{kindBadge(tab.kind)}</span>
         {/if}
         <span class="title">{tab.meta.title}</span>
         <button
@@ -124,12 +125,25 @@
     color: var(--accent);
   }
 
-  .tab.active .kind[data-kind="json"] {
+  /* Coloured by view rather than by format: what the badge is telling you is
+     which of the three readers you are about to land in. */
+  .tab.active .kind[data-kind="markdown"] {
+    color: var(--accent);
+  }
+
+  .tab.active .kind[data-kind="json"],
+  .tab.active .kind[data-kind="yaml"],
+  .tab.active .kind[data-kind="toml"] {
     color: var(--json-key);
   }
 
-  .tab.active .kind[data-kind="markdown"] {
-    color: var(--accent);
+  .tab.active .kind[data-kind="xml"] {
+    color: var(--xml-tag);
+  }
+
+  .tab.active .kind[data-kind="csv"],
+  .tab.active .kind[data-kind="tsv"] {
+    color: var(--success);
   }
 
   .title {

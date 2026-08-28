@@ -3,9 +3,9 @@
  *
  *   node scripts/gen-fixtures.mjs [--huge]
  *
- * `--huge` additionally writes a ~600MB JSON file, which is the case the whole
- * indexing design exists for. It is opt-in because it takes a while and eats
- * disk. Everything lands in ./fixtures, which is git-ignored.
+ * `--huge` additionally writes a ~600MB JSON file and a ~400MB CSV, which are
+ * the cases the indexing design exists for. They are opt-in because they take a
+ * while and eat disk. Everything lands in ./fixtures, which is git-ignored.
  */
 import { createWriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -209,5 +209,144 @@ ${"가로로 아주 긴 줄 ".repeat(30)}
 
 await writeFile(path.join(OUT, "sample.md"), markdown);
 console.log("  sample.md");
+
+// --- the other formats ----------------------------------------------------
+//
+// Small on purpose: these exercise the awkward parts of each format, not its
+// size. Only JSON and CSV have a streaming indexer worth stress-testing.
+
+await writeFile(
+  path.join(OUT, "sample.yaml"),
+  `# 주석은 트리에 나타나지 않습니다
+service:
+  name: dviewer
+  ports: [80, 443]
+  env:
+    LOG_LEVEL: debug
+    EMPTY:
+anchors:
+  base: &base
+    retries: 3
+  derived:
+    <<: *base
+    retries: 5
+multiline: |
+  첫째 줄
+  둘째 줄
+quoted: "탭\t과 줄바꿈\n이 든 값"
+---
+second: 이 파일은 문서가 둘입니다
+`,
+);
+console.log("  sample.yaml");
+
+await writeFile(
+  path.join(OUT, "sample.toml"),
+  `title = "dviewer"
+updated = 2026-08-29T01:00:00Z
+
+[server]
+host = "127.0.0.1"
+port = 8080
+tags = ["a", "b"]
+
+[[user]]
+name = "가"
+
+[[user]]
+name = "나"
+`,
+);
+console.log("  sample.toml");
+
+await writeFile(
+  path.join(OUT, "sample.xml"),
+  `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE catalog>
+<catalog xmlns:x="urn:example">
+  <!-- 주석도 노드입니다 -->
+  <book id="b1" lang="ko">
+    <title>제목 &amp; 부제</title>
+    <author>글쓴이</author>
+    <price currency="KRW">12000</price>
+  </book>
+  <book id="b2">
+    <title>Emma</title>
+    <summary><![CDATA[원시 <태그> 그대로]]></summary>
+  </book>
+  <x:note>이름공간이 붙은 요소</x:note>
+  <empty/>
+  <mixed>앞<b>굵게</b>뒤</mixed>
+</catalog>
+`,
+);
+console.log("  sample.xml");
+
+await writeFile(
+  path.join(OUT, "sample.csv"),
+  `id,이름,메모,점수
+1,가나다,"쉼표, 가 든 값",10
+2,라마바,"따옴표 ""가"" 든 값",20
+3,사아자,"줄바꿈이
+든 값",30
+4,차카타,,40
+5,파하,짧은 행
+`,
+);
+console.log("  sample.csv");
+
+await writeFile(
+  path.join(OUT, "semicolon.csv"),
+  `id;이름;점수
+1;가나다;10
+2;라마바;20
+`,
+);
+console.log("  semicolon.csv");
+
+await writeFile(
+  path.join(OUT, "sample.tsv"),
+  ["id\t이름\t점수", "1\t가나다\t10", "2\t라마바\t20", ""].join("\n"),
+);
+console.log("  sample.tsv");
+
+if (wantHuge) {
+  // Same shape as a real export: wide enough that columns matter, long enough
+  // that nothing but a windowed grid can show it.
+  const COLUMNS = 12;
+  const ROWS = 4_000_000;
+  await writeStream("huge.csv", (function* () {
+    yield Array.from({ length: COLUMNS }, (_, c) => `col_${c}`).join(",") + "\n";
+    let buffer = "";
+    for (let i = 0; i < ROWS; i++) {
+      buffer += `${i},항목 ${i},item-${i},${i % 7},${(i * 37) % 1000},"쉼표, 포함",${i % 2},x,y,z,${i * 3},끝\n`;
+      if (buffer.length > 1 << 20) {
+        yield buffer;
+        buffer = "";
+      }
+    }
+    if (buffer) yield buffer;
+  })());
+
+  // The XML scanner has its own throughput to answer for, and markup costs far
+  // more nodes per byte than JSON does.
+  await writeStream("huge.xml", (function* () {
+    yield '<?xml version="1.0" encoding="UTF-8"?>\n<catalog>\n';
+    let buffer = "";
+    for (let i = 0; i < 1_500_000; i++) {
+      buffer +=
+        `  <item id="i${i}" kind="${i % 5}">` +
+        `<name>항목 ${i}</name><slug>item-${i}</slug>` +
+        `<score>${(i * 37) % 1000}</score><note>a &amp; b</note>` +
+        `</item>\n`;
+      if (buffer.length > 1 << 20) {
+        yield buffer;
+        buffer = "";
+      }
+    }
+    if (buffer) yield buffer;
+    yield "</catalog>\n";
+  })());
+}
 
 console.log("완료");

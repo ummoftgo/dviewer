@@ -79,6 +79,13 @@
      never reads as "this value is a boolean" — muted, because an escape is
      information about the value rather than the value itself. */
   --json-escape: #a8497f;
+  /* XML. Tag and attribute reuse the key hue so the eye reads them as the same
+     kind of thing — a name — while text takes the ordinary body colour because
+     it is the content, not the structure. */
+  --xml-tag: #0a5ec4;
+  --xml-attr: #6b3fa0;
+  --xml-comment: #6a7a63;
+  --xml-meta: #868d98;
 
   /* Indent guides, one hue per nesting level, cycling every nine.
      Muted on purpose: these are 1px rules in the gutter, a secondary cue for
@@ -145,6 +152,10 @@
   --json-null: #737b87;
   --json-punct: #737b87;
   --json-escape: #e08cbc;
+  --xml-tag: #79b0f7;
+  --xml-attr: #c0a0ee;
+  --xml-comment: #8fa286;
+  --xml-meta: #737b87;
 
   /* Same 160°-apart placement, lifted off the dark page instead of the light. */
   --guide-1: hsl(0 26% 45%);

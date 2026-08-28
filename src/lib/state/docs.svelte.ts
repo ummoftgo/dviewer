@@ -1,11 +1,15 @@
 import * as ipc from "../ipc";
+import { viewOf } from "../ipc";
 import type {
   DocKind,
   DocMeta,
+  DocView,
   JsonStats,
   SearchHit,
   SearchScope,
   SearchSummary,
+  TableHit,
+  TableStats,
   TocEntry,
 } from "../ipc";
 import { forgetDoc } from "../components/json/actions";
@@ -29,6 +33,31 @@ class SearchState {
     this.hits = [];
     this.summary = null;
     this.current = -1;
+    this.error = null;
+  }
+}
+
+/** Search state for the grid. Simpler than the tree's: the backend answers in
+ *  one call rather than streaming, because the hit list is capped low enough to
+ *  cross the IPC boundary whole. */
+class TableSearchState {
+  query = $state("");
+  caseSensitive = $state(false);
+  running = $state(false);
+  hits = $state<TableHit[]>([]);
+  /** Index into `hits` of the cell the grid is parked on. */
+  current = $state(-1);
+  capped = $state(false);
+  /** True once a search has run, so "결과 없음" is only shown after one has. */
+  searched = $state(false);
+  error = $state<string | null>(null);
+
+  reset() {
+    this.running = false;
+    this.hits = [];
+    this.current = -1;
+    this.capped = false;
+    this.searched = false;
     this.error = null;
   }
 }
@@ -68,6 +97,17 @@ export class DocTab {
   pendingRow = $state<number | null>(null);
   search = new SearchState();
 
+  // Table
+  tableStats = $state<TableStats | null>(null);
+  header = $state<string[]>([]);
+  /** Pixel width per column, resizable by dragging a header edge. */
+  columnWidths = $state<number[]>([]);
+  selectedCell = $state<{ row: number; column: number } | null>(null);
+  tableScrollTop = $state(0);
+  /** Cell the grid should jump to; cleared by the view once honoured. */
+  pendingCell = $state<{ row: number; column: number } | null>(null);
+  tableSearch = new TableSearchState();
+
   constructor(meta: DocMeta) {
     this.meta = meta;
   }
@@ -78,6 +118,11 @@ export class DocTab {
 
   get kind(): DocKind {
     return this.meta.kind;
+  }
+
+  /** Which of the three views renders this tab. */
+  get view(): DocView {
+    return this.meta.view;
   }
 
   get subtitle(): string {
@@ -96,6 +141,12 @@ export class DocTab {
     this.indexing = null;
     this.error = null;
     this.search.reset();
+    this.tableStats = null;
+    this.header = [];
+    this.columnWidths = [];
+    this.selectedCell = null;
+    this.pendingCell = null;
+    this.tableSearch.reset();
   }
 }
 
@@ -137,7 +188,10 @@ class Workspace {
 
   async openText(content: string, title?: string, kind?: DocKind) {
     const meta = placeholder(title ?? "붙여넣은 문서", { type: "text" });
-    if (kind) meta.kind = kind;
+    if (kind) {
+      meta.kind = kind;
+      meta.view = viewOf(kind);
+    }
     return this.run(meta, () => ipc.openText(content, title, kind));
   }
 
@@ -197,7 +251,7 @@ class Workspace {
     }
   }
 
-  /** Force a document to be read as markdown or as JSON. */
+  /** Force a document to be read as some other format. */
   async setKind(id: number, kind: DocKind) {
     const tab = this.tabs.find((t) => t.id === id);
     if (!tab || tab.kind === kind) return;
@@ -222,12 +276,32 @@ class Workspace {
  */
 let nextPlaceholderId = 0;
 
+/**
+ * A guess at the format from the file name, so the placeholder tab shows the
+ * right kind of "opening" state. The backend detects it properly and its answer
+ * replaces this a moment later, so being wrong here costs nothing.
+ */
+const EXTENSIONS: [RegExp, DocKind][] = [
+  [/\.(json|jsonc|jsonl|ndjson|geojson|har|ipynb)$/i, "json"],
+  [/\.ya?ml$/i, "yaml"],
+  [/\.toml$/i, "toml"],
+  [/\.(xml|xhtml|svg|rss|atom|xsd|xslt?|plist|kml|gpx|opml|wsdl|pom)$/i, "xml"],
+  [/\.csv$/i, "csv"],
+  [/\.(tsv|tab)$/i, "tsv"],
+];
+
+function guessKind(name: string): DocKind {
+  return EXTENSIONS.find(([pattern]) => pattern.test(name))?.[1] ?? "markdown";
+}
+
 function placeholder(source: string, docSource?: DocMeta["source"]): DocMeta {
   const name = source.split(/[\\/]/).pop() || source;
+  const kind = guessKind(name);
   return {
     id: --nextPlaceholderId,
     title: name,
-    kind: /\.(json|jsonl|ndjson|geojson|har|ipynb)$/i.test(name) ? "json" : "markdown",
+    kind,
+    view: viewOf(kind),
     source: docSource ?? { type: "file", path: source },
     byteLen: 0,
     baseDir: null,

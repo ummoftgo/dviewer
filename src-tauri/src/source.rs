@@ -11,37 +11,58 @@ pub const MAX_URL_BYTES: u64 = 512 * 1024 * 1024;
 
 const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx", "txt"];
 const JSON_EXTS: &[&str] = &["json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb"];
+const YAML_EXTS: &[&str] = &["yaml", "yml"];
+const TOML_EXTS: &[&str] = &["toml"];
+const XML_EXTS: &[&str] = &[
+    "xml", "xhtml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml",
+    "wsdl", "pom",
+];
+const CSV_EXTS: &[&str] = &["csv"];
+const TSV_EXTS: &[&str] = &["tsv", "tab"];
+
+/// Every format the viewer knows, paired with the extensions that name it.
+const BY_EXTENSION: &[(DocKind, &[&str])] = &[
+    (DocKind::Json, JSON_EXTS),
+    (DocKind::Markdown, MARKDOWN_EXTS),
+    (DocKind::Yaml, YAML_EXTS),
+    (DocKind::Toml, TOML_EXTS),
+    (DocKind::Xml, XML_EXTS),
+    (DocKind::Csv, CSV_EXTS),
+    (DocKind::Tsv, TSV_EXTS),
+];
 
 /// Decide how to read a document: extension first, then a peek at the content.
 ///
-/// Anything that is not recognisably JSON falls back to markdown, because plain
-/// text is valid markdown and degrades gracefully, whereas feeding prose to the
-/// JSON indexer just produces an error.
+/// Content sniffing is deliberately limited to JSON and XML. Both announce
+/// themselves in their first non-space character and cannot be mistaken for
+/// prose. The others cannot: a paragraph containing a colon is valid YAML and
+/// one containing commas is valid CSV, so guessing at them would silently
+/// mangle ordinary text files. Anything unrecognised falls back to markdown,
+/// which renders plain text unharmed.
 pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
     let ext = Path::new(name)
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
 
-    if JSON_EXTS.contains(&ext.as_str()) {
-        return DocKind::Json;
+    for (kind, extensions) in BY_EXTENSION {
+        if extensions.contains(&ext.as_str()) {
+            return *kind;
+        }
     }
-    if MARKDOWN_EXTS.contains(&ext.as_str()) {
-        return DocKind::Markdown;
-    }
-    if looks_like_json(bytes) {
-        DocKind::Json
-    } else {
-        DocKind::Markdown
-    }
+    sniff(bytes).unwrap_or(DocKind::Markdown)
 }
 
-fn looks_like_json(bytes: &[u8]) -> bool {
+fn sniff(bytes: &[u8]) -> Option<DocKind> {
     let head = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
-    matches!(
-        head.iter().find(|b| !b.is_ascii_whitespace()),
-        Some(b'{') | Some(b'[')
-    )
+    let first = *head.iter().find(|b| !b.is_ascii_whitespace())?;
+    match first {
+        b'{' | b'[' => Some(DocKind::Json),
+        // `<` starts a tag, a comment, a declaration or a doctype — no
+        // plain-text document begins with one by accident.
+        b'<' => Some(DocKind::Xml),
+        _ => None,
+    }
 }
 
 pub fn load_file(path: &Path) -> Result<(DocBytes, String, Option<PathBuf>)> {
@@ -112,8 +133,102 @@ pub fn kind_from_response(title: &str, content_type: Option<&str>, bytes: &[u8])
         .unwrap_or_default();
 
     match mime.as_str() {
-        "application/json" | "application/ld+json" | "text/json" => DocKind::Json,
+        "application/json" | "application/ld+json" | "text/json" | "application/x-ndjson"
+        | "application/geo+json" => DocKind::Json,
         "text/markdown" | "text/x-markdown" => DocKind::Markdown,
+        "application/yaml" | "text/yaml" | "application/x-yaml" | "text/x-yaml" => DocKind::Yaml,
+        "application/toml" | "text/x-toml" => DocKind::Toml,
+        "text/csv" | "application/csv" => DocKind::Csv,
+        "text/tab-separated-values" => DocKind::Tsv,
+        "application/xml" | "text/xml" => DocKind::Xml,
+        // `+xml` covers svg, rss, atom, xhtml and every other dialect at once.
+        other if other.ends_with("+xml") => DocKind::Xml,
         _ => detect_kind(title, bytes),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_extension_decides_when_there_is_one() {
+        let cases: &[(&str, DocKind)] = &[
+            ("a.json", DocKind::Json),
+            ("a.jsonl", DocKind::Json),
+            ("a.ndjson", DocKind::Json),
+            ("a.md", DocKind::Markdown),
+            ("a.yaml", DocKind::Yaml),
+            ("a.YML", DocKind::Yaml),
+            ("a.toml", DocKind::Toml),
+            ("a.xml", DocKind::Xml),
+            ("a.svg", DocKind::Xml),
+            ("a.csv", DocKind::Csv),
+            ("a.tsv", DocKind::Tsv),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(detect_kind(name, b""), *expected, "{name}");
+        }
+    }
+
+    /// The extension wins even when the content says otherwise: the name is a
+    /// deliberate statement by whoever wrote the file.
+    #[test]
+    fn content_only_speaks_when_the_name_says_nothing() {
+        assert_eq!(detect_kind("notes.md", b"{}"), DocKind::Markdown);
+        assert_eq!(detect_kind("data", b"  {\"a\":1}"), DocKind::Json);
+        assert_eq!(detect_kind("data", b"[1,2]"), DocKind::Json);
+        assert_eq!(detect_kind("feed", b"<?xml?><rss/>"), DocKind::Xml);
+        assert_eq!(detect_kind("page", b"<html></html>"), DocKind::Xml);
+    }
+
+    /// Guessing at these would turn ordinary prose into a broken grid.
+    #[test]
+    fn prose_is_never_mistaken_for_a_data_format() {
+        let prose: &[&[u8]] = &[
+            b"Title: a report",
+            b"one, two, three",
+            b"key = value",
+            b"- a list item",
+            b"",
+        ];
+        for text in prose {
+            assert_eq!(detect_kind("untitled", text), DocKind::Markdown);
+        }
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_character() {
+        assert_eq!(detect_kind("data", "\u{feff}{}".as_bytes()), DocKind::Json);
+    }
+
+    #[test]
+    fn the_content_type_is_used_when_it_is_specific() {
+        let cases: &[(&str, DocKind)] = &[
+            ("application/json", DocKind::Json),
+            ("text/csv; charset=utf-8", DocKind::Csv),
+            ("text/tab-separated-values", DocKind::Tsv),
+            ("application/yaml", DocKind::Yaml),
+            ("image/svg+xml", DocKind::Xml),
+            ("application/rss+xml", DocKind::Xml),
+            ("text/markdown", DocKind::Markdown),
+        ];
+        for (mime, expected) in cases {
+            assert_eq!(kind_from_response("f", Some(mime), b""), *expected, "{mime}");
+        }
+    }
+
+    /// Servers send `text/plain` for markdown and `octet-stream` for anything
+    /// they have no opinion about, so a vague type has to defer to the name.
+    #[test]
+    fn a_vague_content_type_defers_to_the_name() {
+        assert_eq!(
+            kind_from_response("data.csv", Some("application/octet-stream"), b""),
+            DocKind::Csv
+        );
+        assert_eq!(
+            kind_from_response("readme.md", Some("text/plain"), b""),
+            DocKind::Markdown
+        );
     }
 }
