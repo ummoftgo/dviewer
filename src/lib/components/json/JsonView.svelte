@@ -917,7 +917,6 @@
     background: transparent;
     color: var(--json-punct);
     font: inherit;
-    cursor: default;
   }
 
   .summary:hover {
