@@ -63,6 +63,14 @@ fn main() {
         stats.row_count, stats.column_count, human(stats.index_bytes)
     );
 
+    // What the reader will actually see, which is the only way to tell a
+    // structural success from a decoded one.
+    println!("머리글    {}", doc.header().join(" | "));
+    if let Some(row) = doc.page(0, 1).rows.first() {
+        let cells: Vec<&str> = row.cells.iter().map(|c| c.text.as_str()).collect();
+        println!("첫 행     {}", cells.join(" | "));
+    }
+
     // What the grid actually asks for when it scrolls: one screenful.
     for start in [0, stats.row_count / 2, stats.row_count.saturating_sub(100)] {
         let at = Instant::now();

@@ -41,6 +41,14 @@ fn check_size(bytes: &[u8], what: &str) -> Result<()> {
     Ok(())
 }
 
+/// A byte-order mark is a marker, not content. The JSON, XML and CSV scanners
+/// each strip their own; these two parsers are handed a `&str`, so it has to
+/// come off here. TOML tolerates one, YAML refuses the whole document over it.
+fn text_of<'a>(bytes: &'a [u8], what: &str) -> Result<&'a str> {
+    let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    std::str::from_utf8(body).map_err(|_| Error::Parse(format!("{what} 문서가 UTF-8이 아닙니다.")))
+}
+
 fn too_deep(what: &str) -> Error {
     Error::Parse(format!("{what} 문서의 중첩이 {MAX_DEPTH}단계를 넘습니다."))
 }
@@ -54,8 +62,7 @@ pub fn yaml_to_json(bytes: &[u8]) -> Result<String> {
     use serde_yaml_ng::Value;
 
     check_size(bytes, "YAML")?;
-    let text =
-        std::str::from_utf8(bytes).map_err(|_| Error::Parse("YAML 문서가 UTF-8이 아닙니다.".into()))?;
+    let text = text_of(bytes, "YAML")?;
 
     let mut docs = Vec::new();
     for document in serde_yaml_ng::Deserializer::from_str(text) {
@@ -145,8 +152,7 @@ fn scalar_text(value: &serde_yaml_ng::Value) -> String {
 /// Parse TOML and emit it as JSON text.
 pub fn toml_to_json(bytes: &[u8]) -> Result<String> {
     check_size(bytes, "TOML")?;
-    let text =
-        std::str::from_utf8(bytes).map_err(|_| Error::Parse("TOML 문서가 UTF-8이 아닙니다.".into()))?;
+    let text = text_of(bytes, "TOML")?;
 
     let value: toml::Value =
         toml::from_str(text).map_err(|e| Error::Parse(format!("TOML을 읽지 못했습니다: {e}")))?;
@@ -320,6 +326,16 @@ mod tests {
         let err = yaml_to_json(b"a: [1, 2\nb: 3\n").expect_err("should fail");
         let message = err.to_string();
         assert!(message.contains("YAML"), "{message}");
+    }
+
+    /// Windows editors add one without asking, and YAML refuses a document
+    /// that starts with it.
+    #[test]
+    fn a_byte_order_mark_does_not_break_either_parser() {
+        let yaml = yaml_to_json("\u{feff}name: dviewer\n".as_bytes()).expect("yaml");
+        assert_eq!(yaml, r#"{"name":"dviewer"}"#);
+        let toml = toml_to_json("\u{feff}name = \"dviewer\"\n".as_bytes()).expect("toml");
+        assert_eq!(toml, r#"{"name":"dviewer"}"#);
     }
 
     #[test]
