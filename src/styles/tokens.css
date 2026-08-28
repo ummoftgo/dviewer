@@ -1,0 +1,159 @@
+/* ---------------------------------------------------------------------------
+   Design tokens.
+   Every colour in the app resolves through these variables so that the theme
+   switch is a single attribute flip on <html> with no re-render anywhere.
+   `data-theme` is always written explicitly by settings.svelte.ts (auto mode
+   resolves the OS preference in JS), so no prefers-color-scheme rules here.
+--------------------------------------------------------------------------- */
+
+:root {
+  /* Scale: --ui-scale is the user's interface zoom, --doc-font-px their body
+     text size. Chrome uses rem (scaled by html font-size); document text uses
+     --doc-font-size so both settings compose. */
+  --ui-scale: 1;
+  /* Two independent levers. --ui-scale zooms everything including rem-based
+     spacing; --ui-font-px moves only the chrome's text, which is why every
+     interface font-size is an em of the body rather than a rem of the root. */
+  --ui-font-px: 13px;
+  --ui-font-size: calc(var(--ui-font-px) * var(--ui-scale));
+  --doc-font-px: 15px;
+  --doc-font-size: calc(var(--doc-font-px) * var(--ui-scale));
+
+  --font-ui: "Pretendard", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-body: var(--font-ui);
+  --font-code: "Cascadia Code", "JetBrains Mono", Consolas, "D2Coding", monospace;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 1px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.1), 0 1px 3px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16), 0 2px 8px rgb(0 0 0 / 0.08);
+}
+
+:root,
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-subtle: #f5f6f8;
+  --bg-elevated: #ffffff;
+  --bg-inset: #eef0f4;
+  --bg-hover: #00000008;
+  --bg-active: #0000000f;
+
+  --border: #dcdfe5;
+  --border-strong: #bfc4cd;
+
+  --text: #16191d;
+  --text-secondary: #565d67;
+  --text-muted: #868d98;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-subtle: #e7eefd;
+  --accent-border: #a9c4f7;
+
+  --danger: #d33b3b;
+  --warning: #b7791f;
+  --success: #1a7f45;
+
+  --selection: #b9d3fb;
+  --match: #ffe08a;
+  --match-active: #ffb224;
+
+  /* Popover: a deliberately inverted surface. An elevated-white panel on a
+     white page is invisible, and this has to read as "floating above". */
+  --popover-bg: #212936;
+  --popover-fg: #dfe5ef;
+  --popover-border: #38424f;
+
+  /* JSON tree */
+  --json-key: #0a5ec4;
+  --json-string: #1a7f45;
+  --json-number: #a5411c;
+  --json-bool: #7c3aed;
+  --json-null: #868d98;
+  --json-punct: #868d98;
+  /* Escape sequences inside a value. A hue none of the value types use, so it
+     never reads as "this value is a boolean" — muted, because an escape is
+     information about the value rather than the value itself. */
+  --json-escape: #a8497f;
+
+  /* Indent guides, one hue per nesting level, cycling every nine.
+     Muted on purpose: these are 1px rules in the gutter, a secondary cue for
+     counting levels — not a second colour scale competing with value types.
+
+     Hue placement is not hand-picked. The wheel is split into nine 40° steps
+     and level k takes step ((k - 1) * 4 mod 9), which puts *every* adjacent
+     pair exactly 160° apart — including 9 → 1 where the cycle wraps. That is
+     the largest minimum spacing a nine-step cycle allows.
+
+     Lightness then alternates by parity, so neighbours differ in brightness as
+     well as hue and stay distinguishable without colour vision. */
+  --guide-1: hsl(0 30% 70%);
+  --guide-2: hsl(160 28% 57%);
+  --guide-3: hsl(320 28% 71%);
+  --guide-4: hsl(120 24% 57%);
+  --guide-5: hsl(280 26% 71%);
+  --guide-6: hsl(80 28% 55%);
+  --guide-7: hsl(240 30% 73%);
+  --guide-8: hsl(40 40% 55%);
+  --guide-9: hsl(200 36% 70%);
+}
+
+:root[data-theme="dark"] {
+  --bg: #16181c;
+  --bg-subtle: #1b1e23;
+  --bg-elevated: #22262d;
+  --bg-inset: #101216;
+  --bg-hover: #ffffff0a;
+  --bg-active: #ffffff14;
+
+  --border: #2e333b;
+  --border-strong: #444b56;
+
+  --text: #e4e7ec;
+  --text-secondary: #a2aab6;
+  --text-muted: #737b87;
+
+  --accent: #5b91f5;
+  --accent-hover: #7aa6f7;
+  --accent-fg: #0d1117;
+  --accent-subtle: #1b2740;
+  --accent-border: #2f4a7a;
+
+  --danger: #f0736b;
+  --warning: #e0a33a;
+  --success: #4bb87a;
+
+  --selection: #2c4a7d;
+  --match: #6b551b;
+  --match-active: #a9832a;
+
+  /* Lifted well clear of --bg-elevated: at #3b4860 it sat at 1.9:1 against the
+     page and read as just another panel. */
+  --popover-bg: #5a6f95;
+  --popover-fg: #f4f7fc;
+  --popover-border: #7d92ba;
+
+  /* JSON tree */
+  --json-key: #79b0f7;
+  --json-string: #86d6a0;
+  --json-number: #f0a882;
+  --json-bool: #c4a4f8;
+  --json-null: #737b87;
+  --json-punct: #737b87;
+  --json-escape: #e08cbc;
+
+  /* Same 160°-apart placement, lifted off the dark page instead of the light. */
+  --guide-1: hsl(0 26% 45%);
+  --guide-2: hsl(160 26% 33%);
+  --guide-3: hsl(320 24% 46%);
+  --guide-4: hsl(120 22% 33%);
+  --guide-5: hsl(280 24% 47%);
+  --guide-6: hsl(80 24% 32%);
+  --guide-7: hsl(240 28% 49%);
+  --guide-8: hsl(40 32% 33%);
+  --guide-9: hsl(200 30% 45%);
+}

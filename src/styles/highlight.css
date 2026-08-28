@@ -1,0 +1,64 @@
+/* Code block chrome. The token colours themselves are syntect-generated CSS,
+   injected at runtime by ThemeStyles.svelte — this file only owns the box. */
+
+.markdown-body code,
+.markdown-body kbd,
+.markdown-body samp {
+  font-family: var(--font-code);
+  font-size: 0.88em;
+}
+
+/* Inline code */
+.markdown-body :not(pre) > code {
+  padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  white-space: break-spaces;
+}
+
+.markdown-body pre {
+  padding: 0.85em 1em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  overflow-x: auto;
+  line-height: 1.55;
+  tab-size: 4;
+}
+
+.markdown-body pre > code {
+  display: block;
+  padding: 0;
+  background: none;
+  color: inherit;
+  white-space: pre;
+}
+
+/* Raw source view: line numbers in a gutter that does not scroll away. */
+.raw-view {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  font-family: var(--font-code);
+  font-size: var(--doc-font-size);
+  line-height: 1.6;
+  tab-size: 4;
+}
+
+.raw-view .gutter {
+  position: sticky;
+  left: 0;
+  padding: 0 0.8em 0 0.2em;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  text-align: right;
+  user-select: none;
+  white-space: pre;
+}
+
+.raw-view .source {
+  padding-left: 1em;
+  margin: 0;
+  white-space: pre;
+  color: var(--text);
+}

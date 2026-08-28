@@ -1,0 +1,215 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "설치본·포터블까지 만들어 아티팩트로 남깁니다 (릴리스는 만들지 않음)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs on every push and pull request. Bundling is the slow part, so main
+  # only proves the code compiles and its tests pass — on all three targets,
+  # because a Linux-only job would not catch a Windows or macOS break.
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: test-${{ matrix.os }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          # fonts.rs skips its coverage assertions when the machine has no
+          # fonts at all; a headless runner does, so give it some and keep the
+          # test meaningful.
+          sudo apt-get install -y fonts-dejavu-core
+
+      # The frontend builds identically on every runner, so the node half runs
+      # once and the other two legs stay pure Rust. `cargo test` does not need
+      # ../dist — only `tauri build` embeds it.
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with:
+          node-version: 24
+          cache: npm
+      - if: runner.os == 'Linux'
+        run: npm ci
+      - if: runner.os == 'Linux'
+        run: npm run check
+      - if: runner.os == 'Linux'
+        run: npm run build
+
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  # Tags only. Manual runs can opt in with the `bundle` input to rehearse a
+  # release without cutting one.
+  bundle:
+    name: bundle (${{ matrix.slug }})
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04, not latest: glibc is forward- but not backward-compatible,
+          # so the oldest runner we build on sets the oldest distro that can
+          # run the result.
+          - os: ubuntu-22.04
+            slug: linux-x86_64
+            target: ""
+            rust-targets: ""
+          # macos-14+ runners are Apple Silicon; the universal target folds an
+          # Intel slice in so one download serves both.
+          - os: macos-latest
+            slug: macos-universal
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - os: windows-latest
+            slug: windows-x64
+            target: ""
+            rust-targets: ""
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: bundle-${{ matrix.slug }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev \
+            file wget patchelf
+
+      - run: npm ci
+
+      # `bundle.targets: "all"` means deb+rpm+AppImage, msi+nsis, or app+dmg
+      # depending on the runner. `npm run build` runs first via
+      # `beforeBuildCommand`.
+      - name: Build bundles
+        run: npm run tauri build -- ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        env:
+          # appimagetool cannot mount its own image on a runner without FUSE.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+
+      - name: Collect (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          out=artifacts; mkdir -p "$out"
+          b=src-tauri/target/release/bundle
+          cp "$b"/deb/*.deb "$out/dviewer_${version}_linux-x86_64.deb"
+          cp "$b"/rpm/*.rpm "$out/dviewer_${version}_linux-x86_64.rpm"
+          # An AppImage is already the portable form: one file, runs in place.
+          cp "$b"/appimage/*.AppImage "$out/dviewer_${version}_linux-x86_64_portable.AppImage"
+          chmod +x "$out"/*.AppImage
+
+      - name: Collect (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          out=artifacts; mkdir -p "$out"
+          b=src-tauri/target/universal-apple-darwin/release/bundle
+          cp "$b"/dmg/*.dmg "$out/dviewer_${version}_macos-universal.dmg"
+          # ditto, not zip: an .app is a directory of symlinks and executables,
+          # and a plain zip drops both — the unpacked copy then will not launch.
+          ditto -c -k --keepParent "$b/macos/dviewer.app" \
+            "$out/dviewer_${version}_macos-universal_portable.zip"
+
+      - name: Collect (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = node -p "require('./src-tauri/tauri.conf.json').version"
+          $out = "artifacts"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $b = "src-tauri/target/release/bundle"
+          Copy-Item (Get-ChildItem "$b/msi/*.msi")[0].FullName "$out/dviewer_${version}_windows-x64.msi"
+          Copy-Item (Get-ChildItem "$b/nsis/*-setup.exe")[0].FullName "$out/dviewer_${version}_windows-x64_setup.exe"
+          # The frontend is compiled into the binary and nothing else ships
+          # beside it, so the portable build is that one file.
+          Compress-Archive -Path "src-tauri/target/release/dviewer.exe" -DestinationPath "$out/dviewer_${version}_windows-x64_portable.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dviewer-${{ matrix.slug }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  # One job creates the release, so three parallel bundlers cannot race to
+  # create it and end up with duplicates.
+  release:
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - run: ls -lh artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          # A draft so the notes can be edited before anyone sees it. Set this
+          # to false to publish the moment the tag builds.
+          draft: true
+          generate_release_notes: true
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          body: |
+            ### 설치본
+            - Windows: `_setup.exe` (권장) 또는 `.msi`
+            - macOS: `.dmg`
+            - Linux: `.deb` 또는 `.rpm`
+
+            ### 포터블
+            - Windows: `_portable.zip` — 압축을 풀고 `dviewer.exe` 실행
+            - macOS: `_portable.zip` — 압축을 풀고 `dviewer.app` 실행
+            - Linux: `.AppImage` — `chmod +x` 후 실행
+
+            서명하지 않은 빌드입니다. macOS는 처음 열 때 우클릭 → 열기,
+            Windows는 SmartScreen에서 추가 정보 → 실행이 필요합니다.

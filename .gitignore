@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+# Rust and Tauri artefacts are covered by src-tauri/.gitignore.
+dist/
+
+# Generated test data — scripts/gen-fixtures.mjs writes these, and huge.json
+# alone is ~500MB. Regenerate rather than commit.
+fixtures/
+
+# Agent and planning scratch. Only real code and project documentation belongs
+# in the repo; drop a rule here if you later decide to share hooks or skills.
+.claude/
+.agent-works/
+plans/
+*.plan.md
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Editor and OS noise
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+
+# Vite writes these while resolving a TypeScript config
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*

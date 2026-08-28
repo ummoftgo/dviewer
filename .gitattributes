@@ -1,0 +1,9 @@
+# Normalise line endings in the repository. Without this, checking out on
+# Windows rewrites every file to CRLF and the next commit shows the whole
+# tree as changed.
+* text=auto eol=lf
+
+# Binary assets Git must never translate.
+*.png binary
+*.ico binary
+*.icns binary

@@ -1,0 +1,38 @@
+[package]
+name = "dviewer"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "dviewer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2.7.2"
+tauri-plugin-store = "2.4.4"
+memmap2 = "0.9.11"
+memchr = "2.8.3"
+aho-corasick = "1.1.5"
+ammonia = "4.1.4"
+parking_lot = "0.12.5"
+thiserror = "2.0.20"
+syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig", "html", "parsing"] }
+comrak = { version = "0.54.0", features = ["syntect"] }
+ureq = { version = "3.4.0", features = ["rustls", "gzip", "brotli", "charset"] }
+url = "2.5.8"
+fontdb = "0.24.0"
+
