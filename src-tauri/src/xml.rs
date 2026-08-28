@@ -21,7 +21,7 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::error::{Error, Result};
-use crate::json::scanner::{Kind, MAX_DOC_BYTES, NO_PARENT, Node, Scan, ScanLimits};
+use crate::tree::scanner::{Kind, MAX_DOC_BYTES, NO_PARENT, Node, Scan, ScanLimits};
 
 const PROGRESS_STEP: u64 = 8 * 1024 * 1024;
 
@@ -146,7 +146,7 @@ pub fn scan(
     let roots = builder.roots;
     let synthetic_root = roots != 1;
     if synthetic_root {
-        crate::json::scanner::wrap_in_synthetic_root(&mut nodes, roots, bytes.len() as u32);
+        crate::tree::scanner::wrap_in_synthetic_root(&mut nodes, roots, bytes.len() as u32);
     }
 
     Ok(Scan {

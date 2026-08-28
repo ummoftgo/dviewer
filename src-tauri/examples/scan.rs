@@ -11,12 +11,12 @@ use std::time::Instant;
 
 use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::encoding;
-use dviewer_lib::json::JsonDoc;
-use dviewer_lib::json::index::Syntax;
-use dviewer_lib::json::scanner::ScanLimits;
-use dviewer_lib::json::search::{SearchOptions, SearchScope};
+use dviewer_lib::tree::TreeDoc;
+use dviewer_lib::tree::index::Syntax;
+use dviewer_lib::tree::scanner::ScanLimits;
+use dviewer_lib::tree::search::{SearchOptions, SearchScope};
 
-fn timed_search(doc: &JsonDoc, query: &str, scope: SearchScope, label: &str) {
+fn timed_search(doc: &TreeDoc, query: &str, scope: SearchScope, label: &str) {
     let started = Instant::now();
     let summary = doc
         .run_search(
@@ -68,7 +68,7 @@ fn main() {
     } else {
         Syntax::Json
     };
-    let doc = match JsonDoc::build(
+    let doc = match TreeDoc::build(
         Arc::clone(&bytes),
         syntax,
         &ScanLimits::default(),

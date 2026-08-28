@@ -3,21 +3,19 @@
   import Icon from "../Icon.svelte";
   import ContextMenu from "../ContextMenu.svelte";
   import Splitter from "../Splitter.svelte";
-  import JsonInspector from "./JsonInspector.svelte";
-  import JsonText from "./JsonText.svelte";
-  import JsonSearchBar from "./JsonSearchBar.svelte";
+  import TreeInspector from "./TreeInspector.svelte";
+  import EscapedText from "../EscapedText.svelte";
+  import TreeSearchBar from "./TreeSearchBar.svelte";
+  import TreeToolbar from "./TreeToolbar.svelte";
   import {
     errorMessage,
-    jsonCollapseAll,
-    jsonExpandAll,
-    jsonOpen,
-    jsonRows,
-    jsonSetExpandDepth,
-    jsonToggle,
+    treeOpen,
+    treeRows,
+    treeToggle,
     kindLabel,
-    type JsonRow,
+    type TreeRow,
   } from "../../ipc";
-  import { copyMenuItems, copyPath, copyValue, pathOf } from "./actions";
+  import { copyMenuItems, copyValue, pathOf } from "./actions";
   import { anchorRow, rowTop, scrollTopForRow, spacerHeight } from "../../virtual";
   import type { MenuItem } from "../menu";
   import type { DocTab } from "../../state/docs.svelte";
@@ -30,7 +28,7 @@
   }
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
-  let searchBar = $state<ReturnType<typeof JsonSearchBar>>();
+  let searchBar = $state<ReturnType<typeof TreeSearchBar>>();
 
   $effect(() => {
     focusSearch = searchBar ? () => searchBar?.focus() : null;
@@ -41,8 +39,6 @@
 
   /** Extra rows fetched above and below the viewport to hide scroll latency. */
   const OVERSCAN = 24;
-  /** Matches MAX_EXPAND_DEPTH in src-tauri/src/json/index.rs. */
-  const MAX_EXPAND_DEPTH = 9;
   /** Long enough that skimming the tree does not fire a request per row. */
   const HOVER_DELAY_MS = 350;
   /** Room the popover needs above a key before it has to flip below it. */
@@ -53,13 +49,12 @@
    *  outgrows the browser's maximum element height — see lib/virtual.ts. */
   let scrollTop = $state(0);
   let viewportHeight = $state(0);
-  let rows = $state<JsonRow[]>([]);
+  let rows = $state<TreeRow[]>([]);
   let windowStart = $state(0);
   let selectedRow = $state<number | null>(null);
-  let expandDepth = $state(MAX_EXPAND_DEPTH);
   let requestSeq = 0;
 
-  let menu = $state<{ x: number; y: number; row: JsonRow } | null>(null);
+  let menu = $state<{ x: number; y: number; row: TreeRow } | null>(null);
   let hover = $state<{
     path: string;
     left: number;
@@ -77,21 +72,11 @@
   const rowHeight = $derived(
     Math.max(18, Math.round(settings.docFontPx * settings.uiScale * 1.7)),
   );
-  const totalRows = $derived(tab.stats?.visibleRows ?? 0);
+  const totalRows = $derived(tab.treeStats?.visibleRows ?? 0);
   const metrics = $derived({ rowHeight, totalRows, viewportHeight });
   const selected = $derived(
     selectedRow === null ? null : (rows[selectedRow - windowStart] ?? null),
   );
-  const depthOptions = $derived(
-    Array.from({ length: Math.min(tab.stats?.maxDepth ?? 0, MAX_EXPAND_DEPTH) + 1 }, (_, i) => i),
-  );
-  /**
-   * The default of 9 means "as deep as it goes". A document shallower than that
-   * has no option to match it, so show the depth that is actually in effect —
-   * otherwise the control renders blank.
-   */
-  const shownDepth = $derived(Math.min(expandDepth, tab.stats?.maxDepth ?? expandDepth));
-
   /**
    * The guide column to highlight, and the rows it spans.
    *
@@ -150,9 +135,9 @@
   // Kick off indexing the first time a JSON tab is shown.
   $effect(() => {
     const target = tab;
-    if (target.stats || target.indexing || target.error) return;
+    if (target.treeStats || target.indexing || target.error) return;
     target.indexing = { done: 0, total: target.meta.byteLen };
-    jsonOpen(target.id).catch((err) => {
+    treeOpen(target.id).catch((err) => {
       target.error = errorMessage(err);
       target.indexing = null;
     });
@@ -163,7 +148,7 @@
   // call is untracked, so editing ensureWindow can never widen them by accident
   // — reading `rows` in there would otherwise make this effect retrigger itself.
   $effect(() => {
-    void tab.stats;
+    void tab.treeStats;
     void rowHeight;
     void viewport;
     untrack(() => void ensureWindow(true));
@@ -171,7 +156,7 @@
 
   $effect(() => {
     const row = tab.pendingRow;
-    if (row === null || !viewport || !tab.stats) return;
+    if (row === null || !viewport || !tab.treeStats) return;
     tab.pendingRow = null;
     // Park the target a third of the way down rather than at the very top.
     measure();
@@ -192,7 +177,7 @@
   }
 
   async function ensureWindow(force = false) {
-    const stats = tab.stats;
+    const stats = tab.treeStats;
     if (!stats || !viewport) return;
 
     measure();
@@ -210,7 +195,7 @@
 
     const seq = ++requestSeq;
     try {
-      const fetched = await jsonRows(tab.id, start, count);
+      const fetched = await treeRows(tab.id, start, count);
       // A later scroll has already superseded this request.
       if (seq !== requestSeq) return;
       windowStart = start;
@@ -221,7 +206,7 @@
   }
 
   function onScroll(event: Event) {
-    tab.jsonScrollTop = (event.currentTarget as HTMLElement).scrollTop;
+    tab.treeScrollTop = (event.currentTarget as HTMLElement).scrollTop;
     measure();
     closeOverlays();
     void ensureWindow();
@@ -229,39 +214,10 @@
 
   // --- tree shape ---------------------------------------------------------
 
-  async function toggle(row: JsonRow) {
+  async function toggle(row: TreeRow) {
     if (!row.container) return;
     try {
-      tab.stats = await jsonToggle(tab.id, row.id);
-    } catch (err) {
-      tab.error = errorMessage(err);
-    }
-  }
-
-  async function expandAll() {
-    try {
-      tab.stats = await jsonExpandAll(tab.id);
-      expandDepth = MAX_EXPAND_DEPTH;
-    } catch (err) {
-      tab.error = errorMessage(err);
-    }
-  }
-
-  async function collapseAll() {
-    try {
-      tab.stats = await jsonCollapseAll(tab.id);
-      expandDepth = 0;
-      if (viewport) viewport.scrollTop = 0;
-    } catch (err) {
-      tab.error = errorMessage(err);
-    }
-  }
-
-  /** Expand every container down to `depth`, collapse everything below. */
-  async function applyDepth(depth: number) {
-    expandDepth = depth;
-    try {
-      tab.stats = await jsonSetExpandDepth(tab.id, depth);
+      tab.treeStats = await treeToggle(tab.id, row.id);
     } catch (err) {
       tab.error = errorMessage(err);
     }
@@ -272,7 +228,7 @@
   /** The label the pointer is currently over, so re-entry does not restart the timer. */
   let hoverAnchor: HTMLElement | null = null;
 
-  function onRowPointerOver(event: MouseEvent, row: JsonRow) {
+  function onRowPointerOver(event: MouseEvent, row: TreeRow) {
     const anchor = (event.target as HTMLElement | null)?.closest<HTMLElement>(".label") ?? null;
     if (anchor === hoverAnchor) return;
 
@@ -316,7 +272,7 @@
     menu = null;
   }
 
-  function openMenu(event: MouseEvent, row: JsonRow, rowIndex: number) {
+  function openMenu(event: MouseEvent, row: TreeRow, rowIndex: number) {
     event.preventDefault();
     hoverAnchor = null;
     clearTimeout(hoverTimer);
@@ -405,7 +361,7 @@
 
   // --- formatting ---------------------------------------------------------
 
-  function summarize(row: JsonRow): string {
+  function summarize(row: TreeRow): string {
     const count = row.childCount === 0 ? "" : ` ${row.childCount.toLocaleString()} `;
     if (row.kind === "element") return `<${count || " "}>`;
     if (row.kind === "array") return `[${count || " "}]`;
@@ -417,14 +373,14 @@
    * spelling is XPath's and reads as "not an element", which is exactly the
    * distinction being drawn.
    */
-  const XML_LABELS: Partial<Record<JsonRow["kind"], string>> = {
+  const XML_LABELS: Partial<Record<TreeRow["kind"], string>> = {
     text: "#text",
     comment: "#comment",
     cdata: "#cdata",
     directive: "#directive",
   };
 
-  function labelClass(kind: JsonRow["kind"]): string {
+  function labelClass(kind: TreeRow["kind"]): string {
     if (kind === "element" || kind === "elementText") return "label tag";
     if (kind === "attribute") return "label attr";
     return "label meta";
@@ -447,7 +403,7 @@
 <svelte:window onresize={() => void ensureWindow(true)} />
 
 <div class="json">
-  <JsonSearchBar {tab} bind:this={searchBar} />
+  <TreeSearchBar {tab} bind:this={searchBar} />
 
   {#if tab.error}
     <p class="banner error" role="alert">
@@ -456,7 +412,7 @@
     </p>
   {/if}
 
-  {#if !tab.stats && !tab.error}
+  {#if !tab.treeStats && !tab.error}
     <div class="loading">
       <p>
         {kindLabel(tab.kind)} 구조를 읽는 중… {formatBytes(tab.indexing?.done ?? 0)} / {formatBytes(
@@ -467,63 +423,19 @@
     </div>
   {/if}
 
-  {#if tab.stats}
-    <div class="toolbar">
-      <button class="btn btn-ghost" onclick={expandAll} title="전체 펼치기">
-        <Icon name="expand" size={13} /> 전체 펼치기
-      </button>
-      <button class="btn btn-ghost" onclick={collapseAll} title="전체 접기">
-        <Icon name="collapse" size={13} /> 전체 접기
-      </button>
-
-      <label class="depth">
-        깊이
-        <select
-          value={shownDepth}
-          onchange={(e) => applyDepth(Number(e.currentTarget.value))}
-          title="이 깊이까지 펼친 상태로 되돌립니다 (최대 {MAX_EXPAND_DEPTH})"
-        >
-          {#each depthOptions as depth (depth)}
-            <option value={depth}>{depth}</option>
-          {/each}
-        </select>
-      </label>
-
-      <span class="spacer"></span>
-      <button
-        class="btn btn-ghost"
-        onclick={() => selected && copyValue(tab.id, selected)}
-        disabled={!selected}
-      >
-        <Icon name="copy" size={13} /> 값 복사
-      </button>
-      <button
-        class="btn btn-ghost"
-        onclick={() => selected && copyPath(tab.id, selected)}
-        disabled={!selected}
-      >
-        경로 복사
-      </button>
-
-      <!-- Last in the row and carrying its own label: an unlabelled icon in the
-           middle of the toolbar gave no clue what it did or whether it was on. -->
-      <button
-        class="btn toggle"
-        class:on={tab.showInspector}
-        aria-pressed={tab.showInspector}
-        title="키 / 값 표 {tab.showInspector ? '숨기기' : '보기'}"
-        onclick={() => (tab.showInspector = !tab.showInspector)}
-      >
-        <Icon name="list" size={13} />
-        키 / 값 표
-        <span class="state">{tab.showInspector ? "켜짐" : "꺼짐"}</span>
-      </button>
-    </div>
+  {#if tab.treeStats}
+    <TreeToolbar
+      {tab}
+      {selected}
+      onCollapsed={() => {
+        if (viewport) viewport.scrollTop = 0;
+      }}
+    />
   {/if}
 
   <div
     class="split"
-    class:with-inspector={tab.showInspector && !!tab.stats}
+    class:with-inspector={tab.showInspector && !!tab.treeStats}
     style="--inspector-width: {settings.inspectorWidth}px"
   >
   <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
@@ -585,19 +497,19 @@
             <span class={labelClass(row.kind)}>{XML_LABELS[row.kind]}</span>
           {:else if row.kind === "attribute"}
             <span class={labelClass(row.kind)}
-              ><span class="mark">@</span><JsonText text={row.key ?? ""} /></span
+              ><span class="mark">@</span><EscapedText text={row.key ?? ""} /></span
             ><span class="punct">=</span>
           {:else if row.kind === "element" || row.kind === "elementText"}
             <!-- An element with nothing in it is written `<a/>` in the file and
                  reads as empty here too; `<a>` with a blank after it looks like
                  a value that failed to load. -->
             <span class={labelClass(row.kind)}
-              ><span class="mark">&lt;</span><JsonText text={row.key ?? ""} /><span class="mark"
+              ><span class="mark">&lt;</span><EscapedText text={row.key ?? ""} /><span class="mark"
                 >{row.kind === "elementText" && !row.value ? "/>" : ">"}</span
               ></span
             >
           {:else if row.key !== null}
-            <span class="label key"><JsonText text={row.key} /></span><span class="punct">:</span>
+            <span class="label key"><EscapedText text={row.key} /></span><span class="punct">:</span>
           {:else if row.index !== null}
             <span class="label index">{row.index}</span><span class="punct">:</span>
           {/if}
@@ -623,7 +535,7 @@
             >
           {:else}
             <span class="value" data-kind={row.kind}>
-              {#if row.kind === "string"}"<JsonText text={row.value ?? ""} />"{:else}<JsonText
+              {#if row.kind === "string"}"<EscapedText text={row.value ?? ""} />"{:else}<EscapedText
                   text={row.value ?? ""}
                 />{/if}{#if row.truncated}<span class="ellipsis" title="값이 길어 일부만 표시합니다"
                   >…</span
@@ -635,7 +547,7 @@
     </div>
   </div>
 
-    {#if tab.showInspector && tab.stats}
+    {#if tab.showInspector && tab.treeStats}
       <Splitter
         bind:value={settings.inspectorWidth}
         measure={(event, parent) => parent.right - event.clientX}
@@ -646,18 +558,18 @@
         label="키 / 값 표 너비"
         onCommit={() => settings.save()}
       />
-      <JsonInspector {tab} onClose={() => (tab.showInspector = false)} />
+      <TreeInspector {tab} onClose={() => (tab.showInspector = false)} />
     {/if}
   </div>
 
-  {#if tab.stats}
+  {#if tab.treeStats}
     <footer class="status">
-      <span>{tab.stats.nodeCount.toLocaleString()}개 노드</span>
-      <span>깊이 {tab.stats.maxDepth}</span>
-      <span>{formatBytes(tab.stats.byteLen)}</span>
-      <span title="색인이 차지하는 메모리">색인 {formatBytes(tab.stats.indexBytes)}</span>
-      {#if tab.stats.filtered}<span class="tag">검색 결과만 표시 중</span>{/if}
-      {#if tab.stats.syntheticRoot}<span class="tag">여러 문서를 배열로 묶어 표시</span>{/if}
+      <span>{tab.treeStats.nodeCount.toLocaleString()}개 노드</span>
+      <span>깊이 {tab.treeStats.maxDepth}</span>
+      <span>{formatBytes(tab.treeStats.byteLen)}</span>
+      <span title="색인이 차지하는 메모리">색인 {formatBytes(tab.treeStats.indexBytes)}</span>
+      {#if tab.treeStats.filtered}<span class="tag">검색 결과만 표시 중</span>{/if}
+      {#if tab.treeStats.syntheticRoot}<span class="tag">여러 문서를 배열로 묶어 표시</span>{/if}
       <span class="path" title={selectedPath}><bdi>{selectedPath}</bdi></span>
       <span>{totalRows.toLocaleString()}행</span>
     </footer>
@@ -719,69 +631,6 @@
     height: 100%;
     background: var(--accent);
     transition: width 0.2s ease-out;
-  }
-
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.25rem 0.5rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .toolbar .btn {
-    padding: 0.2rem 0.45rem;
-    font-size: 0.92em;
-    color: var(--text-secondary);
-  }
-
-  .spacer {
-    flex: 1;
-  }
-
-  /* Filled when on, outlined when off — a tinted icon button was too quiet to
-     read as a state at a glance. */
-  .toggle {
-    gap: 0.4rem;
-    padding: 0.2rem 0.5rem;
-    font-size: 0.92em;
-  }
-
-  .toggle.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--accent-fg);
-  }
-
-  .toggle .state {
-    padding: 0.05rem 0.3rem;
-    border-radius: var(--radius-sm);
-    background: var(--bg-inset);
-    color: var(--text-muted);
-    font-size: 0.85em;
-  }
-
-  .toggle.on .state {
-    background: color-mix(in srgb, var(--accent-fg) 22%, transparent);
-    color: var(--accent-fg);
-  }
-
-  .depth {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    margin-left: 0.4rem;
-    color: var(--text-secondary);
-    font-size: 0.92em;
-  }
-
-  .depth select {
-    padding: 0.1rem 0.2rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-    /* `inherit`, not another em — the label already shrank it once. */
-    font-size: inherit;
   }
 
   .split {

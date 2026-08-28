@@ -112,7 +112,7 @@ export interface HighlightCss {
  * scanned into the same tree rather than converted, so a node says what its
  * own format called it.
  */
-export type JsonKind =
+export type NodeKind =
   | "object"
   | "array"
   | "string"
@@ -127,7 +127,7 @@ export type JsonKind =
   | "cdata"
   | "directive";
 
-export const XML_KINDS: readonly JsonKind[] = [
+export const XML_KINDS: readonly NodeKind[] = [
   "element",
   "elementText",
   "attribute",
@@ -137,12 +137,12 @@ export const XML_KINDS: readonly JsonKind[] = [
   "directive",
 ];
 
-export interface JsonRow {
+export interface TreeRow {
   id: number;
   depth: number;
   key: string | null;
   index: number | null;
-  kind: JsonKind;
+  kind: NodeKind;
   value: string | null;
   truncated: boolean;
   childCount: number;
@@ -150,7 +150,7 @@ export interface JsonRow {
   collapsed: boolean;
 }
 
-export interface JsonStats {
+export interface TreeStats {
   nodeCount: number;
   maxDepth: number;
   visibleRows: number;
@@ -166,15 +166,15 @@ export interface ChildrenPage {
   /** Not always the node asked about — selecting a scalar shows its parent. */
   target: number;
   targetPath: string;
-  targetKind: JsonKind;
+  targetKind: NodeKind;
   total: number;
   start: number;
-  rows: JsonRow[];
+  rows: TreeRow[];
 }
 
 export interface RevealResult {
   row: number | null;
-  stats: JsonStats;
+  stats: TreeStats;
 }
 
 export interface NodeText {
@@ -290,32 +290,32 @@ export const systemFonts = () => invoke<FontFamily[]>("system_fonts");
 
 // --- JSON -----------------------------------------------------------------
 
-export const jsonOpen = (docId: number) => invoke<void>("json_open", { docId });
-export const jsonRows = (docId: number, start: number, count: number) =>
-  invoke<JsonRow[]>("json_rows", { docId, start, count });
-export const jsonToggle = (docId: number, nodeId: number) =>
-  invoke<JsonStats>("json_toggle", { docId, nodeId });
-export const jsonExpandAll = (docId: number) => invoke<JsonStats>("json_expand_all", { docId });
-export const jsonCollapseAll = (docId: number) => invoke<JsonStats>("json_collapse_all", { docId });
-export const jsonSetExpandDepth = (docId: number, depth: number) =>
-  invoke<JsonStats>("json_set_expand_depth", { docId, depth });
-export const jsonChildren = (docId: number, nodeId: number, start: number, count: number) =>
-  invoke<ChildrenPage | null>("json_children", { docId, nodeId, start, count });
-export const jsonReveal = (docId: number, nodeId: number) =>
-  invoke<RevealResult>("json_reveal", { docId, nodeId });
-export const jsonPath = (docId: number, nodeId: number) =>
-  invoke<string>("json_path", { docId, nodeId });
-export const jsonNodeText = (docId: number, nodeId: number) =>
-  invoke<NodeText>("json_node_text", { docId, nodeId });
-export const jsonSearch = (docId: number, options: SearchOptions) =>
-  invoke<void>("json_search", { docId, options });
-export const jsonSearchCancel = (docId: number) => invoke<void>("json_search_cancel", { docId });
-export const jsonFilterMatches = (docId: number) =>
-  invoke<JsonStats>("json_filter_matches", { docId });
-export const jsonClearFilter = (docId: number) => invoke<JsonStats>("json_clear_filter", { docId });
-export const jsonClearSearch = (docId: number) => invoke<JsonStats>("json_clear_search", { docId });
-export const jsonHitRow = (docId: number, ordinal: number) =>
-  invoke<RevealResult>("json_hit_row", { docId, ordinal });
+export const treeOpen = (docId: number) => invoke<void>("tree_open", { docId });
+export const treeRows = (docId: number, start: number, count: number) =>
+  invoke<TreeRow[]>("tree_rows", { docId, start, count });
+export const treeToggle = (docId: number, nodeId: number) =>
+  invoke<TreeStats>("tree_toggle", { docId, nodeId });
+export const treeExpandAll = (docId: number) => invoke<TreeStats>("tree_expand_all", { docId });
+export const treeCollapseAll = (docId: number) => invoke<TreeStats>("tree_collapse_all", { docId });
+export const treeSetExpandDepth = (docId: number, depth: number) =>
+  invoke<TreeStats>("tree_set_expand_depth", { docId, depth });
+export const treeChildren = (docId: number, nodeId: number, start: number, count: number) =>
+  invoke<ChildrenPage | null>("tree_children", { docId, nodeId, start, count });
+export const treeReveal = (docId: number, nodeId: number) =>
+  invoke<RevealResult>("tree_reveal", { docId, nodeId });
+export const treePath = (docId: number, nodeId: number) =>
+  invoke<string>("tree_path", { docId, nodeId });
+export const treeNodeText = (docId: number, nodeId: number) =>
+  invoke<NodeText>("tree_node_text", { docId, nodeId });
+export const treeSearch = (docId: number, options: SearchOptions) =>
+  invoke<void>("tree_search", { docId, options });
+export const treeSearchCancel = (docId: number) => invoke<void>("tree_search_cancel", { docId });
+export const treeFilterMatches = (docId: number) =>
+  invoke<TreeStats>("tree_filter_matches", { docId });
+export const treeClearFilter = (docId: number) => invoke<TreeStats>("tree_clear_filter", { docId });
+export const treeClearSearch = (docId: number) => invoke<TreeStats>("tree_clear_search", { docId });
+export const treeHitRow = (docId: number, ordinal: number) =>
+  invoke<RevealResult>("tree_hit_row", { docId, ordinal });
 
 // --- CSV and TSV ----------------------------------------------------------
 
@@ -341,7 +341,7 @@ export interface IndexProgress {
 
 export interface IndexReady {
   docId: number;
-  stats: JsonStats;
+  stats: TreeStats;
   elapsedMs: number;
 }
 
@@ -370,12 +370,12 @@ export interface TableReady {
 }
 
 type EventMap = {
-  "json:progress": IndexProgress;
-  "json:ready": IndexReady;
-  "json:error": DocErrorEvent;
-  "json:search-batch": SearchBatch;
-  "json:search-done": SearchDone;
-  "json:search-error": DocErrorEvent;
+  "tree:progress": IndexProgress;
+  "tree:ready": IndexReady;
+  "tree:error": DocErrorEvent;
+  "tree:search-batch": SearchBatch;
+  "tree:search-done": SearchDone;
+  "tree:search-error": DocErrorEvent;
   "table:progress": IndexProgress;
   "table:ready": TableReady;
   "table:error": DocErrorEvent;

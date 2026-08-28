@@ -2,12 +2,12 @@
   import Icon from "../Icon.svelte";
   import {
     errorMessage,
-    jsonClearFilter,
-    jsonClearSearch,
-    jsonFilterMatches,
-    jsonHitRow,
-    jsonSearch,
-    jsonSearchCancel,
+    treeClearFilter,
+    treeClearSearch,
+    treeFilterMatches,
+    treeHitRow,
+    treeSearch,
+    treeSearchCancel,
     type SearchScope,
   } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
@@ -21,7 +21,7 @@
 
   // Whether the tree is filtered is decided by Rust; mirroring it in a second
   // flag is how the UI and the backend drift apart.
-  const filtered = $derived(tab.stats?.filtered ?? false);
+  const filtered = $derived(tab.treeStats?.filtered ?? false);
 
   const SCOPES: { value: SearchScope; label: string; title: string }[] = [
     { value: "all", label: "전체", title: "키와 값에서 찾기" },
@@ -48,7 +48,7 @@
     search.reset();
     search.running = true;
     try {
-      await jsonSearch(tab.id, {
+      await treeSearch(tab.id, {
         query: search.query,
         caseSensitive: search.caseSensitive,
         scope: search.scope,
@@ -62,8 +62,8 @@
   async function clear() {
     const search = tab.search;
     try {
-      await jsonSearchCancel(tab.id);
-      tab.stats = await jsonClearSearch(tab.id);
+      await treeSearchCancel(tab.id);
+      tab.treeStats = await treeClearSearch(tab.id);
     } catch (err) {
       tab.error = errorMessage(err);
     }
@@ -77,8 +77,8 @@
     const next = (search.current + delta + search.hits.length) % search.hits.length;
     search.current = next;
     try {
-      const result = await jsonHitRow(tab.id, next);
-      tab.stats = result.stats;
+      const result = await treeHitRow(tab.id, next);
+      tab.treeStats = result.stats;
       if (result.row !== null) tab.pendingRow = result.row;
     } catch (err) {
       tab.error = errorMessage(err);
@@ -87,7 +87,7 @@
 
   async function toggleFilter() {
     try {
-      tab.stats = filtered ? await jsonClearFilter(tab.id) : await jsonFilterMatches(tab.id);
+      tab.treeStats = filtered ? await treeClearFilter(tab.id) : await treeFilterMatches(tab.id);
     } catch (err) {
       tab.error = errorMessage(err);
     }

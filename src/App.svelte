@@ -8,7 +8,7 @@
   import Toast from "./lib/components/Toast.svelte";
   import ThemeStyles from "./lib/components/ThemeStyles.svelte";
   import Toolbar from "./lib/components/Toolbar.svelte";
-  import JsonView from "./lib/components/json/JsonView.svelte";
+  import TreeView from "./lib/components/tree/TreeView.svelte";
   import TableView from "./lib/components/table/TableView.svelte";
   import MarkdownView from "./lib/components/markdown/MarkdownView.svelte";
   import RawView from "./lib/components/markdown/RawView.svelte";
@@ -56,35 +56,35 @@
 
   onMount(() => {
     const subscriptions = [
-      ipc.on("json:progress", ({ docId, bytesDone, bytesTotal }) => {
+      ipc.on("tree:progress", ({ docId, bytesDone, bytesTotal }) => {
         const tab = workspace.tab(docId);
         if (tab) tab.indexing = { done: bytesDone, total: bytesTotal };
       }),
-      ipc.on("json:ready", ({ docId, stats }) => {
+      ipc.on("tree:ready", ({ docId, stats }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
-        tab.stats = stats;
+        tab.treeStats = stats;
         tab.indexing = null;
         tab.error = null;
       }),
-      ipc.on("json:error", ({ docId, message }) => {
+      ipc.on("tree:error", ({ docId, message }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
         tab.error = message;
         tab.indexing = null;
       }),
-      ipc.on("json:search-batch", ({ docId, hits }) => {
+      ipc.on("tree:search-batch", ({ docId, hits }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
         tab.search.hits = [...tab.search.hits, ...hits];
       }),
-      ipc.on("json:search-done", ({ docId, summary }) => {
+      ipc.on("tree:search-done", ({ docId, summary }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
         tab.search.running = false;
         tab.search.summary = summary;
       }),
-      ipc.on("json:search-error", ({ docId, message }) => {
+      ipc.on("tree:search-error", ({ docId, message }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
         tab.search.running = false;
@@ -233,7 +233,7 @@
             <p>{active.meta.title} 여는 중…</p>
           </div>
         {:else if active.view === "tree"}
-          <JsonView tab={active} bind:focusSearch={searchBarFocus} />
+          <TreeView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "table"}
           <TableView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.mode === "raw"}

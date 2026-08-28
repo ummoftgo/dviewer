@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::bytes::DocBytes;
 use crate::encoding::{self, Decoded, EncodingSource};
 use crate::error::{Error, Result};
-use crate::json::JsonDoc;
+use crate::tree::TreeDoc;
 use crate::table::TableDoc;
 
 pub type DocId = u32;
@@ -110,7 +110,7 @@ struct DocInner {
     /// Built lazily and in the background; None until indexing completes.
     /// Only one of the two is ever populated — a document is a tree or a grid,
     /// never both.
-    tree: Option<Arc<JsonDoc>>,
+    tree: Option<Arc<TreeDoc>>,
     table: Option<Arc<TableDoc>>,
 }
 
@@ -177,11 +177,11 @@ impl Document {
         }
     }
 
-    pub fn tree(&self) -> Option<Arc<JsonDoc>> {
+    pub fn tree(&self) -> Option<Arc<TreeDoc>> {
         self.inner.read().tree.clone()
     }
 
-    pub fn set_tree(&self, tree: Arc<JsonDoc>) {
+    pub fn set_tree(&self, tree: Arc<TreeDoc>) {
         self.inner.write().tree = Some(tree);
     }
 

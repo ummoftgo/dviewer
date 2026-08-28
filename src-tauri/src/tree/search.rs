@@ -1,4 +1,4 @@
-//! Literal search across a JSON document.
+//! Literal search across a document tree.
 //!
 //! Keys and values live in the document, so the fastest thing we can do is scan
 //! the bytes directly and map each hit back to a node — no tree walk, no
@@ -16,7 +16,7 @@ use aho_corasick::{AhoCorasick, MatchKind};
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
 
-use super::index::{JsonIndex, Syntax};
+use super::index::{TreeIndex, Syntax};
 use super::scanner::Kind;
 use super::text;
 use crate::error::{Error, Result};
@@ -94,7 +94,7 @@ impl SearchResult {
 /// `on_batch` so the first results reach the UI long before the scan finishes.
 pub fn search(
     bytes: &[u8],
-    index: &Arc<JsonIndex>,
+    index: &Arc<TreeIndex>,
     options: &SearchOptions,
     cancel: &AtomicBool,
     mut on_batch: impl FnMut(&[SearchHit], usize),
@@ -169,7 +169,7 @@ fn scope_allows(scope: SearchScope, field: SearchField) -> bool {
 /// Offsets that land on structural punctuation or whitespace belong to no node
 /// anyone would want to jump to, so they are dropped rather than attributed to
 /// whichever container happens to span them.
-fn classify(index: &JsonIndex, offset: u32) -> Option<SearchHit> {
+fn classify(index: &TreeIndex, offset: u32) -> Option<SearchHit> {
     let candidate = index.node_at_offset(offset)?;
     let node = index.node(candidate)?;
 
@@ -218,7 +218,7 @@ fn classify(index: &JsonIndex, offset: u32) -> Option<SearchHit> {
 ///   cost per node proportional to the query length rather than the path depth.
 fn search_paths(
     bytes: &[u8],
-    index: &Arc<JsonIndex>,
+    index: &Arc<TreeIndex>,
     options: &SearchOptions,
     cancel: &AtomicBool,
     mut on_batch: impl FnMut(&[SearchHit], usize),
@@ -336,9 +336,9 @@ mod tests {
     use super::super::scanner::{ScanLimits, scan};
     use super::*;
 
-    fn build(src: &str) -> Arc<JsonIndex> {
+    fn build(src: &str) -> Arc<TreeIndex> {
         let scanned = scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).unwrap();
-        Arc::new(JsonIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json))
+        Arc::new(TreeIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json))
     }
 
     fn run(src: &str, query: &str, scope: SearchScope, case_sensitive: bool) -> Vec<SearchHit> {

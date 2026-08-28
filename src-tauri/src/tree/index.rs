@@ -1,4 +1,4 @@
-//! Visibility bookkeeping for the JSON tree.
+//! Visibility bookkeeping for the document tree.
 //!
 //! The virtual list asks "which node is at row N?" on every scroll frame, and
 //! collapsing a node can hide millions of rows at once. A Fenwick tree answers
@@ -383,7 +383,7 @@ pub enum Syntax {
     Xml,
 }
 
-pub struct JsonIndex {
+pub struct TreeIndex {
     pub nodes: Vec<Node>,
     pub synthetic_root: bool,
     /// Computed once at build time. Deriving it per call would put a full scan
@@ -392,7 +392,7 @@ pub struct JsonIndex {
     pub syntax: Syntax,
 }
 
-impl JsonIndex {
+impl TreeIndex {
     pub fn new(nodes: Vec<Node>, synthetic_root: bool, syntax: Syntax) -> Self {
         let max_depth = nodes.iter().map(|n| n.depth).max().unwrap_or(0);
         Self {
@@ -591,14 +591,14 @@ mod tests {
     use super::super::scanner::{ScanLimits, scan};
     use super::*;
 
-    fn index(src: &str) -> JsonIndex {
+    fn index(src: &str) -> TreeIndex {
         let scanned = scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).unwrap();
-        JsonIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json)
+        TreeIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json)
     }
 
     /// The property everything else depends on: walking rows 0..total must
     /// reproduce exactly the nodes a manual tree walk would show, in order.
-    fn expected_visible(index: &JsonIndex, vis: &Visibility) -> Vec<u32> {
+    fn expected_visible(index: &TreeIndex, vis: &Visibility) -> Vec<u32> {
         let mut out = Vec::new();
         let mut i = 0usize;
         while i < index.nodes.len() {
@@ -612,7 +612,7 @@ mod tests {
         out
     }
 
-    fn assert_rows_match(index: &JsonIndex, vis: &Visibility) {
+    fn assert_rows_match(index: &TreeIndex, vis: &Visibility) {
         let expected = expected_visible(index, vis);
         assert_eq!(vis.visible_total() as usize, expected.len(), "visible_total");
         let actual: Vec<u32> = (0..vis.visible_total())

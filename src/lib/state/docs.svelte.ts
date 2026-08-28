@@ -4,7 +4,7 @@ import type {
   DocKind,
   DocMeta,
   DocView,
-  JsonStats,
+  TreeStats,
   SearchHit,
   SearchScope,
   SearchSummary,
@@ -12,7 +12,7 @@ import type {
   TableStats,
   TocEntry,
 } from "../ipc";
-import { forgetDoc } from "../components/json/actions";
+import { forgetDoc } from "../components/tree/actions";
 import { recents } from "./recents.svelte";
 
 export type ViewMode = "rendered" | "raw";
@@ -86,18 +86,18 @@ export class DocTab {
   scrollTop = $state(0);
   rawScrollTop = $state(0);
 
-  // JSON
-  stats = $state<JsonStats | null>(null);
+  // Tree (JSON, YAML, TOML, XML)
+  treeStats = $state<TreeStats | null>(null);
   /** Selected node, kept for the inspector even while it scrolls out of view. */
   selectedNode = $state<number | null>(null);
   showInspector = $state(true);
   indexing = $state<{ done: number; total: number } | null>(null);
-  jsonScrollTop = $state(0);
+  treeScrollTop = $state(0);
   /** Row the view should jump to; cleared by the view once honoured. */
   pendingRow = $state<number | null>(null);
   search = new SearchState();
 
-  // Table
+  // Table (CSV, TSV)
   tableStats = $state<TableStats | null>(null);
   header = $state<string[]>([]);
   /** Pixel width per column, resizable by dragging a header edge. */
@@ -137,7 +137,7 @@ export class DocTab {
     this.html = null;
     this.toc = [];
     this.raw = null;
-    this.stats = null;
+    this.treeStats = null;
     this.indexing = null;
     this.error = null;
     this.search.reset();

@@ -5,7 +5,7 @@
  * same code — otherwise the two drift and one of them quietly copies the wrong
  * thing.
  */
-import { errorMessage, jsonNodeText, jsonPath, type JsonRow } from "../../ipc";
+import { errorMessage, treeNodeText, treePath, type TreeRow } from "../../ipc";
 import { copyText } from "../../clipboard";
 import { toasts } from "../../state/toast.svelte";
 import type { MenuItem } from "../menu";
@@ -17,7 +17,7 @@ export async function pathOf(docId: number, nodeId: number): Promise<string> {
   const key = `${docId}:${nodeId}`;
   const cached = paths.get(key);
   if (cached !== undefined) return cached;
-  const path = await jsonPath(docId, nodeId);
+  const path = await treePath(docId, nodeId);
   paths.set(key, path);
   return path;
 }
@@ -30,7 +30,7 @@ export function forgetDoc(docId: number) {
   }
 }
 
-export async function copyPath(docId: number, row: JsonRow) {
+export async function copyPath(docId: number, row: TreeRow) {
   try {
     await copyText(await pathOf(docId, row.id));
     toasts.show("경로를 복사했습니다.");
@@ -39,7 +39,7 @@ export async function copyPath(docId: number, row: JsonRow) {
   }
 }
 
-export async function copyKey(row: JsonRow) {
+export async function copyKey(row: TreeRow) {
   if (row.key === null) return;
   try {
     await copyText(row.key);
@@ -49,9 +49,9 @@ export async function copyKey(row: JsonRow) {
   }
 }
 
-export async function copyValue(docId: number, row: JsonRow) {
+export async function copyValue(docId: number, row: TreeRow) {
   try {
-    const node = await jsonNodeText(docId, row.id);
+    const node = await treeNodeText(docId, row.id);
     await copyText(node.text);
     toasts.show(node.truncated ? "값이 너무 커서 앞부분만 복사했습니다." : "값을 복사했습니다.");
   } catch (err) {
@@ -59,7 +59,7 @@ export async function copyValue(docId: number, row: JsonRow) {
   }
 }
 
-export function copyMenuItems(docId: number, row: JsonRow): MenuItem[] {
+export function copyMenuItems(docId: number, row: TreeRow): MenuItem[] {
   return [
     { label: "경로 복사", action: () => void copyPath(docId, row) },
     // Array elements have an index, not a key, so there is nothing to copy.

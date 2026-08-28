@@ -18,7 +18,7 @@ use serde::Serialize;
 
 use crate::bytes::DocBytes;
 use crate::error::{Error, Result};
-use crate::json::text::push_display;
+use crate::tree::text::push_display;
 
 /// Record offsets are `u32`, which caps a document at 4GiB — the same ceiling
 /// the JSON indexer works under, for the same reason.

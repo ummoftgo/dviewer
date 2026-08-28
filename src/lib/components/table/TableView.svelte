@@ -14,17 +14,24 @@
   import { untrack } from "svelte";
   import Icon from "../Icon.svelte";
   import ContextMenu from "../ContextMenu.svelte";
-  import JsonText from "../json/JsonText.svelte";
+  import EscapedText from "../EscapedText.svelte";
+  import TableSearchBar from "./TableSearchBar.svelte";
   import {
     errorMessage,
     tableCellText,
     tableOpen,
     tableRowText,
     tableRows,
-    tableSearch,
     tableSetHasHeader,
     type TableRow,
   } from "../../ipc";
+  import {
+    columnLeft,
+    columnWidth as widthOf,
+    measureColumns as autoWidths,
+    startResize as beginResize,
+    totalWidth as totalOf,
+  } from "./columns";
   import { copyText } from "../../clipboard";
   import { toasts } from "../../state/toast.svelte";
   import type { MenuItem } from "../menu";
@@ -42,22 +49,20 @@
 
   /** Extra rows fetched above and below the viewport to hide scroll latency. */
   const OVERSCAN = 24;
-  const MIN_COLUMN = 64;
-  const MAX_AUTO_COLUMN = 420;
 
   let viewport = $state<HTMLElement>();
   /** Mirrored into state because row positions depend on them once the file
    *  outgrows the browser's maximum element height — see lib/virtual.ts. */
   let scrollTop = $state(0);
   let viewportHeight = $state(0);
-  let queryInput = $state<HTMLInputElement>();
+  let searchBar = $state<ReturnType<typeof TableSearchBar>>();
   let rows = $state<TableRow[]>([]);
   let windowStart = $state(0);
   let requestSeq = 0;
   let menu = $state<{ x: number; y: number; row: number; column: number } | null>(null);
 
   $effect(() => {
-    focusSearch = queryInput ? () => queryInput?.select() : null;
+    focusSearch = searchBar ? () => searchBar?.focus() : null;
     return () => {
       focusSearch = null;
     };
@@ -73,9 +78,7 @@
   const numberWidth = $derived(
     Math.max(44, Math.round(String(rowCount).length * settings.docFontPx * settings.uiScale * 0.65) + 18),
   );
-  const totalWidth = $derived(
-    numberWidth + tab.columnWidths.reduce((sum, width) => sum + width, 0),
-  );
+  const totalWidth = $derived(totalOf(tab, numberWidth));
   const progressPercent = $derived(
     tab.indexing && tab.indexing.total > 0
       ? Math.min(100, Math.round((tab.indexing.done / tab.indexing.total) * 100))
@@ -168,37 +171,17 @@
 
   // --- columns ------------------------------------------------------------
 
-  /**
-   * A first guess at each column's width, from the header and the first page.
-   *
-   * Measuring every row would mean reading the whole file, which is the one
-   * thing this view exists to avoid. A page is enough to get the common case
-   * right, and anything it misses the reader can drag.
-   */
   function measureColumns(sample: TableRow[]) {
-    const char = Math.max(6, settings.docFontPx * settings.uiScale * 0.62);
-    tab.columnWidths = Array.from({ length: columnCount }, (_, column) => {
-      let widest = visualLength(tab.header[column] ?? "");
-      for (const row of sample) widest = Math.max(widest, visualLength(row.cells[column]?.text ?? ""));
-      return Math.round(Math.min(MAX_AUTO_COLUMN, Math.max(MIN_COLUMN, widest * char + 26)));
-    });
+    autoWidths(tab, sample, columnCount, settings.docFontPx * settings.uiScale);
   }
 
-  /** Hangul and CJK occupy two columns in a monospaced face; Latin one. */
-  function visualLength(text: string): number {
-    let total = 0;
-    for (const ch of text) total += ch.codePointAt(0)! > 0x1100 ? 2 : 1;
-    return total;
-  }
-
-  function columnWidth(column: number): number {
-    return tab.columnWidths[column] ?? 140;
+  function columnWidth(column: number) {
+    return widthOf(tab, column);
   }
 
   function scrollColumnIntoView(column: number) {
     if (!viewport) return;
-    let left = numberWidth;
-    for (let i = 0; i < column; i++) left += columnWidth(i);
+    const left = columnLeft(tab, column, numberWidth);
     const right = left + columnWidth(column);
     if (left - numberWidth < viewport.scrollLeft) viewport.scrollLeft = left - numberWidth;
     else if (right > viewport.scrollLeft + viewport.clientWidth) {
@@ -207,29 +190,7 @@
   }
 
   function startResize(event: PointerEvent, column: number) {
-    event.preventDefault();
-    event.stopPropagation();
-    const handle = event.currentTarget as HTMLElement;
-    const startX = event.clientX;
-    const startWidth = columnWidth(column);
-
-    const move = (moved: PointerEvent) => {
-      const next = Math.max(MIN_COLUMN, Math.round(startWidth + moved.clientX - startX));
-      tab.columnWidths = tab.columnWidths.map((width, i) => (i === column ? next : width));
-    };
-    const stop = () => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", stop);
-      handle.removeEventListener("pointercancel", stop);
-    };
-    try {
-      handle.setPointerCapture(event.pointerId);
-    } catch {
-      // Capture is an optimisation; dragging still works without it.
-    }
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", stop);
-    handle.addEventListener("pointercancel", stop);
+    beginResize(event, tab, column);
   }
 
   // --- header row ---------------------------------------------------------
@@ -302,46 +263,7 @@
     ];
   });
 
-  // --- search -------------------------------------------------------------
-
-  async function runSearch(event?: Event) {
-    event?.preventDefault();
-    const search = tab.tableSearch;
-    const query = search.query.trim();
-    if (!query) {
-      search.reset();
-      return;
-    }
-    search.running = true;
-    search.error = null;
-    search.searched = true;
-    try {
-      const result = await tableSearch(tab.id, query, search.caseSensitive);
-      search.hits = result.hits;
-      search.capped = result.capped;
-      search.current = result.hits.length > 0 ? 0 : -1;
-      if (result.hits.length > 0) tab.pendingCell = result.hits[0];
-    } catch (err) {
-      search.error = errorMessage(err);
-      search.hits = [];
-      search.current = -1;
-    } finally {
-      search.running = false;
-    }
-  }
-
-  function step(delta: number) {
-    const search = tab.tableSearch;
-    if (search.hits.length === 0) return;
-    search.current = (search.current + delta + search.hits.length) % search.hits.length;
-    tab.pendingCell = search.hits[search.current];
-  }
-
-  function clearSearch() {
-    tab.tableSearch.reset();
-    tab.tableSearch.query = "";
-  }
-
+  /** Whether a cell is the search hit the grid is currently parked on. */
   function isHit(row: number, column: number): boolean {
     const search = tab.tableSearch;
     const current = search.hits[search.current];
@@ -429,48 +351,7 @@
 <svelte:window onresize={() => void ensureWindow(true)} />
 
 <div class="table-view">
-  <form class="searchbar" onsubmit={runSearch}>
-    <Icon name="search" size={13} />
-    <input
-      bind:this={queryInput}
-      bind:value={tab.tableSearch.query}
-      type="search"
-      placeholder="표 안에서 찾기"
-      aria-label="표 안에서 찾기"
-      onkeydown={(e) => {
-        if (e.key === "Escape") clearSearch();
-      }}
-    />
-    <label class="case" title="대소문자 구분">
-      <input type="checkbox" bind:checked={tab.tableSearch.caseSensitive} />
-      Aa
-    </label>
-    <button class="btn btn-ghost" type="submit" disabled={tab.tableSearch.running}>
-      {tab.tableSearch.running ? "찾는 중…" : "찾기"}
-    </button>
-
-    {#if tab.tableSearch.hits.length > 0}
-      <span class="count">
-        {tab.tableSearch.current + 1} / {tab.tableSearch.hits.length.toLocaleString()}
-        {#if tab.tableSearch.capped}<span class="capped" title="결과가 너무 많아 일부만 모았습니다"
-            >+</span
-          >{/if}
-      </span>
-      <button class="icon-btn" type="button" onclick={() => step(-1)} aria-label="이전 결과">
-        <Icon name="chevron-up" size={13} />
-      </button>
-      <button class="icon-btn" type="button" onclick={() => step(1)} aria-label="다음 결과">
-        <Icon name="chevron-down" size={13} />
-      </button>
-      <button class="btn btn-ghost" type="button" onclick={clearSearch}>지우기</button>
-    {:else if tab.tableSearch.searched && !tab.tableSearch.running}
-      <span class="count empty">결과 없음</span>
-    {/if}
-
-    {#if tab.tableSearch.error}
-      <span class="count error">{tab.tableSearch.error}</span>
-    {/if}
-  </form>
+  <TableSearchBar {tab} bind:this={searchBar} />
 
   {#if tab.error}
     <p class="banner error" role="alert">
@@ -566,7 +447,7 @@
                 onclick={() => (tab.selectedCell = { row: row.index, column })}
                 oncontextmenu={(e) => openMenu(e, row.index, column)}
               >
-                <JsonText text={cell?.text ?? ""} />{#if cell?.truncated}<span
+                <EscapedText text={cell?.text ?? ""} />{#if cell?.truncated}<span
                     class="ellipsis"
                     title="값이 길어 일부만 표시합니다">…</span
                   >{/if}
@@ -604,52 +485,6 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
-  }
-
-  .searchbar {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.6rem;
-    border-bottom: 1px solid var(--border);
-    color: var(--text-muted);
-  }
-
-  .searchbar input[type="search"] {
-    flex: 1;
-    min-width: 6rem;
-    padding: 0.2rem 0.4rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-inset);
-    color: var(--text);
-    font: inherit;
-  }
-
-  .case {
-    display: flex;
-    align-items: center;
-    gap: 0.2rem;
-    font-size: 0.85em;
-  }
-
-  .count {
-    font-size: 0.85em;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-
-  .count.empty {
-    color: var(--text-muted);
-  }
-
-  .count.error,
-  .status .warn {
-    color: var(--danger);
-  }
-
-  .capped {
-    color: var(--text-muted);
   }
 
   .toolbar {
@@ -829,6 +664,10 @@
 
   .grip:hover {
     background: var(--accent);
+  }
+
+  .status .warn {
+    color: var(--danger);
   }
 
   .status {

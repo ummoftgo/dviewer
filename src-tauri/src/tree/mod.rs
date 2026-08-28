@@ -1,3 +1,19 @@
+//! The tree engine: a flat, pre-order node index and everything built on it.
+//!
+//! Four formats arrive here by three different routes. JSON is scanned in place
+//! (`scanner`), XML gets its own scanner over the same node model
+//! (`crate::xml`), and YAML and TOML are converted to JSON first
+//! (`crate::convert`) because their parsers materialise a value either way.
+//!
+//! Past the scan nothing knows or cares which format it came from. Visibility,
+//! viewport queries, search, path building and copying are all written against
+//! the node array, which is why adding a format costs a scanner rather than a
+//! second copy of all of that.
+//!
+//! The one place the origin still shows is notation: a path is written the way
+//! the format's own readers expect (`$.a.b[0]` or `/a/b[1]`), which is what
+//! `index::Syntax` selects.
+
 pub mod index;
 pub mod scanner;
 pub mod search;
@@ -11,7 +27,7 @@ use serde::Serialize;
 
 use crate::bytes::DocBytes;
 use crate::error::Result;
-use index::{DEFAULT_EXPAND_DEPTH, JsonIndex, Syntax, Visibility};
+use index::{DEFAULT_EXPAND_DEPTH, TreeIndex, Syntax, Visibility};
 use scanner::{ScanLimits, scan};
 use search::{SearchOptions, SearchResult};
 
@@ -23,7 +39,7 @@ pub const MAX_NODE_TEXT_BYTES: usize = 8 * 1024 * 1024;
 /// so a viewport of ~100 rows is a few kilobytes of IPC regardless of the file.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonRow {
+pub struct TreeRow {
     pub id: u32,
     pub depth: u16,
     /// Object key, or None when the parent is an array.
@@ -44,18 +60,18 @@ pub struct JsonRow {
 #[serde(rename_all = "camelCase")]
 pub struct ChildrenPage {
     /// The node these children belong to, which is not always the node asked
-    /// about — see `JsonIndex::table_target`.
+    /// about — see `TreeIndex::table_target`.
     pub target: u32,
     pub target_path: String,
     pub target_kind: &'static str,
     pub total: u32,
     pub start: u32,
-    pub rows: Vec<JsonRow>,
+    pub rows: Vec<TreeRow>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonStats {
+pub struct TreeStats {
     pub node_count: u32,
     pub max_depth: u16,
     pub visible_rows: u32,
@@ -67,14 +83,14 @@ pub struct JsonStats {
     pub filtered: bool,
 }
 
-pub struct JsonDoc {
-    pub index: Arc<JsonIndex>,
+pub struct TreeDoc {
+    pub index: Arc<TreeIndex>,
     pub bytes: Arc<DocBytes>,
     visibility: RwLock<Visibility>,
     search: RwLock<Option<SearchResult>>,
 }
 
-impl JsonDoc {
+impl TreeDoc {
     /// Build the tree for a document.
     ///
     /// `syntax` picks the scanner. Everything after it — visibility, rows,
@@ -91,7 +107,7 @@ impl JsonDoc {
             Syntax::Json => scan(&bytes, limits, progress, should_stop)?,
             Syntax::Xml => crate::xml::scan(&bytes, limits, progress, should_stop)?,
         };
-        let index = Arc::new(JsonIndex::new(scanned.nodes, scanned.synthetic_root, syntax));
+        let index = Arc::new(TreeIndex::new(scanned.nodes, scanned.synthetic_root, syntax));
         let visibility = Visibility::new(&index.nodes, DEFAULT_EXPAND_DEPTH);
         Ok(Self {
             index,
@@ -101,9 +117,9 @@ impl JsonDoc {
         })
     }
 
-    pub fn stats(&self) -> JsonStats {
+    pub fn stats(&self) -> TreeStats {
         let visibility = self.visibility.read();
-        JsonStats {
+        TreeStats {
             node_count: self.index.nodes.len() as u32,
             max_depth: self.index.max_depth,
             visible_rows: visibility.visible_total(),
@@ -114,7 +130,7 @@ impl JsonDoc {
         }
     }
 
-    pub fn rows(&self, start: u32, count: u32) -> Vec<JsonRow> {
+    pub fn rows(&self, start: u32, count: u32) -> Vec<TreeRow> {
         let visibility = self.visibility.read();
         let mut rows = Vec::with_capacity(count as usize);
         let mut current = visibility.node_at_row(start);
@@ -127,7 +143,7 @@ impl JsonDoc {
         rows
     }
 
-    fn row(&self, id: u32, visibility: &Visibility) -> JsonRow {
+    fn row(&self, id: u32, visibility: &Visibility) -> TreeRow {
         let node = &self.index.nodes[id as usize];
         let bytes: &[u8] = &self.bytes;
         let parent_is_array = self
@@ -142,7 +158,7 @@ impl JsonDoc {
             (Some(text), cut)
         };
 
-        JsonRow {
+        TreeRow {
             id,
             depth: node.depth,
             key: (node.key_len > 0).then(|| text::decode_key(bytes, node)),
@@ -193,12 +209,6 @@ impl JsonDoc {
 
     pub fn toggle(&self, id: u32) {
         self.visibility.write().toggle(&self.index.nodes, id);
-    }
-
-    pub fn set_collapsed(&self, id: u32, collapsed: bool) {
-        self.visibility
-            .write()
-            .set_collapsed(&self.index.nodes, id, collapsed);
     }
 
     pub fn expand_all(&self) {
@@ -266,8 +276,8 @@ impl JsonDoc {
 mod tests {
     use super::*;
 
-    fn doc(src: &str) -> JsonDoc {
-        JsonDoc::build(
+    fn doc(src: &str) -> TreeDoc {
+        TreeDoc::build(
             Arc::new(DocBytes::from(src.as_bytes().to_vec())),
             Syntax::Json,
             &ScanLimits::default(),
@@ -388,8 +398,8 @@ mod xml_tests {
         "</catalog>",
     );
 
-    fn xml_doc(src: &str) -> JsonDoc {
-        JsonDoc::build(
+    fn xml_doc(src: &str) -> TreeDoc {
+        TreeDoc::build(
             Arc::new(DocBytes::from(src.as_bytes().to_vec())),
             Syntax::Xml,
             &ScanLimits::default(),
@@ -399,7 +409,7 @@ mod xml_tests {
         .expect("scan failed")
     }
 
-    fn row_for(doc: &JsonDoc, key: &str, nth: usize) -> JsonRow {
+    fn row_for(doc: &TreeDoc, key: &str, nth: usize) -> TreeRow {
         doc.expand_all();
         doc.rows(0, 500)
             .into_iter()
@@ -519,8 +529,8 @@ mod xml_tests {
 mod converted_tests {
     use super::*;
 
-    fn tree(json: String) -> JsonDoc {
-        JsonDoc::build(
+    fn tree(json: String) -> TreeDoc {
+        TreeDoc::build(
             Arc::new(DocBytes::from(json.into_bytes())),
             Syntax::Json,
             &ScanLimits::default(),

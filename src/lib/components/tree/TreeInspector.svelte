@@ -5,18 +5,18 @@
    * The tree answers "where am I"; this answers "what is here". Selecting a
    * container shows its own entries, and selecting a scalar shows the entries
    * around it — Rust decides which, so the panel never has to know a node's
-   * parent (see `JsonIndex::table_target`).
+   * parent (see `TreeIndex::table_target`).
    */
   import ContextMenu from "../ContextMenu.svelte";
   import Icon from "../Icon.svelte";
   import Splitter from "../Splitter.svelte";
-  import JsonText from "./JsonText.svelte";
+  import EscapedText from "../EscapedText.svelte";
   import {
     errorMessage,
-    jsonChildren,
-    jsonReveal,
+    treeChildren,
+    treeReveal,
     type ChildrenPage,
-    type JsonRow,
+    type TreeRow,
   } from "../../ipc";
   import { copyMenuItems } from "./actions";
   import type { MenuItem } from "../menu";
@@ -34,29 +34,29 @@
   const PAGE = 100;
 
   let page = $state<ChildrenPage | null>(null);
-  let loaded = $state<JsonRow[]>([]);
+  let loaded = $state<TreeRow[]>([]);
   let loadingMore = $state(false);
   let error = $state<string | null>(null);
   let requestSeq = 0;
-  let menu = $state<{ x: number; y: number; row: JsonRow } | null>(null);
+  let menu = $state<{ x: number; y: number; row: TreeRow } | null>(null);
 
   // The same entries the tree offers, from the same code — see actions.ts.
   const menuItems = $derived.by((): MenuItem[] => (menu ? copyMenuItems(tab.id, menu.row) : []));
 
-  function openMenu(event: MouseEvent, row: JsonRow) {
+  function openMenu(event: MouseEvent, row: TreeRow) {
     event.preventDefault();
     menu = { x: event.clientX, y: event.clientY, row };
   }
 
   $effect(() => {
     const node = tab.selectedNode;
-    if (node === null || !tab.stats) {
+    if (node === null || !tab.treeStats) {
       page = null;
       loaded = [];
       return;
     }
     const seq = ++requestSeq;
-    jsonChildren(tab.id, node, 0, PAGE)
+    treeChildren(tab.id, node, 0, PAGE)
       .then((result) => {
         if (seq !== requestSeq) return;
         page = result;
@@ -74,7 +74,7 @@
     loadingMore = true;
     const seq = requestSeq;
     try {
-      const next = await jsonChildren(tab.id, page.target, loaded.length, PAGE);
+      const next = await treeChildren(tab.id, page.target, loaded.length, PAGE);
       if (seq !== requestSeq || !next) return;
       loaded = [...loaded, ...next.rows];
     } catch (err) {
@@ -85,10 +85,10 @@
   }
 
   /** Follow a nested container: same effect as clicking it in the tree. */
-  async function drillInto(row: JsonRow) {
+  async function drillInto(row: TreeRow) {
     try {
-      const result = await jsonReveal(tab.id, row.id);
-      tab.stats = result.stats;
+      const result = await treeReveal(tab.id, row.id);
+      tab.treeStats = result.stats;
       tab.selectedNode = row.id;
       if (result.row !== null) tab.pendingRow = result.row;
     } catch (err) {
@@ -97,7 +97,7 @@
   }
 
   /** The same labels the tree uses, so the two never disagree about a node. */
-  function label(row: JsonRow): string {
+  function label(row: TreeRow): string {
     switch (row.kind) {
       case "element":
       case "elementText":
@@ -117,7 +117,7 @@
     return row.index !== null ? `[${row.index}]` : "";
   }
 
-  function summary(row: JsonRow): string {
+  function summary(row: TreeRow): string {
     if (row.kind === "element") return row.childCount === 0 ? "< >" : "< … >";
     if (row.kind === "array") return row.childCount === 0 ? "[ ]" : "[ … ]";
     return row.childCount === 0 ? "{ }" : "{ … }";
@@ -185,7 +185,7 @@
                 class:selected={row.id === tab.selectedNode}
                 oncontextmenu={(e) => openMenu(e, row)}
               >
-                <th scope="row" title={label(row)}><JsonText text={label(row)} /></th>
+                <th scope="row" title={label(row)}><EscapedText text={label(row)} /></th>
                 <td>
                   {#if row.container}
                     <!-- Containers cannot be shown inline, so they become a way in. -->
@@ -195,9 +195,9 @@
                     </button>
                   {:else}
                     <span class="value" data-kind={row.kind} title={row.value ?? ""}>
-                      {#if row.kind === "string"}"<JsonText
+                      {#if row.kind === "string"}"<EscapedText
                           text={row.value ?? ""}
-                        />"{:else}<JsonText text={row.value ?? ""} />{/if}{#if row.truncated}…{/if}
+                        />"{:else}<EscapedText text={row.value ?? ""} />{/if}{#if row.truncated}…{/if}
                     </span>
                   {/if}
                 </td>

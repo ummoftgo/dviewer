@@ -40,24 +40,29 @@ npm run tauri build
 ```
 src/                     Svelte 5 프론트엔드
   lib/ipc.ts             Rust 커맨드의 타입 래퍼 — 백엔드 DTO와 1:1
-  lib/components/json/   트리, 키/값 표, 검색, 복사 동작
-  lib/components/table/  CSV·TSV 격자
+  lib/components/tree/   트리, 키/값 표, 검색, 복사 동작
+  lib/components/table/  CSV·TSV 격자, 열 너비
+  lib/virtual.ts         가상 스크롤 기하 (두 뷰가 공유)
   lib/components/markdown/  렌더 뷰, 원문 뷰, 목차, 브라우저 후처리
   lib/state/             탭·설정·최근 문서 (Svelte runes)
   styles/tokens.css      모든 색과 크기의 단일 출처
 src-tauri/src/
-  json/                  트리 엔진 — JSON·YAML·TOML·XML이 모두 여기로 모입니다
+  tree/                  트리 엔진 — JSON·YAML·TOML·XML이 모두 여기로 모입니다
     scanner.rs           JSON 바이트 스캐너 → 평면 노드 인덱스
     index.rs             가시성 비트셋, 자식 조회, 경로
     search.rs            본문·경로 검색
     text.rs              표시용/복사용 문자열 디코딩
+  commands/              프론트엔드에 노출되는 커맨드, 대상별로 나눔
+    document.rs          열기·닫기·형식/인코딩 전환
+    markdown.rs          원문·렌더·하이라이트·글꼴
+    tree.rs              트리 커맨드
+    table.rs             표 커맨드
   encoding.rs            인코딩 감지와 UTF-8 변환 (모든 형식의 첫 단계)
   xml.rs                 XML 스캐너 → 같은 평면 노드 인덱스
   convert.rs             YAML·TOML → JSON (트리 엔진에 넘기기 위해)
   table.rs               CSV·TSV 레코드 인덱스, 조회, 검색
   source.rs              확장자·MIME·내용으로 형식 판별
   markdown.rs            comrak + syntect + ammonia
-  commands.rs            프론트엔드에 노출되는 커맨드 전부
   examples/              창 없이 성능을 재는 측정 도구
 scripts/gen-fixtures.mjs 검증용 문서 생성 (fixtures/ 는 저장소에 없음)
 ```
@@ -83,7 +88,7 @@ scripts/gen-fixtures.mjs 검증용 문서 생성 (fixtures/ 는 저장소에 없
 
 형식마다 뷰를 만들면 일곱 벌이 되고 여섯 벌은 늘 뒤처집니다. 그래서 형식은 **어떻게 읽히는가**로 묶습니다. 프론트엔드는 `DocKind` 가 아니라 `DocView`(`prose` / `tree` / `table`)로 분기합니다.
 
-트리로 가는 네 형식은 각자 다른 방식으로 도착합니다.
+트리로 가는 네 형식은 각자 다른 방식으로 도착합니다. 모듈 이름이 `tree` 인 것도 그래서입니다 — 한때 `json` 이었지만 넷을 담당하게 된 뒤로는 형식이 아니라 **읽는 방식**을 가리켜야 맞습니다.
 
 | 형식 | 어떻게 트리가 되는가 | 왜 |
 | --- | --- | --- |

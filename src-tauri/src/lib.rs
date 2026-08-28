@@ -6,7 +6,7 @@ pub mod encoding;
 pub mod error;
 pub mod fonts;
 pub mod highlight;
-pub mod json;
+pub mod tree;
 pub mod markdown;
 pub mod table;
 pub mod xml;
@@ -37,23 +37,22 @@ pub fn run() {
             commands::render_markdown,
             commands::highlight_css,
             commands::system_fonts,
-            commands::json_open,
-            commands::json_rows,
-            commands::json_toggle,
-            commands::json_set_collapsed,
-            commands::json_expand_all,
-            commands::json_collapse_all,
-            commands::json_set_expand_depth,
-            commands::json_children,
-            commands::json_reveal,
-            commands::json_path,
-            commands::json_node_text,
-            commands::json_search,
-            commands::json_search_cancel,
-            commands::json_filter_matches,
-            commands::json_clear_filter,
-            commands::json_clear_search,
-            commands::json_hit_row,
+            commands::tree_open,
+            commands::tree_rows,
+            commands::tree_toggle,
+            commands::tree_expand_all,
+            commands::tree_collapse_all,
+            commands::tree_set_expand_depth,
+            commands::tree_children,
+            commands::tree_reveal,
+            commands::tree_path,
+            commands::tree_node_text,
+            commands::tree_search,
+            commands::tree_search_cancel,
+            commands::tree_filter_matches,
+            commands::tree_clear_filter,
+            commands::tree_clear_search,
+            commands::tree_hit_row,
             commands::table_open,
             commands::table_rows,
             commands::table_set_has_header,
