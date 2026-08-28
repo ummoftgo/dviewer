@@ -2,6 +2,7 @@
 // scanner without a window is the only honest way to check the size claims.
 pub mod bytes;
 pub mod convert;
+pub mod encoding;
 pub mod error;
 pub mod fonts;
 pub mod highlight;
@@ -29,6 +30,8 @@ pub fn run() {
             commands::open_text,
             commands::close_doc,
             commands::set_doc_kind,
+            commands::set_doc_encoding,
+            commands::encoding_choices,
             commands::startup_paths,
             commands::doc_source_text,
             commands::render_markdown,

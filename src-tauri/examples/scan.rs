@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use dviewer_lib::bytes::DocBytes;
+use dviewer_lib::encoding;
 use dviewer_lib::json::JsonDoc;
 use dviewer_lib::json::index::Syntax;
 use dviewer_lib::json::scanner::ScanLimits;
@@ -47,11 +48,17 @@ fn main() {
     // What `open_path` does before a tab can exist — the window the UI spends
     // with no feedback at all.
     let opening = Instant::now();
-    let bytes = Arc::new(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"));
-    let total = bytes.len();
+    let source = Arc::new(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"));
+    let total = source.len();
     let map_time = opening.elapsed();
+
+    // The same first step the app takes: everything after this assumes UTF-8.
+    let decoded = encoding::decode(source);
+    let bytes = decoded.bytes;
+
     println!("파일      {path} ({})", human(total));
     println!("열기      {:.1}ms (mmap + 메타데이터)", map_time.as_secs_f64() * 1000.0);
+    println!("인코딩    {}", encoding::label(decoded.encoding));
 
     let started = Instant::now();
     // An .xml file goes through the XML scanner; everything else is read as

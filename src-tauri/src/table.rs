@@ -771,6 +771,43 @@ mod tests {
         assert!(doc.cell_text(0, 0).is_none());
     }
 
+    /// The case this exists for. A Korean Windows spreadsheet writes CSV as
+    /// CP949, and the grid only ever sees what the decoder handed it — so the
+    /// two have to be checked together.
+    #[test]
+    fn a_cp949_export_reads_end_to_end() {
+        // "id,이름\n1,가나다\n2,라마바\n" as CP949.
+        let raw: &[u8] =
+            b"id,\xc0\xcc\xb8\xa7\n1,\xb0\xa1\xb3\xaa\xb4\xd9\n2,\xb6\xf3\xb8\xb6\xb9\xd9\n";
+        let decoded = crate::encoding::decode(Arc::new(DocBytes::from(raw.to_vec())));
+        assert_eq!(decoded.encoding.name(), "EUC-KR");
+
+        let delimiter = sniff_delimiter(&decoded.bytes);
+        let doc = TableDoc::build(decoded.bytes, delimiter, |_| {}, &|| false).expect("build");
+        assert_eq!(doc.header(), vec!["id", "이름"]);
+        assert_eq!(texts(&doc.page(0, 10).rows[0]), ["1", "가나다"]);
+        assert_eq!(doc.cell_text(1, 1).expect("cell").0, "라마바");
+    }
+
+    /// UTF-16 is the other one a spreadsheet produces, and there the raw bytes
+    /// do not even split into rows correctly — the NUL after every character
+    /// makes a mess of the record scan until it has been decoded.
+    #[test]
+    fn a_utf16_export_reads_end_to_end() {
+        let mut raw = vec![0xff, 0xfe];
+        for unit in "id\t이름\n1\t가나다\n".encode_utf16() {
+            raw.extend_from_slice(&unit.to_le_bytes());
+        }
+        let decoded = crate::encoding::decode(Arc::new(DocBytes::from(raw)));
+        let delimiter = sniff_delimiter(&decoded.bytes);
+        assert_eq!(delimiter, b'\t');
+
+        let doc = TableDoc::build(decoded.bytes, delimiter, |_| {}, &|| false).expect("build");
+        assert_eq!(doc.stats().row_count, 1);
+        assert_eq!(doc.header(), vec!["id", "이름"]);
+        assert_eq!(texts(&doc.page(0, 10).rows[0]), ["1", "가나다"]);
+    }
+
     #[test]
     fn a_byte_order_mark_does_not_become_part_of_the_first_header() {
         let doc = doc("\u{feff}a,b\n1,2\n", b',');

@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use dviewer_lib::bytes::DocBytes;
+use dviewer_lib::encoding;
 use dviewer_lib::table::{self, TableDoc};
 
 fn human(bytes: usize) -> String {
@@ -33,13 +34,22 @@ fn main() {
     let query = args.next();
 
     let opening = Instant::now();
-    let bytes = Arc::new(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"));
-    let total = bytes.len();
+    let source = Arc::new(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"));
+    let total = source.len();
     let map_time = opening.elapsed();
+
+    // The same first step the app takes: a CP949 or UTF-16 file has to become
+    // UTF-8 before anything looks for a delimiter in it.
+    let decoded = encoding::decode(source);
+    let bytes = decoded.bytes;
     let delimiter = table::sniff_delimiter(&bytes);
 
     println!("파일      {path} ({})", human(total));
     println!("열기      {:.1}ms (mmap + 메타데이터)", map_time.as_secs_f64() * 1000.0);
+    println!("인코딩    {}", encoding::label(decoded.encoding));
+    if let Some(warning) = &decoded.warning {
+        println!("경고      {warning}");
+    }
     println!("구분자    {}", table::delimiter_name(delimiter));
 
     let started = Instant::now();

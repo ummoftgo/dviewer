@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
-  import { DOC_KINDS, type DocKind } from "../ipc";
+  import { DOC_KINDS, encodingChoices, type DocKind } from "../ipc";
   import { workspace, type DocTab } from "../state/docs.svelte";
   import { settings } from "../state/settings.svelte";
 
@@ -12,6 +13,32 @@
   }
 
   let { tab, showToc, onToggleToc, onOpenSettings }: Props = $props();
+
+  let encodings = $state<[string, string][]>([]);
+  onMount(() => {
+    void encodingChoices().then((list) => (encodings = list));
+  });
+
+  /**
+   * Only a guess can be wrong, so only a guess is worth drawing attention to.
+   * A BOM, valid UTF-8, or the reader's own choice are all settled facts.
+   */
+  const encodingUncertain = $derived(tab.meta.encoding.source === "guessed");
+
+  const encodingHint = $derived.by(() => {
+    const encoding = tab.meta.encoding;
+    if (encoding.warning) return encoding.warning;
+    switch (encoding.source) {
+      case "bom":
+        return `${encoding.label} — BOM으로 확인했습니다.`;
+      case "utf8":
+        return "UTF-8로 읽었습니다.";
+      case "chosen":
+        return `${encoding.label} — 직접 고른 인코딩입니다.`;
+      default:
+        return `${encoding.label} 로 추측했습니다. 글자가 깨져 보이면 바꿔 보세요.`;
+    }
+  });
 
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -61,6 +88,28 @@
         {#each DOC_KINDS as entry (entry.kind)}
           <option value={entry.kind}>{entry.label}</option>
         {/each}
+      </select>
+    </label>
+
+    <!-- Beside the format picker because the two answer the same question in
+         sequence: what is this file, and how do I read its bytes. -->
+    <label class="format encoding" class:uncertain={encodingUncertain} title={encodingHint}>
+      {#if tab.meta.encoding.warning}
+        <span class="warn" aria-hidden="true"><Icon name="warning" size={12} /></span>
+      {/if}
+      인코딩
+      <select
+        value={tab.meta.encoding.name}
+        onchange={(e) => workspace.setEncoding(tab.id, e.currentTarget.value)}
+      >
+        {#each encodings as [name, label] (name)}
+          <option value={name}>{label}</option>
+        {/each}
+        {#if !encodings.some(([name]) => name === tab.meta.encoding.name)}
+          <!-- Detection can land on something outside the short menu; showing
+               it keeps the control from lying about what is in effect. -->
+          <option value={tab.meta.encoding.name}>{tab.meta.encoding.label}</option>
+        {/if}
       </select>
     </label>
 
@@ -133,6 +182,15 @@
     background: var(--bg-inset);
     color: var(--text);
     font: inherit;
+  }
+
+  .encoding.uncertain select {
+    border-color: var(--warning);
+  }
+
+  .encoding .warn {
+    display: flex;
+    color: var(--warning);
   }
 
   .scale {

@@ -10,6 +10,7 @@ use crate::error::{Error, Result};
 use crate::fonts::{self, FontFamily};
 use crate::highlight::{self, HighlightCss};
 use crate::convert;
+use crate::encoding;
 use crate::json::index::Syntax;
 use crate::json::search::{SearchHit, SearchOptions, SearchSummary};
 use crate::json::{ChildrenPage, JsonDoc, JsonRow, JsonStats, scanner::ScanLimits};
@@ -38,13 +39,17 @@ pub async fn open_path(
         let path = path.clone();
         move || {
             let (bytes, title, base_dir) = source::load_file(&path)?;
-            let kind = source::detect_kind(&title, &bytes);
-            Ok::<_, Error>((bytes, title, base_dir, kind))
+            let bytes = Arc::new(bytes);
+            // Decoding comes first: a UTF-16 document does not even begin with
+            // the character that would say what format it is.
+            let decoded = encoding::decode(Arc::clone(&bytes));
+            let kind = source::detect_kind(&title, &decoded.bytes);
+            Ok::<_, Error>((bytes, decoded, title, base_dir, kind))
         }
     })
     .await
     .map_err(|e| Error::rejected(e.to_string()))??;
-    let (bytes, title, base_dir, kind) = opened;
+    let (bytes, decoded, title, base_dir, kind) = opened;
 
     // Images in a markdown file are relative to it. Widen the asset scope to
     // that one directory rather than granting the webview the whole disk.
@@ -61,6 +66,7 @@ pub async fn open_path(
             base_dir,
             kind,
             bytes,
+            decoded,
         ))
         .meta())
 }
@@ -75,10 +81,12 @@ pub async fn open_url(state: State<'_, AppState>, url: String) -> Result<DocMeta
     .await
     .map_err(|e| Error::Fetch(e.to_string()))??;
 
+    let bytes = Arc::new(DocBytes::from(fetched.bytes));
+    let decoded = encoding::decode(Arc::clone(&bytes));
     let kind = source::kind_from_response(
         &fetched.title,
         fetched.content_type.as_deref(),
-        &fetched.bytes,
+        &decoded.bytes,
     );
 
     Ok(state
@@ -88,7 +96,8 @@ pub async fn open_url(state: State<'_, AppState>, url: String) -> Result<DocMeta
             DocSource::Url { url },
             None,
             kind,
-            DocBytes::from(fetched.bytes),
+            bytes,
+            decoded,
         ))
         .meta())
 }
@@ -103,9 +112,12 @@ pub fn open_text(
     if content.trim().is_empty() {
         return Err(Error::rejected("붙여넣은 내용이 비어 있습니다."));
     }
-    let bytes = content.into_bytes();
+    // Pasted text arrived as a Rust String, so it is already UTF-8 and the
+    // decode is free; it runs anyway so every document reports an encoding.
+    let bytes = Arc::new(DocBytes::from(content.into_bytes()));
+    let decoded = encoding::decode(Arc::clone(&bytes));
     let title = title.unwrap_or_else(|| "붙여넣은 문서".to_owned());
-    let kind = kind.unwrap_or_else(|| source::detect_kind(&title, &bytes));
+    let kind = kind.unwrap_or_else(|| source::detect_kind(&title, &decoded.bytes));
 
     Ok(state
         .insert(Document::new(
@@ -114,7 +126,8 @@ pub fn open_text(
             DocSource::Text,
             None,
             kind,
-            DocBytes::from(bytes),
+            bytes,
+            decoded,
         ))
         .meta())
 }
@@ -133,6 +146,34 @@ pub fn set_doc_kind(state: State<'_, AppState>, doc_id: DocId, kind: DocKind) ->
     Ok(doc.meta())
 }
 
+/// Read the document as a different encoding.
+///
+/// Detection is a guess and a short file can be valid in several encodings at
+/// once, so this is the escape hatch. Everything derived from the old reading
+/// is dropped: byte offsets do not survive a change of encoding.
+#[tauri::command]
+pub fn set_doc_encoding(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    encoding_name: String,
+) -> Result<DocMeta> {
+    let target = encoding::by_name(&encoding_name)
+        .ok_or_else(|| Error::rejected(format!("모르는 인코딩입니다: {encoding_name}")))?;
+    let doc = state.get(doc_id)?;
+    state.cancel_jobs(doc_id);
+    doc.set_encoding(target);
+    Ok(doc.meta())
+}
+
+/// The encodings the picker offers, in menu order.
+#[tauri::command]
+pub fn encoding_choices() -> Vec<(String, String)> {
+    encoding::CHOICES
+        .iter()
+        .map(|(name, label)| ((*name).to_owned(), (*label).to_owned()))
+        .collect()
+}
+
 /// Paths passed on the command line, so `dviewer report.md` works.
 #[tauri::command]
 pub fn startup_paths() -> Vec<String> {
@@ -148,15 +189,16 @@ pub fn startup_paths() -> Vec<String> {
 #[tauri::command]
 pub async fn doc_source_text(state: State<'_, AppState>, doc_id: DocId) -> Result<String> {
     let doc = state.get(doc_id)?;
-    if doc.bytes.len() > MAX_MARKDOWN_BYTES {
+    let bytes = doc.bytes();
+    if bytes.len() > MAX_MARKDOWN_BYTES {
         return Err(Error::rejected(format!(
             "원문이 너무 큽니다 ({}MB). 최대 {}MB까지 표시합니다.",
-            doc.bytes.len() / 1024 / 1024,
+            bytes.len() / 1024 / 1024,
             MAX_MARKDOWN_BYTES / 1024 / 1024
         )));
     }
-    // Decoding megabytes of UTF-8 is not something to do on the UI thread.
-    let bytes = Arc::clone(&doc.bytes);
+    // Turning megabytes of bytes into a String is not something to do on the
+    // UI thread.
     tauri::async_runtime::spawn_blocking(move || decode_utf8(&bytes))
         .await
         .map_err(|e| Error::rejected(e.to_string()))
@@ -168,14 +210,15 @@ pub async fn render_markdown(
     doc_id: DocId,
 ) -> Result<RenderedMarkdown> {
     let doc = state.get(doc_id)?;
-    if doc.bytes.len() > MAX_MARKDOWN_BYTES {
+    let bytes = doc.bytes();
+    if bytes.len() > MAX_MARKDOWN_BYTES {
         return Err(Error::rejected(format!(
             "문서가 너무 큽니다 ({}MB). 마크다운 렌더링은 {}MB까지 지원합니다.",
-            doc.bytes.len() / 1024 / 1024,
+            bytes.len() / 1024 / 1024,
             MAX_MARKDOWN_BYTES / 1024 / 1024
         )));
     }
-    let source = decode_utf8(&doc.bytes);
+    let source = decode_utf8(&bytes);
     // Highlighting a large document takes long enough to drop frames.
     tauri::async_runtime::spawn_blocking(move || markdown::render(&source))
         .await
@@ -243,7 +286,7 @@ pub fn json_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
     }
 
     let cancel = state.start_index_job(doc_id);
-    let source = Arc::clone(&doc.bytes);
+    let source = doc.bytes();
     let kind = doc.kind();
 
     std::thread::spawn(move || {
@@ -604,7 +647,7 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
     }
 
     let cancel = state.start_index_job(doc_id);
-    let bytes = Arc::clone(&doc.bytes);
+    let bytes = doc.bytes();
     let total = bytes.len();
     // `.tsv` names its delimiter and is taken at its word. `.csv` does not:
     // the extension is used loosely, and a European spreadsheet's semicolons

@@ -7,6 +7,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::bytes::DocBytes;
+use crate::encoding::{self, Decoded, EncodingSource};
 use crate::error::{Error, Result};
 use crate::json::JsonDoc;
 use crate::table::TableDoc;
@@ -57,6 +58,18 @@ pub enum DocSource {
     Text,
 }
 
+/// The encoding a document is being read as, and how confident that is.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncodingInfo {
+    /// Canonical name, which is also what the picker sends back.
+    pub name: String,
+    pub label: String,
+    pub source: EncodingSource,
+    /// Shown beside the picker when something did not decode cleanly.
+    pub warning: Option<String>,
+}
+
 /// What the frontend needs to render a tab. Deliberately small — the document
 /// body never crosses the IPC boundary as a whole.
 #[derive(Debug, Clone, Serialize)]
@@ -67,7 +80,9 @@ pub struct DocMeta {
     pub kind: DocKind,
     pub view: DocView,
     pub source: DocSource,
+    /// Size on disk, not after decoding — it is the file the reader recognises.
     pub byte_len: usize,
+    pub encoding: EncodingInfo,
     /// Directory that relative image paths resolve against (file sources only).
     pub base_dir: Option<String>,
 }
@@ -77,12 +92,21 @@ pub struct Document {
     pub title: String,
     pub source: DocSource,
     pub base_dir: Option<PathBuf>,
-    pub bytes: Arc<DocBytes>,
+    /// The file exactly as it is on disk. Kept so another encoding can be
+    /// applied later without going back to the disk — and because for a UTF-8
+    /// document this is the same allocation the rest of the app reads.
+    pub source_bytes: Arc<DocBytes>,
     inner: RwLock<DocInner>,
 }
 
 struct DocInner {
     kind: DocKind,
+    /// UTF-8, which is what every scanner assumes. Shares its allocation with
+    /// `source_bytes` unless the file had to be transcoded.
+    bytes: Arc<DocBytes>,
+    encoding: &'static encoding_rs::Encoding,
+    encoding_source: EncodingSource,
+    encoding_warning: Option<String>,
     /// Built lazily and in the background; None until indexing completes.
     /// Only one of the two is ever populated — a document is a tree or a grid,
     /// never both.
@@ -97,20 +121,44 @@ impl Document {
         source: DocSource,
         base_dir: Option<PathBuf>,
         kind: DocKind,
-        bytes: DocBytes,
+        source_bytes: Arc<DocBytes>,
+        decoded: Decoded,
     ) -> Self {
         Self {
             id,
             title,
             source,
             base_dir,
-            bytes: Arc::new(bytes),
+            source_bytes,
             inner: RwLock::new(DocInner {
                 kind,
+                bytes: decoded.bytes,
+                encoding: decoded.encoding,
+                encoding_source: decoded.source,
+                encoding_warning: decoded.warning,
                 tree: None,
                 table: None,
             }),
         }
+    }
+
+    /// The document's bytes, in UTF-8.
+    pub fn bytes(&self) -> Arc<DocBytes> {
+        Arc::clone(&self.inner.read().bytes)
+    }
+
+    /// Re-read the file as `encoding`. Everything derived from the old reading
+    /// is dropped: the byte offsets an index is built from do not survive a
+    /// change of encoding.
+    pub fn set_encoding(&self, encoding: &'static encoding_rs::Encoding) {
+        let decoded = encoding::decode_as(Arc::clone(&self.source_bytes), encoding);
+        let mut inner = self.inner.write();
+        inner.bytes = decoded.bytes;
+        inner.encoding = decoded.encoding;
+        inner.encoding_source = decoded.source;
+        inner.encoding_warning = decoded.warning;
+        inner.tree = None;
+        inner.table = None;
     }
 
     pub fn kind(&self) -> DocKind {
@@ -146,13 +194,20 @@ impl Document {
     }
 
     pub fn meta(&self) -> DocMeta {
+        let inner = self.inner.read();
         DocMeta {
             id: self.id,
             title: self.title.clone(),
-            kind: self.kind(),
-            view: self.kind().view(),
+            kind: inner.kind,
+            view: inner.kind.view(),
             source: self.source.clone(),
-            byte_len: self.bytes.len(),
+            byte_len: self.source_bytes.len(),
+            encoding: EncodingInfo {
+                name: inner.encoding.name().to_owned(),
+                label: encoding::label(inner.encoding),
+                source: inner.encoding_source,
+                warning: inner.encoding_warning.clone(),
+            },
             base_dir: self.base_dir.as_ref().map(|p| p.to_string_lossy().into_owned()),
         }
     }

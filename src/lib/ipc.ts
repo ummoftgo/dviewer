@@ -67,13 +67,27 @@ export type DocSource =
   | { type: "url"; url: string }
   | { type: "text" };
 
+/** How the encoding in effect was arrived at. Only `guessed` can be wrong. */
+export type EncodingSource = "bom" | "utf8" | "guessed" | "chosen";
+
+export interface EncodingInfo {
+  /** Canonical name, and what the picker sends back. */
+  name: string;
+  label: string;
+  source: EncodingSource;
+  /** Set when something did not decode cleanly. */
+  warning: string | null;
+}
+
 export interface DocMeta {
   id: number;
   title: string;
   kind: DocKind;
   view: DocView;
   source: DocSource;
+  /** Size on disk, not after decoding. */
   byteLen: number;
+  encoding: EncodingInfo;
   baseDir: string | null;
 }
 
@@ -251,7 +265,20 @@ export const openText = (content: string, title?: string, kind?: DocKind) =>
 export const closeDoc = (docId: number) => invoke<void>("close_doc", { docId });
 export const setDocKind = (docId: number, kind: DocKind) =>
   invoke<DocMeta>("set_doc_kind", { docId, kind });
+export const setDocEncoding = (docId: number, encodingName: string) =>
+  invoke<DocMeta>("set_doc_encoding", { docId, encodingName });
 export const startupPaths = () => invoke<string[]>("startup_paths");
+
+/**
+ * The encodings the picker offers, as `[name, label]`. The list lives in Rust
+ * so the names it sends back are always ones the decoder knows; it never
+ * changes, so it is fetched once.
+ */
+let encodingChoicesCache: Promise<[string, string][]> | null = null;
+export function encodingChoices(): Promise<[string, string][]> {
+  encodingChoicesCache ??= invoke<[string, string][]>("encoding_choices");
+  return encodingChoicesCache;
+}
 
 // --- markdown -------------------------------------------------------------
 

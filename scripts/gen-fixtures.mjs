@@ -295,6 +295,31 @@ await writeFile(
 );
 console.log("  sample.csv");
 
+// Encodings a spreadsheet actually produces. Written as bytes rather than
+// strings because the point is what lands on disk, not what Node holds.
+await writeFile(
+  path.join(OUT, "utf8bom.csv"),
+  Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("id,이름,메모\n1,가나다,BOM이 붙은 UTF-8\n", "utf8")]),
+);
+console.log("  utf8bom.csv");
+
+await writeFile(
+  path.join(OUT, "cp949.csv"),
+  // Node cannot encode CP949, so the bytes are given directly:
+  // "id,이름,메모\n1,가나다,한국 윈도우 엑셀의 기본\n"
+  Buffer.from(
+    "69642cc0ccb8a72cb8deb8f00a312cb0a1b3aab4d92cc7d1b1b920c0a9b5b5bfec20bfa2bcbfc0c720b1e2babb0a",
+    "hex",
+  ),
+);
+console.log("  cp949.csv (참고: 바이트를 직접 씀)");
+
+await writeFile(
+  path.join(OUT, "utf16.csv"),
+  Buffer.from("\ufeffid\t이름\t메모\n1\t가나다\tUTF-16 LE\n", "utf16le"),
+);
+console.log("  utf16.csv");
+
 await writeFile(
   path.join(OUT, "semicolon.csv"),
   `id;이름;점수

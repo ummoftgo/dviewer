@@ -264,6 +264,21 @@ class Workspace {
     }
   }
 
+  /** Re-read a document as a different character encoding. */
+  async setEncoding(id: number, encodingName: string) {
+    const tab = this.tabs.find((t) => t.id === id);
+    if (!tab || tab.meta.encoding.name === encodingName) return;
+    try {
+      const meta = await ipc.setDocEncoding(id, encodingName);
+      // Byte offsets do not survive a change of encoding, so every index built
+      // from the old reading has to go with it.
+      tab.invalidate();
+      tab.meta = meta;
+    } catch (err) {
+      tab.error = ipc.errorMessage(err);
+    }
+  }
+
   tab(id: number): DocTab | null {
     return this.tabs.find((t) => t.id === id) ?? null;
   }
@@ -304,6 +319,8 @@ function placeholder(source: string, docSource?: DocMeta["source"]): DocMeta {
     view: viewOf(kind),
     source: docSource ?? { type: "file", path: source },
     byteLen: 0,
+    // Stand-in until the backend has actually looked at the bytes.
+    encoding: { name: "UTF-8", label: "UTF-8", source: "utf8", warning: null },
     baseDir: null,
   };
 }
