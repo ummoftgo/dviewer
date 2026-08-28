@@ -603,7 +603,24 @@
           {/if}
 
           {#if row.container}
-            <span class="summary">{summarize(row)}</span>
+            <!-- The same action as the twisty, on a target the eye is already
+                 looking at. `{ 3 }` reads as the thing that is folded up, so
+                 clicking it to unfold is what a reader tries first — and the
+                 twisty is a 1.1em box at the far left of the row.
+
+                 tabindex -1 because the twisty is already the keyboard
+                 affordance for this; a second tab stop per row would be noise. -->
+            <button
+              class="summary"
+              tabindex="-1"
+              aria-label="{summarize(row)} {row.collapsed ? '펼치기' : '접기'}"
+              title={row.collapsed ? "펼치기" : "접기"}
+              onclick={(e) => {
+                e.stopPropagation();
+                selectedRow = rowIndex;
+                void toggle(row);
+              }}>{summarize(row)}</button
+            >
           {:else}
             <span class="value" data-kind={row.kind}>
               {#if row.kind === "string"}"<JsonText text={row.value ?? ""} />"{:else}<JsonText
@@ -893,7 +910,19 @@
   }
 
   .summary {
+    flex: none;
+    padding: 0 0.2em;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
     color: var(--json-punct);
+    font: inherit;
+    cursor: default;
+  }
+
+  .summary:hover {
+    background: var(--bg-active);
+    color: var(--text);
   }
 
   .value {

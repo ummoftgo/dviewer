@@ -542,6 +542,11 @@ mod converted_tests {
         let ports = rows.iter().find(|r| r.key.as_deref() == Some("ports")).expect("ports");
         assert_eq!(doc.path_of(ports.id).as_deref(), Some("$.service.ports"));
         assert_eq!(ports.child_count, 2);
+        // The tree draws a clickable `[ 2 ]` for anything flagged a container,
+        // so a converted document has to arrive flagged the same way a JSON one
+        // does or it would show a summary that does nothing.
+        assert!(ports.container, "a converted array must still be a container");
+        assert!(rows[0].container, "a converted root object must be a container");
     }
 
     #[test]
@@ -556,5 +561,14 @@ mod converted_tests {
             .expect("host");
         assert_eq!(host.value.as_deref(), Some("localhost"));
         assert_eq!(doc.node_text(host.id).expect("host").0, "localhost");
+        assert!(!host.container, "a scalar has no summary to click");
+
+        let server = doc
+            .rows(0, 100)
+            .into_iter()
+            .find(|r| r.key.as_deref() == Some("server"))
+            .expect("server");
+        assert!(server.container, "a converted table must be a container");
+        assert_eq!(server.child_count, 2);
     }
 }
