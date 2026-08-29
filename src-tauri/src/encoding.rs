@@ -63,13 +63,27 @@ pub enum EncodingSource {
     Chosen,
 }
 
+/// Something the reader should know about how the document was decoded.
+///
+/// A code and its parameters, like `Error` — the sentence is built in the
+/// frontend so it follows the chosen language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "code", content = "params", rename_all = "camelCase")]
+pub enum DecodeWarning {
+    /// Detected as something other than UTF-8, but too large to transcode.
+    #[serde(rename_all = "camelCase")]
+    TooLargeToDecode { encoding: String, limit_mb: usize },
+    /// Decoded, but some bytes the encoding cannot represent were replaced.
+    UndecodableBytes { encoding: String },
+}
+
 pub struct Decoded {
     /// UTF-8 bytes. The same allocation as the source when it already was.
     pub bytes: Arc<DocBytes>,
     pub encoding: &'static Encoding,
     pub source: EncodingSource,
-    /// Set when the encoding in effect is not the one that was detected.
-    pub warning: Option<String>,
+    /// Set when the reading did not go entirely cleanly.
+    pub warning: Option<DecodeWarning>,
 }
 
 pub fn by_name(name: &str) -> Option<&'static Encoding> {
@@ -143,22 +157,18 @@ fn transcode(
             bytes: source,
             encoding: encoding_rs::UTF_8,
             source: EncodingSource::Utf8,
-            warning: Some(format!(
-                "{} 문서로 보이지만 {}MB를 넘어 변환하지 않았습니다. 글자가 깨져 보일 수 있습니다.",
-                label(encoding),
-                MAX_DECODE_BYTES / 1024 / 1024
-            )),
+            warning: Some(DecodeWarning::TooLargeToDecode {
+                encoding: label(encoding),
+                limit_mb: MAX_DECODE_BYTES / 1024 / 1024,
+            }),
         };
     }
 
     // `decode` strips the BOM and substitutes U+FFFD for bytes the encoding
     // cannot represent, which is what a viewer wants: show the rest.
     let (text, _, had_errors) = encoding.decode(&source);
-    let warning = had_errors.then(|| {
-        format!(
-            "{}로 읽었지만 해석할 수 없는 바이트가 있습니다. 인코딩이 다를 수 있습니다.",
-            label(encoding)
-        )
+    let warning = had_errors.then(|| DecodeWarning::UndecodableBytes {
+        encoding: label(encoding),
     });
 
     Decoded {

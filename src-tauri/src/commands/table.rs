@@ -7,7 +7,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use super::{DocError, IndexProgress};
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, Subject};
 use crate::state::{AppState, DocId, DocKind, DocView};
 use crate::table::{self, TableDoc, TablePage, TableSearch, TableStats};
 
@@ -39,7 +39,9 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
         return Ok(());
     }
     if doc.kind().view() != DocView::Table {
-        return Err(Error::rejected("이 형식은 표로 볼 수 없습니다."));
+        return Err(Error::WrongView {
+            subject: Subject::Table,
+        });
     }
 
     let cancel = state.start_index_job(doc_id);
@@ -108,7 +110,9 @@ fn table_doc(state: &State<'_, AppState>, doc_id: DocId) -> Result<Arc<TableDoc>
     state
         .get(doc_id)?
         .table()
-        .ok_or_else(|| Error::rejected("아직 표를 읽는 중입니다."))
+        .ok_or(Error::NotReady {
+            subject: Subject::Table,
+        })
 }
 
 #[tauri::command]
@@ -163,7 +167,7 @@ pub fn table_cell_text(
 ) -> Result<CellText> {
     let (text, truncated) = table_doc(&state, doc_id)?
         .cell_text(row, column)
-        .ok_or_else(|| Error::rejected("해당 칸을 찾을 수 없습니다."))?;
+        .ok_or(Error::NoSuchCell)?;
     Ok(CellText { text, truncated })
 }
 
@@ -172,7 +176,7 @@ pub fn table_cell_text(
 pub fn table_row_text(state: State<'_, AppState>, doc_id: DocId, row: u32) -> Result<CellText> {
     let text = table_doc(&state, doc_id)?
         .row_text(row)
-        .ok_or_else(|| Error::rejected("해당 행을 찾을 수 없습니다."))?;
+        .ok_or(Error::NoSuchRow)?;
     Ok(CellText {
         truncated: false,
         text,
@@ -195,5 +199,5 @@ pub async fn table_search(
     let cancel = state.start_search_job(doc_id);
     tauri::async_runtime::spawn_blocking(move || table.search(&query, case_sensitive, &cancel))
         .await
-        .map_err(|e| Error::rejected(e.to_string()))?
+        .map_err(Error::internal)?
 }

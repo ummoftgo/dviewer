@@ -7,6 +7,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { t, type MessageKey } from "./i18n";
 
 export type DocKind = "markdown" | "json" | "yaml" | "toml" | "xml" | "csv" | "tsv";
 
@@ -17,14 +18,15 @@ export type DocKind = "markdown" | "json" | "yaml" | "toml" | "xml" | "csv" | "t
 export type DocView = "prose" | "tree" | "table";
 
 /** Menu order and labels for the format switcher, in one place. */
-export const DOC_KINDS: { kind: DocKind; label: string }[] = [
-  { kind: "markdown", label: "마크다운" },
-  { kind: "json", label: "JSON" },
-  { kind: "yaml", label: "YAML" },
-  { kind: "toml", label: "TOML" },
-  { kind: "xml", label: "XML" },
-  { kind: "csv", label: "CSV" },
-  { kind: "tsv", label: "TSV" },
+/** Menu order for the format switcher. `label` is a message key, not text. */
+export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
+  { kind: "markdown", label: "format.markdown" },
+  { kind: "json", label: "format.json" },
+  { kind: "yaml", label: "format.yaml" },
+  { kind: "toml", label: "format.toml" },
+  { kind: "xml", label: "format.xml" },
+  { kind: "csv", label: "format.csv" },
+  { kind: "tsv", label: "format.tsv" },
 ];
 
 export function viewOf(kind: DocKind): DocView {
@@ -40,7 +42,8 @@ export function viewOf(kind: DocKind): DocView {
 }
 
 export function kindLabel(kind: DocKind): string {
-  return DOC_KINDS.find((entry) => entry.kind === kind)?.label ?? kind;
+  const entry = DOC_KINDS.find((candidate) => candidate.kind === kind);
+  return entry ? t(entry.label) : kind;
 }
 
 /**
@@ -70,13 +73,19 @@ export type DocSource =
 /** How the encoding in effect was arrived at. Only `guessed` can be wrong. */
 export type EncodingSource = "bom" | "utf8" | "guessed" | "chosen";
 
+/** Shaped like `BackendError`: a code and its parameters, translated here. */
+export interface DecodeWarning {
+  code: string;
+  params?: Record<string, unknown>;
+}
+
 export interface EncodingInfo {
   /** Canonical name, and what the picker sends back. */
   name: string;
   label: string;
   source: EncodingSource;
   /** Set when something did not decode cleanly. */
-  warning: string | null;
+  warning: DecodeWarning | null;
 }
 
 export interface DocMeta {
@@ -220,7 +229,7 @@ export interface TableStats {
   columnCount: number;
   byteLen: number;
   indexBytes: number;
-  /** The delimiter as a display name, e.g. "쉼표". */
+  /** A code the `delimiter.*` messages translate, e.g. "comma". */
   delimiter: string;
   hasHeader: boolean;
   truncated: boolean;
@@ -388,9 +397,43 @@ export function on<K extends keyof EventMap>(
   return listen<EventMap[K]>(name, (event) => handler(event.payload));
 }
 
-/** Backend errors arrive as plain strings; anything else is a bug in the bridge. */
+/**
+ * A failure from Rust: a code and the values that fill its message in. The
+ * sentence is built here, in the reader's language — see `src/lib/i18n/`.
+ */
+export interface BackendError {
+  code: string;
+  params?: Record<string, unknown>;
+}
+
+function isBackendError(err: unknown): err is BackendError {
+  return typeof err === "object" && err !== null && typeof (err as BackendError).code === "string";
+}
+
+/**
+ * Two parameters are themselves codes — `subject` says what the failure is
+ * about, `reason` says what the JSON scanner tripped on — so they are
+ * translated before being interpolated into the sentence around them.
+ */
+function readable(params: Record<string, unknown> | undefined): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(params ?? {})) {
+    if (name === "subject") out[name] = t(`subject.${value}` as MessageKey);
+    else if (name === "reason") out[name] = t(`syntax.${value}` as MessageKey);
+    else out[name] = value as string | number;
+  }
+  return out;
+}
+
 export function errorMessage(err: unknown): string {
-  if (typeof err === "string") return err;
+  if (isBackendError(err)) return t(`error.${err.code}` as MessageKey, readable(err.params));
+  // A plain Error is ours — a bridge failure, or something thrown in a view.
   if (err instanceof Error) return err.message;
-  return String(err);
+  if (typeof err === "string") return err;
+  return t("error.unknown", { detail: String(err) });
+}
+
+/** The same treatment for a decode warning, which is shaped like an error. */
+export function warningMessage(warning: DecodeWarning): string {
+  return t(`warning.${warning.code}` as MessageKey, readable(warning.params));
 }

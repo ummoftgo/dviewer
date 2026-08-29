@@ -48,7 +48,9 @@ fn main() {
     println!("열기      {:.1}ms (mmap + 메타데이터)", map_time.as_secs_f64() * 1000.0);
     println!("인코딩    {}", encoding::label(decoded.encoding));
     if let Some(warning) = &decoded.warning {
-        println!("경고      {warning}");
+        // The app translates this; a measurement tool only needs to see that
+        // something was flagged.
+        println!("경고      {warning:?}");
     }
     println!("구분자    {}", table::delimiter_name(delimiter));
 

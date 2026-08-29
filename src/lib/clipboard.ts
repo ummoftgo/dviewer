@@ -5,6 +5,8 @@
  * webview those conditions are usually met but not guaranteed, and silently
  * losing a copy is worse than the old textarea trick.
  */
+import { t } from "./i18n";
+
 export async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -21,7 +23,7 @@ export async function copyText(text: string): Promise<void> {
   document.body.append(scratch);
   scratch.select();
   try {
-    if (!document.execCommand("copy")) throw new Error("복사할 수 없습니다.");
+    if (!document.execCommand("copy")) throw new Error(t("toast.copyFailed"));
   } finally {
     scratch.remove();
   }

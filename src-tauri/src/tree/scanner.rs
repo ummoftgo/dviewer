@@ -10,7 +10,7 @@
 
 use serde::Serialize;
 
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, SyntaxReason};
 
 /// Node ids and byte offsets are `u32`, which caps a document at 4GiB.
 pub const MAX_DOC_BYTES: usize = u32::MAX as usize;
@@ -134,10 +134,10 @@ pub fn scan(
     should_stop: &dyn Fn() -> bool,
 ) -> Result<Scan> {
     if bytes.len() > MAX_DOC_BYTES {
-        return Err(Error::Json(format!(
-            "파일이 너무 큽니다 ({}GB). 최대 4GB까지 열 수 있습니다.",
-            bytes.len() / 1024 / 1024 / 1024
-        )));
+        return Err(Error::FileTooLarge {
+            gigabytes: bytes.len() / 1024 / 1024 / 1024,
+            limit_gb: MAX_DOC_BYTES / 1024 / 1024 / 1024,
+        });
     }
 
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
@@ -204,7 +204,7 @@ impl Scanner<'_, '_> {
         let mut roots = 0u32;
         self.skip_ws();
         if self.p >= self.b.len() {
-            return Err(Error::Json("내용이 비어 있습니다.".into()));
+            return Err(Error::JsonEmpty);
         }
 
         loop {
@@ -237,7 +237,7 @@ impl Scanner<'_, '_> {
 
         self.skip_ws();
         if self.p < self.b.len() {
-            return Err(self.err_at("값 뒤에 해석할 수 없는 내용이 있습니다"));
+            return Err(self.err_at(SyntaxReason::TrailingContent));
         }
         Ok(roots)
     }
@@ -264,7 +264,7 @@ impl Scanner<'_, '_> {
             };
 
             if self.p >= self.b.len() {
-                return Err(self.err_at("닫는 괄호가 없습니다"));
+                return Err(self.err_at(SyntaxReason::MissingCloser));
             }
 
             let is_object = self.nodes[open_id as usize].kind == Kind::Object;
@@ -278,7 +278,7 @@ impl Scanner<'_, '_> {
                 }
                 b'}' if is_object => self.close_container(),
                 b']' if !is_object => self.close_container(),
-                _ => return Err(self.err_at("',' 또는 닫는 괄호가 필요합니다")),
+                _ => return Err(self.err_at(SyntaxReason::ExpectedCommaOrCloser)),
             }
         }
     }
@@ -298,17 +298,16 @@ impl Scanner<'_, '_> {
     fn begin_value(&mut self, key: Option<(u32, u32)>) -> Result<()> {
         self.skip_ws();
         if self.p >= self.b.len() {
-            return Err(self.err_at("값이 필요합니다"));
+            return Err(self.err_at(SyntaxReason::ExpectedValue));
         }
 
         if self.nodes.len() as u32 >= self.limits.max_nodes {
-            return Err(Error::Json(format!(
-                "노드가 너무 많습니다 (최대 {}개). 파일을 나눠서 열어 주세요.",
-                self.limits.max_nodes
-            )));
+            return Err(Error::TooManyNodes {
+                limit: self.limits.max_nodes,
+            });
         }
         if self.stack.len() as u16 >= self.limits.max_depth {
-            return Err(self.err_at("중첩이 너무 깊습니다"));
+            return Err(self.err_at(SyntaxReason::TooDeep));
         }
 
         let start = self.p;
@@ -319,7 +318,7 @@ impl Scanner<'_, '_> {
             b't' | b'f' => Kind::Bool,
             b'n' => Kind::Null,
             b'-' | b'0'..=b'9' => Kind::Number,
-            _ => return Err(self.err_at("값을 해석할 수 없습니다")),
+            _ => return Err(self.err_at(SyntaxReason::UnreadableValue)),
         };
 
         let (parent, sibling_index) = match self.stack.last_mut() {
@@ -374,14 +373,14 @@ impl Scanner<'_, '_> {
     fn read_key(&mut self) -> Result<()> {
         self.skip_ws();
         if self.p >= self.b.len() || self.b[self.p] != b'"' {
-            return Err(self.err_at("객체 키가 필요합니다"));
+            return Err(self.err_at(SyntaxReason::ExpectedKey));
         }
         let start = self.p;
         let end = self.scan_string(start)?;
         self.p = end;
         self.skip_ws();
         if self.p >= self.b.len() || self.b[self.p] != b':' {
-            return Err(self.err_at("키 뒤에 ':' 가 필요합니다"));
+            return Err(self.err_at(SyntaxReason::ExpectedColon));
         }
         self.p += 1;
         // Stored without the surrounding quotes.
@@ -394,7 +393,7 @@ impl Scanner<'_, '_> {
         let mut i = start + 1;
         loop {
             let Some(offset) = memchr::memchr2(b'"', b'\\', &self.b[i..]) else {
-                return Err(self.err_at_pos(start, "문자열이 닫히지 않았습니다"));
+                return Err(self.err_at_pos(start, SyntaxReason::UnterminatedString));
             };
             let j = i + offset;
             if self.b[j] == b'"' {
@@ -403,7 +402,7 @@ impl Scanner<'_, '_> {
             // Skip the backslash and whatever it escapes.
             i = j + 2;
             if i > self.b.len() {
-                return Err(self.err_at_pos(start, "문자열이 닫히지 않았습니다"));
+                return Err(self.err_at_pos(start, SyntaxReason::UnterminatedString));
             }
         }
     }
@@ -422,7 +421,7 @@ impl Scanner<'_, '_> {
             _ => true,
         };
         if !valid {
-            return Err(self.err_at_pos(start, "값을 해석할 수 없습니다"));
+            return Err(self.err_at_pos(start, SyntaxReason::UnreadableValue));
         }
         Ok(end)
     }
@@ -433,13 +432,17 @@ impl Scanner<'_, '_> {
         }
     }
 
-    fn err_at(&self, msg: &str) -> Error {
-        self.err_at_pos(self.p, msg)
+    fn err_at(&self, reason: SyntaxReason) -> Error {
+        self.err_at_pos(self.p, reason)
     }
 
-    fn err_at_pos(&self, pos: usize, msg: &str) -> Error {
-        let (line, col) = line_col(self.b, pos);
-        Error::Json(format!("{line}행 {col}열: {msg}"))
+    fn err_at_pos(&self, pos: usize, reason: SyntaxReason) -> Error {
+        let (line, column) = line_col(self.b, pos);
+        Error::JsonSyntax {
+            line: line as u32,
+            column: column as u32,
+            reason,
+        }
     }
 }
 
@@ -504,11 +507,10 @@ mod tests {
             .unwrap_or_else(|e| panic!("scan failed for {src:?}: {e}"))
     }
 
-    fn err(src: &str) -> String {
+    fn err_of(src: &str) -> Error {
         scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false)
             .err()
             .unwrap_or_else(|| panic!("expected {src:?} to fail"))
-            .to_string()
     }
 
     /// Walk the tree the way the viewer does and check the flat invariants that
@@ -625,11 +627,19 @@ mod tests {
             max_depth: 8,
             ..Default::default()
         };
-        let message = scan(src.as_bytes(), &limits, |_| {}, &|| false)
+        let error = scan(src.as_bytes(), &limits, |_| {}, &|| false)
             .err()
-            .expect("depth limit should trip")
-            .to_string();
-        assert!(message.contains("중첩이 너무 깊습니다"), "{message}");
+            .expect("depth limit should trip");
+        assert!(
+            matches!(
+                error,
+                Error::JsonSyntax {
+                    reason: SyntaxReason::TooDeep,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -667,13 +677,28 @@ mod tests {
 
     #[test]
     fn truncated_and_malformed_input_reports_a_position() {
-        assert!(err(r#"{"a": [1, 2"#).contains("닫는 괄호가 없습니다"));
-        assert!(err(r#"{"a": "unterminated"#).contains("문자열이 닫히지 않았습니다"));
-        assert!(err(r#"{"a" 1}"#).contains("':' 가 필요합니다"));
-        assert!(err(r#"{"a": tru}"#).contains("값을 해석할 수 없습니다"));
-        assert!(err("").contains("비어 있습니다"));
-        // Line/column is what makes a truncated 500MB file actionable.
-        assert!(err("{\n  \"a\": [1,\n  2\n").contains("행"));
+        use SyntaxReason::*;
+        let cases: &[(&str, SyntaxReason)] = &[
+            (r#"{"a": [1, 2"#, MissingCloser),
+            (r#"{"a": "unterminated"#, UnterminatedString),
+            (r#"{"a" 1}"#, ExpectedColon),
+            (r#"{"a": tru}"#, UnreadableValue),
+        ];
+        for (src, expected) in cases {
+            let error = err_of(src);
+            assert!(
+                matches!(error, Error::JsonSyntax { reason, .. } if reason == *expected),
+                "{src:?} gave {error:?}, wanted {expected:?}"
+            );
+        }
+        assert!(matches!(err_of(""), Error::JsonEmpty));
+
+        // Line and column are what make a truncated 500MB file actionable.
+        let error = err_of("{\n  \"a\": [1,\n  2\n");
+        let Error::JsonSyntax { line, column, .. } = error else {
+            panic!("expected a syntax error, got {error:?}");
+        };
+        assert!(line >= 3 && column >= 1, "line {line}, column {column}");
     }
 
     #[test]

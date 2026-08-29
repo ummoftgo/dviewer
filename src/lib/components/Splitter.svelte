@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../i18n";
   /**
    * A draggable divider.
    *
@@ -131,7 +132,7 @@
     apply(reset);
     onCommit?.();
   }}
-  title="{label} — 드래그하거나 화살표 키로 조절, 두 번 누르면 기본값"
+  title={t("splitter.title", { label })}
 ></div>
 
 <style>

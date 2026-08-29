@@ -1,0 +1,282 @@
+/**
+ * Korean, and the source of truth for the key set.
+ *
+ * Every other locale is typed `Messages`, so a key missing from one of them —
+ * or an extra one — is a compile error rather than a blank spot on screen.
+ * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
+ */
+export const ko = {
+
+  // --- 공통 / shared -------------------------------------------------------
+  "action.copy": "복사",
+  "action.close": "닫기",
+  "action.open": "열기",
+  "action.opening": "여는 중…",
+  "action.clear": "지우기",
+  "state.on": "켜짐",
+  "state.off": "꺼짐",
+  "state.show": "보기",
+  "state.hide": "숨기기",
+
+  // --- 형식 / formats ------------------------------------------------------
+  "format.markdown": "마크다운",
+  "format.json": "JSON",
+  "format.yaml": "YAML",
+  "format.toml": "TOML",
+  "format.xml": "XML",
+  "format.csv": "CSV",
+  "format.tsv": "TSV",
+
+  // --- 구분자 / delimiters --------------------------------------------------
+  "delimiter.comma": "쉼표",
+  "delimiter.tab": "탭",
+  "delimiter.semicolon": "세미콜론",
+  "delimiter.pipe": "파이프",
+  "delimiter.other": "구분자",
+
+  // --- 앱 / app -----------------------------------------------------------
+  "app.drop": "여기에 놓으면 문서를 엽니다",
+  "app.opening": "{title} 여는 중…",
+  "doc.pasted": "붙여넣은 문서",
+  "doc.pastedSource": "붙여넣은 내용",
+
+  // --- 시각 / relative time ------------------------------------------------
+  "time.justNow": "방금",
+  "time.minutes": "{n}분 전",
+  "time.hours": "{n}시간 전",
+  "time.days": "{n}일 전",
+
+  // --- 시작 화면 / start pane ------------------------------------------------
+  "start.intro": "마크다운 · JSON · YAML · TOML · XML · CSV · TSV를 엽니다. 창에 파일을 끌어다 놓아도 됩니다.",
+  "start.openFile": "파일 열기",
+  "start.openUrl": "주소로 열기",
+  "start.paste": "붙여넣기",
+  "start.pastePlaceholder": "마크다운 · JSON · YAML · TOML · XML · CSV를 붙여넣으세요.",
+  "start.auto": "자동",
+  "start.recents": "최근 문서",
+  "start.clearRecents": "목록 지우기",
+
+  // --- 탭 / tabs ----------------------------------------------------------
+  "tab.opening": "여는 중",
+  "tab.close": "{title} 탭 닫기",
+  "tab.new": "새 문서 열기 (Ctrl+O)",
+  "tab.newLabel": "새 문서 열기",
+
+  // --- 도구 모음 / toolbar ---------------------------------------------------
+  "toolbar.mode.rendered": "렌더링",
+  "toolbar.mode.raw": "원문",
+  "toolbar.mode.group": "보기 방식",
+  "toolbar.toc": "목차",
+  "toolbar.toc.show": "목차 보기",
+  "toolbar.format.label": "형식",
+  "toolbar.format.title": "이 문서를 다른 형식으로 읽습니다",
+  "toolbar.encoding.label": "인코딩",
+  "toolbar.encoding.bom": "{encoding} — BOM으로 확인했습니다.",
+  "toolbar.encoding.utf8": "UTF-8로 읽었습니다.",
+  "toolbar.encoding.chosen": "{encoding} — 직접 고른 인코딩입니다.",
+  "toolbar.encoding.guessed": "{encoding} 로 추측했습니다. 글자가 깨져 보이면 바꿔 보세요.",
+  "toolbar.scale": "인터페이스 배율 (Ctrl + / Ctrl -)",
+  "toolbar.settings": "표시 설정",
+
+  // --- 설정 / settings -----------------------------------------------------
+  "settings.close": "설정 닫기",
+  "settings.language": "언어",
+  "settings.language.system": "시스템 설정",
+  "settings.language.hint": "시스템 설정을 따릅니다 — 현재 {language}.",
+  "settings.theme": "테마",
+  "settings.theme.auto": "자동",
+  "settings.theme.light": "라이트",
+  "settings.theme.dark": "다크",
+  "settings.theme.hint": "시스템 설정을 따릅니다 — 현재 {mode}.",
+  "settings.scale": "인터페이스 배율",
+  "settings.scale.hint": "글자와 여백을 함께 확대합니다. Ctrl + / Ctrl - 로도 조절하고 Ctrl 0 으로 되돌립니다.",
+  "settings.uiFont": "인터페이스 글자 크기",
+  "settings.uiFont.hint": "탭·툴바·설정 등 화면 요소의 글자만 바꿉니다. 여백은 그대로입니다.",
+  "settings.docFont": "본문 글자 크기",
+  "settings.docFont.hint": "렌더링된 마크다운과 트리·표의 글자 크기입니다.",
+  "settings.fontBody": "본문 글꼴",
+  "settings.fontCode": "코드 글꼴",
+  "settings.reset": "기본값으로 되돌리기",
+
+  // --- 글꼴 선택 / font picker -----------------------------------------------
+  "font.primary": "기본",
+  "font.fallback": "보조",
+  "font.loading": "글꼴을 읽는 중…",
+  "font.none": "지정 안 함",
+  "font.monospace": "고정폭",
+  "font.other": "그 외",
+  "font.hint": "기본 글꼴에 없는 글자는 보조 글꼴이 대신 그립니다. 미리보기에 모든 글자가 의도한 모양으로 나오는지 확인하세요.",
+
+  // --- 분할선 / splitter ----------------------------------------------------
+  "splitter.title": "{label} — 드래그하거나 화살표 키로 조절, 두 번 누르면 기본값",
+  "escape.title": "이스케이프 시퀀스 — 복사하면 실제 문자로 들어갑니다",
+
+  // --- 마크다운 / markdown ---------------------------------------------------
+  "markdown.rendering": "문서를 렌더링하는 중…",
+  "markdown.enhancing": "다이어그램과 수식을 그리는 중…",
+  "markdown.rawLoading": "원문을 읽는 중…",
+  "markdown.rawUnavailable": "원문을 표시할 수 없습니다.",
+  "markdown.toc": "목차",
+  "markdown.imageMissing": "이미지를 찾을 수 없습니다: {src}",
+  "markdown.mermaidError": "mermaid 오류: {detail}",
+
+  // --- 트리 / tree ---------------------------------------------------------
+  "tree.indexing": "{format} 구조를 읽는 중… {done} / {total}",
+  "tree.label": "{format} 트리",
+  "tree.expand": "펼치기",
+  "tree.collapse": "접기",
+  "tree.expandAll": "전체 펼치기",
+  "tree.collapseAll": "전체 접기",
+  "tree.depth": "깊이",
+  "tree.depth.title": "이 깊이까지 펼친 상태로 되돌립니다 (최대 {max})",
+  "tree.copyValue": "값 복사",
+  "tree.copyPath": "경로 복사",
+  "tree.copyKey": "키 복사",
+  "tree.inspector": "키 / 값 표",
+  "tree.inspector.toggle": "키 / 값 표 {action}",
+  "tree.inspector.width": "키 / 값 표 너비",
+  "tree.truncated": "값이 길어 일부만 표시합니다",
+  "tree.summaryToggle": "{summary} {action}",
+  "tree.status.nodes": "{n}개 노드",
+  "tree.status.depth": "깊이 {n}",
+  "tree.status.index": "색인 {size}",
+  "tree.status.indexTitle": "색인이 차지하는 메모리",
+  "tree.status.filtered": "검색 결과만 표시 중",
+  "tree.status.synthetic": "여러 문서를 배열로 묶어 표시",
+  "tree.status.rows": "{n}행",
+
+  // --- 키/값 표 / inspector -------------------------------------------------
+  "inspector.label": "선택한 항목의 키와 값",
+  "inspector.count": "{n}개 항목",
+  "inspector.close": "표 닫기",
+  "inspector.noSelection": "트리에서 항목을 선택하면 이 자리에 키와 값이 표로 나옵니다.",
+  "inspector.noChildren": "이 값에는 하위 항목이 없습니다.",
+  "inspector.blank": "비어 있습니다.",
+  "inspector.key": "키",
+  "inspector.value": "값",
+  "inspector.drill": "이 항목으로 이동",
+  "inspector.more": "{n}개 더 보기",
+  "inspector.loading": "불러오는 중…",
+  "inspector.keyWidth": "키 열 너비",
+
+  // --- 트리 검색 / tree search -----------------------------------------------
+  "search.scope.all": "전체",
+  "search.scope.all.title": "키와 값에서 찾기",
+  "search.scope.keys": "키",
+  "search.scope.keys.title": "키에서만 찾기",
+  "search.scope.values": "값",
+  "search.scope.values.title": "값에서만 찾기",
+  "search.scope.paths": "경로",
+  "search.scope.paths.title": "$.items[3].name 같은 경로에서 찾기",
+  "search.placeholder": "키와 값에서 찾기 (Ctrl+F)",
+  "search.placeholder.paths": "경로에서 찾기 — 예: items[3].name",
+  "search.running": "찾는 중… {n}건",
+  "search.count": "{n}건",
+  "search.position": "{current}/{total} ",
+  "search.capped": " (상한 도달)",
+  "search.caseSensitive": "대소문자 구분",
+  "search.prev": "이전 결과 (Shift+Enter)",
+  "search.prevLabel": "이전 결과",
+  "search.next": "다음 결과 (Enter)",
+  "search.nextLabel": "다음 결과",
+  "search.filter": "결과만 남기기",
+  "search.clear": "검색 지우기",
+
+  // --- 표 / table ---------------------------------------------------------
+  "table.indexing": "표를 읽는 중… {done} / {total}",
+  "table.label": "{title} 표",
+  "table.header": "머리글 행",
+  "table.header.title": "첫 줄을 열 이름으로 쓸지 데이터로 쓸지 바꿉니다",
+  "table.copyValue": "값 복사",
+  "table.copyRow": "행 복사",
+  "table.copyColumn": "열 이름 복사",
+  "table.resize": "드래그해서 너비 조절 · 두 번 눌러 자동 맞춤",
+  "table.status.size": "{rows}행 × {columns}열",
+  "table.status.delimiter": "구분자 {name}",
+  "table.status.index": "색인 {size}",
+  "table.status.truncated": "행이 너무 많아 일부만 읽었습니다",
+  "table.status.where": "{row}행 · {column}",
+  "table.search.placeholder": "표 안에서 찾기",
+  "table.search.run": "찾기",
+  "table.search.running": "찾는 중…",
+  "table.search.capped": "결과가 너무 많아 일부만 모았습니다",
+  "table.search.empty": "결과 없음",
+
+  // --- 복사 알림 / toasts ----------------------------------------------------
+  "toast.pathCopied": "경로를 복사했습니다.",
+  "toast.keyCopied": "키를 복사했습니다.",
+  "toast.valueCopied": "값을 복사했습니다.",
+  "toast.valueTruncated": "값이 너무 커서 앞부분만 복사했습니다.",
+  "toast.rowCopied": "행을 복사했습니다.",
+  "toast.columnCopied": "열 이름을 복사했습니다.",
+  "toast.copyFailed": "복사할 수 없습니다.",
+
+  // --- 파일 선택 / file picker -----------------------------------------------
+  "files.documents": "문서",
+  "files.markdown": "마크다운",
+  "files.tree": "트리 (JSON · YAML · TOML · XML)",
+  "files.table": "표 (CSV · TSV)",
+  "files.all": "모든 파일",
+
+  // --- 무엇에 대한 이야기인가 / error subjects -------------------------------------
+  "subject.document": "문서",
+  "subject.markdown": "마크다운 렌더링",
+  "subject.source": "원문",
+  "subject.json": "JSON",
+  "subject.yaml": "YAML",
+  "subject.toml": "TOML",
+  "subject.xml": "XML",
+  "subject.table": "표",
+  "subject.tree": "트리",
+
+  // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
+  "syntax.trailingContent": "값 뒤에 해석할 수 없는 내용이 있습니다",
+  "syntax.missingCloser": "닫는 괄호가 없습니다",
+  "syntax.expectedCommaOrCloser": "',' 또는 닫는 괄호가 필요합니다",
+  "syntax.expectedValue": "값이 필요합니다",
+  "syntax.expectedKey": "객체 키가 필요합니다",
+  "syntax.expectedColon": "키 뒤에 ':' 가 필요합니다",
+  "syntax.unterminatedString": "문자열이 닫히지 않았습니다",
+  "syntax.unreadableValue": "값을 해석할 수 없습니다",
+  "syntax.tooDeep": "중첩이 너무 깊습니다",
+
+  // --- 인코딩 경고 / decode warnings ------------------------------------------
+  "warning.tooLargeToDecode": "{encoding} 문서로 보이지만 {limitMb}MB를 넘어 변환하지 않았습니다. 글자가 깨져 보일 수 있습니다.",
+  "warning.undecodableBytes": "{encoding}로 읽었지만 해석할 수 없는 바이트가 있습니다. 인코딩이 다를 수 있습니다.",
+
+  // --- 오류 / errors -------------------------------------------------------
+  "error.io": "파일을 읽을 수 없습니다: {detail}",
+  "error.internal": "처리 중 문제가 생겼습니다: {detail}",
+  "error.noSuchDoc": "문서를 찾을 수 없습니다 (id {id}). 탭이 이미 닫혔을 수 있습니다.",
+  "error.cancelled": "작업이 취소되었습니다.",
+  "error.emptyPaste": "붙여넣은 내용이 비어 있습니다.",
+  "error.unknownEncoding": "모르는 인코딩입니다: {name}",
+  "error.badUrl": "주소 형식이 올바르지 않습니다: {url}",
+  "error.unsupportedScheme": "http 또는 https 주소만 열 수 있습니다.",
+  "error.fetchFailed": "주소를 불러오지 못했습니다: {detail}",
+  "error.httpStatus": "서버가 {status} 응답을 보냈습니다.",
+  "error.downloadFailed": "내려받지 못했습니다: {detail} (최대 {limitMb}MB)",
+  "error.fileTooLarge": "파일이 너무 큽니다 ({gigabytes}GB). 최대 {limitGb}GB까지 열 수 있습니다.",
+  "error.tooLarge": "{subject} — 너무 큽니다 ({megabytes}MB). {limitMb}MB까지 지원합니다.",
+  "error.tooManyNodes": "노드가 너무 많습니다 (최대 {limit}개). 파일을 나눠서 열어 주세요.",
+  "error.tooDeep": "{subject} — 중첩이 너무 깊습니다 (최대 {limit}단계).",
+  "error.notReady": "{subject} — 아직 읽는 중입니다.",
+  "error.wrongView": "이 형식은 {subject} 형태로 볼 수 없습니다.",
+  "error.noSuchNode": "해당 항목을 찾을 수 없습니다.",
+  "error.noSuchCell": "해당 칸을 찾을 수 없습니다.",
+  "error.noSuchRow": "해당 행을 찾을 수 없습니다.",
+  "error.notUtf8": "{subject} 문서가 UTF-8이 아닙니다.",
+  "error.jsonEmpty": "내용이 비어 있습니다.",
+  "error.jsonSyntax": "{line}행 {column}열: {reason}",
+  "error.parseFailed": "{subject} — 읽지 못했습니다: {detail}",
+  "error.xmlSyntax": "XML을 읽지 못했습니다 ({offset}바이트 부근): {detail}",
+  "error.emptyQuery": "검색어를 입력해 주세요.",
+  "error.badQuery": "검색어를 처리할 수 없습니다: {detail}",
+  "error.fontsFailed": "글꼴 목록을 읽지 못했습니다: {detail}",
+  "error.unknown": "알 수 없는 오류입니다: {detail}",
+} as const;
+
+export type MessageKey = keyof typeof ko;
+
+/** Shape every locale has to match, exactly. */
+export type Messages = Record<MessageKey, string>;

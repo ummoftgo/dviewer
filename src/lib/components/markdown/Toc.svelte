@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../../i18n";
   import type { TocEntry } from "../../ipc";
 
   interface Props {
@@ -13,8 +14,8 @@
   const base = $derived(Math.min(...entries.map((e) => e.level)));
 </script>
 
-<nav aria-label="목차">
-  <h2>목차</h2>
+<nav aria-label={t("markdown.toc")}>
+  <h2>{t("markdown.toc")}</h2>
   <ul>
     {#each entries as entry (entry.id)}
       <li style="--indent: {Math.min(entry.level - base, 3)}">

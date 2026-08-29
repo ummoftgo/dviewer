@@ -11,6 +11,7 @@
    * component at all — it never touches the viewport.
    */
   import Icon from "../Icon.svelte";
+  import { n, t } from "../../i18n";
   import { errorMessage, tableSearch } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
 
@@ -71,36 +72,36 @@
     bind:this={queryInput}
     bind:value={tab.tableSearch.query}
     type="search"
-    placeholder="표 안에서 찾기"
-    aria-label="표 안에서 찾기"
+    placeholder={t("table.search.placeholder")}
+    aria-label={t("table.search.placeholder")}
     onkeydown={(e) => {
       if (e.key === "Escape") clearSearch();
     }}
   />
-  <label class="case" title="대소문자 구분">
+  <label class="case" title={t("search.caseSensitive")}>
     <input type="checkbox" bind:checked={tab.tableSearch.caseSensitive} />
     Aa
   </label>
   <button class="btn btn-ghost" type="submit" disabled={tab.tableSearch.running}>
-    {tab.tableSearch.running ? "찾는 중…" : "찾기"}
+    {tab.tableSearch.running ? t("table.search.running") : t("table.search.run")}
   </button>
 
   {#if tab.tableSearch.hits.length > 0}
     <span class="count">
-      {tab.tableSearch.current + 1} / {tab.tableSearch.hits.length.toLocaleString()}
-      {#if tab.tableSearch.capped}<span class="capped" title="결과가 너무 많아 일부만 모았습니다"
+      {n(tab.tableSearch.current + 1)} / {n(tab.tableSearch.hits.length)}
+      {#if tab.tableSearch.capped}<span class="capped" title={t("table.search.capped")}
           >+</span
         >{/if}
     </span>
-    <button class="icon-btn" type="button" onclick={() => step(-1)} aria-label="이전 결과">
+    <button class="icon-btn" type="button" onclick={() => step(-1)} aria-label={t("search.prevLabel")}>
       <Icon name="chevron-up" size={13} />
     </button>
-    <button class="icon-btn" type="button" onclick={() => step(1)} aria-label="다음 결과">
+    <button class="icon-btn" type="button" onclick={() => step(1)} aria-label={t("search.nextLabel")}>
       <Icon name="chevron-down" size={13} />
     </button>
-    <button class="btn btn-ghost" type="button" onclick={clearSearch}>지우기</button>
+    <button class="btn btn-ghost" type="button" onclick={clearSearch}>{t("action.clear")}</button>
   {:else if tab.tableSearch.searched && !tab.tableSearch.running}
-    <span class="count empty">결과 없음</span>
+    <span class="count empty">{t("table.search.empty")}</span>
   {/if}
 
   {#if tab.tableSearch.error}

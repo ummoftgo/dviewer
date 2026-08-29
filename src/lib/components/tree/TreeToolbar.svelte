@@ -8,6 +8,7 @@
    * sets it rather than in the view, which never reads it.
    */
   import Icon from "../Icon.svelte";
+  import { t } from "../../i18n";
   import { errorMessage, treeCollapseAll, treeExpandAll, treeSetExpandDepth } from "../../ipc";
   import type { TreeRow } from "../../ipc";
   import { copyPath, copyValue } from "./actions";
@@ -73,19 +74,21 @@
 </script>
 
 <div class="toolbar">
-  <button class="btn btn-ghost" onclick={expandAll} title="전체 펼치기">
-    <Icon name="expand" size={13} /> 전체 펼치기
+  <button class="btn btn-ghost" onclick={expandAll} title={t("tree.expandAll")}>
+    <Icon name="expand" size={13} />
+    {t("tree.expandAll")}
   </button>
-  <button class="btn btn-ghost" onclick={collapseAll} title="전체 접기">
-    <Icon name="collapse" size={13} /> 전체 접기
+  <button class="btn btn-ghost" onclick={collapseAll} title={t("tree.collapseAll")}>
+    <Icon name="collapse" size={13} />
+    {t("tree.collapseAll")}
   </button>
 
   <label class="depth">
-    깊이
+    {t("tree.depth")}
     <select
       value={shownDepth}
       onchange={(e) => applyDepth(Number(e.currentTarget.value))}
-      title="이 깊이까지 펼친 상태로 되돌립니다 (최대 {MAX_EXPAND_DEPTH})"
+      title={t("tree.depth.title", { max: MAX_EXPAND_DEPTH })}
     >
       {#each depthOptions as depth (depth)}
         <option value={depth}>{depth}</option>
@@ -99,14 +102,15 @@
     onclick={() => selected && copyValue(tab.id, selected)}
     disabled={!selected}
   >
-    <Icon name="copy" size={13} /> 값 복사
+    <Icon name="copy" size={13} />
+    {t("tree.copyValue")}
   </button>
   <button
     class="btn btn-ghost"
     onclick={() => selected && copyPath(tab.id, selected)}
     disabled={!selected}
   >
-    경로 복사
+    {t("tree.copyPath")}
   </button>
 
   <!-- Last in the row and carrying its own label: an unlabelled icon in the
@@ -115,12 +119,14 @@
     class="btn toggle"
     class:on={tab.showInspector}
     aria-pressed={tab.showInspector}
-    title="키 / 값 표 {tab.showInspector ? '숨기기' : '보기'}"
+    title={t("tree.inspector.toggle", {
+      action: tab.showInspector ? t("state.hide") : t("state.show"),
+    })}
     onclick={() => (tab.showInspector = !tab.showInspector)}
   >
     <Icon name="list" size={13} />
-    키 / 값 표
-    <span class="state">{tab.showInspector ? "켜짐" : "꺼짐"}</span>
+    {t("tree.inspector")}
+    <span class="state">{tab.showInspector ? t("state.on") : t("state.off")}</span>
   </button>
 </div>
 

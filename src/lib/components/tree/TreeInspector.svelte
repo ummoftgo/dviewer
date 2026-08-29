@@ -8,6 +8,7 @@
    * parent (see `TreeIndex::table_target`).
    */
   import ContextMenu from "../ContextMenu.svelte";
+  import { n, t } from "../../i18n";
   import Icon from "../Icon.svelte";
   import Splitter from "../Splitter.svelte";
   import EscapedText from "../EscapedText.svelte";
@@ -149,17 +150,17 @@
 
 <aside
   class="inspector"
-  aria-label="선택한 항목의 키와 값"
+  aria-label={t("inspector.label")}
   style="--key-col: {keyColumnPx}px"
 >
   <header>
     <div class="target">
       <span class="path" title={page?.targetPath}><bdi>{page?.targetPath ?? ""}</bdi></span>
       {#if page}
-        <span class="count">{page.total.toLocaleString()}개 항목</span>
+        <span class="count">{t("inspector.count", { n: n(page.total) })}</span>
       {/if}
     </div>
-    <button class="icon-btn" onclick={onClose} aria-label="표 닫기" title="표 닫기">
+    <button class="icon-btn" onclick={onClose} aria-label={t("inspector.close")} title={t("inspector.close")}>
       <Icon name="close" />
     </button>
   </header>
@@ -169,15 +170,15 @@
       {#if error}
         <p class="note error">{error}</p>
       {:else if tab.selectedNode === null}
-        <p class="note">트리에서 항목을 선택하면 이 자리에 키와 값이 표로 나옵니다.</p>
+        <p class="note">{t("inspector.noSelection")}</p>
       {:else if !page}
-        <p class="note">이 값에는 하위 항목이 없습니다.</p>
+        <p class="note">{t("inspector.noChildren")}</p>
       {:else if loaded.length === 0}
-        <p class="note">비어 있습니다.</p>
+        <p class="note">{t("inspector.blank")}</p>
       {:else}
         <table>
           <thead>
-            <tr><th scope="col">키</th><th scope="col">값</th></tr>
+            <tr><th scope="col">{t("inspector.key")}</th><th scope="col">{t("inspector.value")}</th></tr>
           </thead>
           <tbody>
             {#each loaded as row (row.id)}
@@ -189,9 +190,9 @@
                 <td>
                   {#if row.container}
                     <!-- Containers cannot be shown inline, so they become a way in. -->
-                    <button class="drill" onclick={() => drillInto(row)} title="이 항목으로 이동">
+                    <button class="drill" onclick={() => drillInto(row)} title={t("inspector.drill")}>
                       {summary(row)}
-                      <span class="children">{row.childCount.toLocaleString()}</span>
+                      <span class="children">{n(row.childCount)}</span>
                     </button>
                   {:else}
                     <span class="value" data-kind={row.kind} title={row.value ?? ""}>
@@ -208,7 +209,7 @@
 
         {#if remaining > 0}
           <button class="btn more" onclick={loadMore} disabled={loadingMore}>
-            {loadingMore ? "불러오는 중…" : `${remaining.toLocaleString()}개 더 보기`}
+            {loadingMore ? t("inspector.loading") : t("inspector.more", { n: n(remaining) })}
           </button>
         {/if}
       {/if}
@@ -229,7 +230,7 @@
         bounds={() => ({ min: 0.15, max: 0.75 })}
         step={0.02}
         reset={0.4}
-        label="키 열 너비"
+        label={t("inspector.keyWidth")}
         onCommit={() => settings.save()}
       />
     {/if}

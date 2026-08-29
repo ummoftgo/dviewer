@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, State};
 use super::{DocError, IndexProgress};
 use crate::bytes::DocBytes;
 use crate::convert;
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, Subject};
 use crate::state::{AppState, DocId, DocKind};
 use crate::tree::index::Syntax;
 use crate::tree::search::{SearchHit, SearchOptions, SearchSummary};
@@ -120,7 +120,9 @@ fn tree_bytes(kind: DocKind, source: &Arc<DocBytes>) -> Result<(Arc<DocBytes>, S
             Arc::new(DocBytes::from(convert::toml_to_json(source)?.into_bytes())),
             Syntax::Json,
         )),
-        _ => Err(Error::rejected("이 형식은 트리로 볼 수 없습니다.")),
+        _ => Err(Error::WrongView {
+            subject: Subject::Tree,
+        }),
     }
 }
 
@@ -128,7 +130,9 @@ fn tree_doc(state: &State<'_, AppState>, doc_id: DocId) -> Result<Arc<TreeDoc>> 
     state
         .get(doc_id)?
         .tree()
-        .ok_or_else(|| Error::rejected("아직 문서 구조를 읽는 중입니다."))
+        .ok_or(Error::NotReady {
+            subject: Subject::Tree,
+        })
 }
 
 #[tauri::command]
@@ -216,7 +220,7 @@ pub fn tree_reveal(
 pub fn tree_path(state: State<'_, AppState>, doc_id: DocId, node_id: u32) -> Result<String> {
     tree_doc(&state, doc_id)?
         .path_of(node_id)
-        .ok_or_else(|| Error::rejected("해당 노드를 찾을 수 없습니다."))
+        .ok_or(Error::NoSuchNode)
 }
 
 #[derive(Serialize)]
@@ -236,7 +240,7 @@ pub fn tree_node_text(
     let json = tree_doc(&state, doc_id)?;
     let (text, truncated) = json
         .node_text(node_id)
-        .ok_or_else(|| Error::rejected("해당 노드를 찾을 수 없습니다."))?;
+        .ok_or(Error::NoSuchNode)?;
     Ok(NodeText {
         text,
         truncated,
@@ -401,12 +405,21 @@ mod tests {
     /// A broken document has to say what is wrong with *it*, not be dressed up
     /// as a JSON problem by the error type it travels in.
     #[test]
-    fn a_conversion_failure_keeps_its_own_message() {
-        let Err(err) = tree_bytes(DocKind::Yaml, &bytes("a: [1, 2\nb: 3\n")) else {
+    fn a_conversion_failure_names_the_format_it_came_from() {
+        let Err(error) = tree_bytes(DocKind::Yaml, &bytes("a: [1, 2
+b: 3
+")) else {
             panic!("a malformed document must not convert");
         };
-        let message = err.to_string();
-        assert!(message.starts_with("YAML"), "{message}");
-        assert!(!message.contains("JSON"), "{message}");
+        assert!(
+            matches!(
+                error,
+                Error::ParseFailed {
+                    subject: Subject::Yaml,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
     }
 }

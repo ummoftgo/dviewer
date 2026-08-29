@@ -8,6 +8,7 @@
    * colours already in use.
    */
   import { splitEscapes } from "./escapes";
+  import { t } from "../i18n";
 
   interface Props {
     text: string;
@@ -19,7 +20,7 @@
 
 {#each segments as segment, i (i)}{#if segment.escape}<span
       class="escape"
-      title="이스케이프 시퀀스 — 복사하면 실제 문자로 들어갑니다">{segment.text}</span
+      title={t("escape.title")}>{segment.text}</span
     >{:else}{segment.text}{/if}{/each}
 
 <style>

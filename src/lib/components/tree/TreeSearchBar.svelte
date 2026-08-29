@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "../Icon.svelte";
+  import { n, t, type MessageKey } from "../../i18n";
   import {
     errorMessage,
     treeClearFilter,
@@ -23,15 +24,15 @@
   // flag is how the UI and the backend drift apart.
   const filtered = $derived(tab.treeStats?.filtered ?? false);
 
-  const SCOPES: { value: SearchScope; label: string; title: string }[] = [
-    { value: "all", label: "전체", title: "키와 값에서 찾기" },
-    { value: "keys", label: "키", title: "키에서만 찾기" },
-    { value: "values", label: "값", title: "값에서만 찾기" },
-    { value: "paths", label: "경로", title: "$.items[3].name 같은 경로에서 찾기" },
+  const SCOPES: { value: SearchScope; label: MessageKey; title: MessageKey }[] = [
+    { value: "all", label: "search.scope.all", title: "search.scope.all.title" },
+    { value: "keys", label: "search.scope.keys", title: "search.scope.keys.title" },
+    { value: "values", label: "search.scope.values", title: "search.scope.values.title" },
+    { value: "paths", label: "search.scope.paths", title: "search.scope.paths.title" },
   ];
 
   const placeholder = $derived(
-    tab.search.scope === "paths" ? "경로에서 찾기 — 예: items[3].name" : "키와 값에서 찾기 (Ctrl+F)",
+    tab.search.scope === "paths" ? t("search.placeholder.paths") : t("search.placeholder"),
   );
 
   export function focus() {
@@ -105,11 +106,11 @@
   const status = $derived.by(() => {
     const search = tab.search;
     if (search.error) return search.error;
-    if (search.running) return `찾는 중… ${search.hits.length.toLocaleString()}건`;
+    if (search.running) return t("search.running", { n: n(search.hits.length) });
     if (search.summary) {
       const position = search.current >= 0 ? `${search.current + 1} / ` : "";
-      const capped = search.summary.capped ? " (상한 도달)" : "";
-      return `${position}${search.summary.total.toLocaleString()}건${capped}`;
+      const capped = search.summary.capped ? t("search.capped") : "";
+      return position + t("search.count", { n: n(search.summary.total) }) + capped;
     }
     return null;
   });
@@ -134,12 +135,12 @@
     {#each SCOPES as scope (scope.value)}
       <button
         type="button"
-        title={scope.title}
+        title={t(scope.title)}
         aria-pressed={tab.search.scope === scope.value}
         onclick={() => {
           tab.search.scope = scope.value;
           void run();
-        }}>{scope.label}</button
+        }}>{t(scope.label)}</button
       >
     {/each}
   </div>
@@ -148,7 +149,7 @@
     type="button"
     class="icon-btn"
     class:on={tab.search.caseSensitive}
-    title="대소문자 구분"
+    title={t("search.caseSensitive")}
     aria-pressed={tab.search.caseSensitive}
     onclick={() => {
       tab.search.caseSensitive = !tab.search.caseSensitive;
@@ -161,8 +162,8 @@
   <button
     type="button"
     class="icon-btn"
-    title="이전 결과 (Shift+Enter)"
-    aria-label="이전 결과"
+    title={t("search.prev")}
+    aria-label={t("search.prevLabel")}
     disabled={tab.search.hits.length === 0}
     onclick={() => jump(-1)}
   >
@@ -171,8 +172,8 @@
   <button
     type="button"
     class="icon-btn"
-    title="다음 결과 (Enter)"
-    aria-label="다음 결과"
+    title={t("search.next")}
+    aria-label={t("search.nextLabel")}
     disabled={tab.search.hits.length === 0}
     onclick={() => jump(1)}
   >
@@ -183,7 +184,7 @@
     type="button"
     class="icon-btn"
     class:on={filtered}
-    title="결과만 남기기"
+    title={t("search.filter")}
     aria-pressed={filtered}
     disabled={tab.search.hits.length === 0 && !filtered}
     onclick={toggleFilter}
@@ -192,7 +193,7 @@
   </button>
 
   {#if tab.search.query || filtered}
-    <button type="button" class="icon-btn" title="검색 지우기" aria-label="검색 지우기" onclick={clear}>
+    <button type="button" class="icon-btn" title={t("search.clear")} aria-label={t("search.clear")} onclick={clear}>
       <Icon name="close" size={13} />
     </button>
   {/if}

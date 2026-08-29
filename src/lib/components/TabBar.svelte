@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
   import { kindBadge } from "../ipc";
+  import { t } from "../i18n";
   import { workspace } from "../state/docs.svelte";
 
   interface Props {
@@ -41,14 +42,14 @@
         onkeydown={(e) => e.key === "Enter" && workspace.activate(tab.id)}
       >
         {#if tab.status === "opening"}
-          <span class="kind opening" title="여는 중">…</span>
+          <span class="kind opening" title={t("tab.opening")}>…</span>
         {:else}
           <span class="kind" data-kind={tab.kind}>{kindBadge(tab.kind)}</span>
         {/if}
         <span class="title">{tab.meta.title}</span>
         <button
           class="close"
-          aria-label="{tab.meta.title} 탭 닫기"
+          aria-label={t("tab.close", { title: tab.meta.title })}
           onclick={(e) => {
             e.stopPropagation();
             void workspace.close(tab.id);
@@ -60,7 +61,7 @@
     {/each}
   </div>
 
-  <button class="icon-btn new" onclick={onNew} title="새 문서 열기 (Ctrl+O)" aria-label="새 문서 열기">
+  <button class="icon-btn new" onclick={onNew} title={t("tab.new")} aria-label={t("tab.newLabel")}>
     <Icon name="plus" />
   </button>
 </div>

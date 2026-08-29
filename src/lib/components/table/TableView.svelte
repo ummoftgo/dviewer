@@ -13,6 +13,7 @@
    */
   import { untrack } from "svelte";
   import Icon from "../Icon.svelte";
+  import { n, t, type MessageKey } from "../../i18n";
   import ContextMenu from "../ContextMenu.svelte";
   import EscapedText from "../EscapedText.svelte";
   import TableSearchBar from "./TableSearchBar.svelte";
@@ -222,7 +223,7 @@
     try {
       const cell = await tableCellText(tab.id, row, column);
       await copyText(cell.text);
-      toasts.show(cell.truncated ? "값이 너무 커서 앞부분만 복사했습니다." : "값을 복사했습니다.");
+      toasts.show(cell.truncated ? t("toast.valueTruncated") : t("toast.valueCopied"));
     } catch (err) {
       toasts.show(errorMessage(err), "error");
     }
@@ -232,7 +233,7 @@
     try {
       const line = await tableRowText(tab.id, row);
       await copyText(line.text);
-      toasts.show("행을 복사했습니다.");
+      toasts.show(t("toast.rowCopied"));
     } catch (err) {
       toasts.show(errorMessage(err), "error");
     }
@@ -241,7 +242,7 @@
   async function copyColumnName(column: number) {
     try {
       await copyText(columnName(column));
-      toasts.show("열 이름을 복사했습니다.");
+      toasts.show(t("toast.columnCopied"));
     } catch (err) {
       toasts.show(errorMessage(err), "error");
     }
@@ -257,9 +258,9 @@
     if (!menu) return [];
     const { row, column } = menu;
     return [
-      { label: "값 복사", action: () => void copyCell(row, column), hint: "Ctrl C" },
-      { label: "행 복사", action: () => void copyRow(row) },
-      { label: "열 이름 복사", action: () => void copyColumnName(column) },
+      { label: t("table.copyValue"), action: () => void copyCell(row, column), hint: "Ctrl C" },
+      { label: t("table.copyRow"), action: () => void copyRow(row) },
+      { label: t("table.copyColumn"), action: () => void copyColumnName(column) },
     ];
   });
 
@@ -362,7 +363,12 @@
 
   {#if !tab.tableStats && !tab.error}
     <div class="loading">
-      <p>표를 읽는 중… {formatBytes(tab.indexing?.done ?? 0)} / {formatBytes(tab.meta.byteLen)}</p>
+      <p>
+        {t("table.indexing", {
+          done: formatBytes(tab.indexing?.done ?? 0),
+          total: formatBytes(tab.meta.byteLen),
+        })}
+      </p>
       <div class="bar"><div class="fill" style="width: {progressPercent}%"></div></div>
     </div>
   {/if}
@@ -374,11 +380,11 @@
         class:on={tab.tableStats.hasHeader}
         aria-pressed={tab.tableStats.hasHeader}
         onclick={toggleHeader}
-        title="첫 줄을 열 이름으로 쓸지 데이터로 쓸지 바꿉니다"
+        title={t("table.header.title")}
       >
         <Icon name="list" size={13} />
-        머리글 행
-        <span class="state">{tab.tableStats.hasHeader ? "켜짐" : "꺼짐"}</span>
+        {t("table.header")}
+        <span class="state">{tab.tableStats.hasHeader ? t("state.on") : t("state.off")}</span>
       </button>
 
       <span class="spacer"></span>
@@ -388,14 +394,15 @@
         disabled={!tab.selectedCell}
         onclick={() => tab.selectedCell && copyCell(tab.selectedCell.row, tab.selectedCell.column)}
       >
-        <Icon name="copy" size={13} /> 값 복사
+        <Icon name="copy" size={13} />
+        {t("table.copyValue")}
       </button>
       <button
         class="btn btn-ghost"
         disabled={!tab.selectedCell}
         onclick={() => tab.selectedCell && copyRow(tab.selectedCell.row)}
       >
-        행 복사
+        {t("table.copyRow")}
       </button>
     </div>
 
@@ -409,7 +416,7 @@
       role="grid"
       aria-rowcount={rowCount}
       aria-colcount={columnCount}
-      aria-label="{tab.meta.title} 표"
+      aria-label={t("table.label", { title: tab.meta.title })}
       style="--row-height: {rowHeight}px; --number-width: {numberWidth}px"
     >
       <div class="head" style="width: {totalWidth}px" role="row">
@@ -422,7 +429,7 @@
               class="grip"
               onpointerdown={(e) => startResize(e, column)}
               ondblclick={() => measureColumns(rows)}
-              title="드래그해서 너비 조절 · 두 번 눌러 자동 맞춤"
+              title={t("table.resize")}
             ></span>
           </div>
         {/each}
@@ -431,7 +438,7 @@
       <div class="body" style="height: {spacerHeight(metrics)}px; width: {totalWidth}px">
         {#each rows as row (row.index)}
           <div class="row" style="top: {rowTop(metrics, scrollTop, row.index)}px" role="row">
-            <div class="cell num" role="rowheader">{(row.index + 1).toLocaleString()}</div>
+            <div class="cell num" role="rowheader">{n(row.index + 1)}</div>
             {#each { length: columnCount } as _, column (column)}
               {@const cell = row.cells[column]}
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -449,7 +456,7 @@
               >
                 <EscapedText text={cell?.text ?? ""} />{#if cell?.truncated}<span
                     class="ellipsis"
-                    title="값이 길어 일부만 표시합니다">…</span
+                    title={t("tree.truncated")}>…</span
                   >{/if}
               </div>
             {/each}
@@ -459,16 +466,28 @@
     </div>
 
     <div class="status">
-      <span>{tab.tableStats.rowCount.toLocaleString()}행 × {columnCount.toLocaleString()}열</span>
-      <span>구분자 {tab.tableStats.delimiter}</span>
-      <span>색인 {formatBytes(tab.tableStats.indexBytes)}</span>
+      <span>
+        {t("table.status.size", {
+          rows: n(tab.tableStats.rowCount),
+          columns: n(columnCount),
+        })}
+      </span>
+      <span>
+        {t("table.status.delimiter", {
+          name: t(`delimiter.${tab.tableStats.delimiter}` as MessageKey),
+        })}
+      </span>
+      <span>{t("table.status.index", { size: formatBytes(tab.tableStats.indexBytes) })}</span>
       {#if tab.tableStats.truncated}
-        <span class="warn">행이 너무 많아 일부만 읽었습니다</span>
+        <span class="warn">{t("table.status.truncated")}</span>
       {/if}
       {#if tab.selectedCell}
         <span class="spacer"></span>
         <span class="where">
-          {(tab.selectedCell.row + 1).toLocaleString()}행 · {columnName(tab.selectedCell.column)}
+          {t("table.status.where", {
+            row: n(tab.selectedCell.row + 1),
+            column: columnName(tab.selectedCell.column),
+          })}
         </span>
       {/if}
     </div>

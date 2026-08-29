@@ -1,5 +1,6 @@
 import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
+import { t } from "../i18n";
 import type {
   DocKind,
   DocMeta,
@@ -48,7 +49,7 @@ class TableSearchState {
   /** Index into `hits` of the cell the grid is parked on. */
   current = $state(-1);
   capped = $state(false);
-  /** True once a search has run, so "결과 없음" is only shown after one has. */
+  /** True once a search has run, so "no matches" is only shown after one has. */
   searched = $state(false);
   error = $state<string | null>(null);
 
@@ -129,7 +130,7 @@ export class DocTab {
     const source = this.meta.source;
     if (source.type === "file") return source.path;
     if (source.type === "url") return source.url;
-    return "붙여넣은 내용";
+    return t("doc.pastedSource");
   }
 
   /** Drop derived state so the tab reloads from scratch on the next view. */
@@ -187,12 +188,12 @@ class Workspace {
   }
 
   async openText(content: string, title?: string, kind?: DocKind) {
-    const meta = placeholder(title ?? "붙여넣은 문서", { type: "text" });
+    const meta = placeholder(title ?? t("doc.pasted"), { type: "text" });
     if (kind) {
       meta.kind = kind;
       meta.view = viewOf(kind);
     }
-    return this.run(meta, () => ipc.openText(content, title, kind));
+    return this.run(meta, () => ipc.openText(content, title ?? t("doc.pasted"), kind));
   }
 
   /**

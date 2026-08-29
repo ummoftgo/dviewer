@@ -13,6 +13,7 @@
   import MarkdownView from "./lib/components/markdown/MarkdownView.svelte";
   import RawView from "./lib/components/markdown/RawView.svelte";
   import * as ipc from "./lib/ipc";
+  import { detectSystemLocale, t } from "./lib/i18n";
   import { pickFiles } from "./lib/open";
   import { workspace } from "./lib/state/docs.svelte";
   import { recents } from "./lib/state/recents.svelte";
@@ -28,6 +29,7 @@
   // --- settings -----------------------------------------------------------
 
   onMount(() => watchSystemTheme());
+  onMount(() => detectSystemLocale());
 
   $effect(() => {
     // Reading these here is what subscribes the effect to them.
@@ -46,7 +48,7 @@
     void ipc
       .startupPaths()
       .then((paths) => Promise.all(paths.map((path) => workspace.openPath(path))))
-      .catch((err) => console.warn("[dviewer] 시작 인자를 처리하지 못했습니다:", err));
+      .catch((err) => console.warn("[dviewer] could not handle the startup arguments:", err));
   });
 
   // --- backend events -----------------------------------------------------
@@ -230,7 +232,7 @@
                what fills it until the document exists. -->
           <div class="opening">
             <div class="spinner" aria-hidden="true"></div>
-            <p>{active.meta.title} 여는 중…</p>
+            <p>{t("app.opening", { title: active.meta.title })}</p>
           </div>
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
@@ -249,7 +251,7 @@
     <div class="dropzone">
       <div class="dropzone-inner">
         <Icon name="file" size={24} />
-        <p>여기에 놓으면 문서를 엽니다</p>
+        <p>{t("app.drop")}</p>
       </div>
     </div>
   {/if}

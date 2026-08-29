@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../../i18n";
   import { errorMessage, renderMarkdown } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
@@ -47,7 +48,7 @@
     let cancelled = false;
     enhancing = true;
     Promise.all([renderMermaid(host, dark), renderMath(host)])
-      .catch((err) => console.warn("[dviewer] 후처리 중 문제가 발생했습니다:", err))
+      .catch((err) => console.warn("[dviewer] post-processing failed:", err))
       .finally(() => {
         if (cancelled) return;
         enhancing = false;
@@ -82,11 +83,11 @@
       {#if tab.error}
         <p class="status error" role="alert">{tab.error}</p>
       {:else if tab.html === null}
-        <p class="status">문서를 렌더링하는 중…</p>
+        <p class="status">{t("markdown.rendering")}</p>
       {/if}
       <article class="markdown-body" bind:this={article}></article>
       {#if enhancing}
-        <p class="status subtle">다이어그램과 수식을 그리는 중…</p>
+        <p class="status subtle">{t("markdown.enhancing")}</p>
       {/if}
     </div>
   </div>

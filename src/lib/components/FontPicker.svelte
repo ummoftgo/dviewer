@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../i18n";
   import { fontStack, settings } from "../state/settings.svelte";
 
   interface Props {
@@ -44,19 +45,19 @@
   {/if}
 
   <label class="row">
-    <span>기본</span>
+    <span>{t("font.primary")}</span>
     <select
       class="field"
       value={family}
       disabled={settings.fontsLoading}
       onchange={(e) => set("family", e.currentTarget.value)}
     >
-      <option value="">{settings.fontsLoading ? "글꼴을 읽는 중…" : "지정 안 함"}</option>
+      <option value="">{settings.fontsLoading ? t("font.loading") : t("font.none")}</option>
       {#if preferMonospace}
-        <optgroup label="고정폭">
+        <optgroup label={t("font.monospace")}>
           {#each monospaced as font (font.name)}<option value={font.name}>{font.name}</option>{/each}
         </optgroup>
-        <optgroup label="그 외">
+        <optgroup label={t("font.other")}>
           {#each proportional as font (font.name)}<option value={font.name}>{font.name}</option
             >{/each}
         </optgroup>
@@ -68,14 +69,14 @@
   </label>
 
   <label class="row">
-    <span>보조</span>
+    <span>{t("font.fallback")}</span>
     <select
       class="field"
       value={fallback}
       disabled={settings.fontsLoading}
       onchange={(e) => set("fallback", e.currentTarget.value)}
     >
-      <option value="">지정 안 함</option>
+      <option value="">{t("font.none")}</option>
       {#each settings.fonts as font (font.name)}<option value={font.name}>{font.name}</option
         >{/each}
     </select>
@@ -83,8 +84,7 @@
 
   <p class="preview" style="font-family: {stack}">{preview}</p>
   <p class="hint">
-    기본 글꼴에 없는 글자는 보조 글꼴이 대신 그립니다. 미리보기에 한글과 영문이 모두 의도한 모양으로
-    나오는지 확인하세요.
+    {t("font.hint")}
   </p>
 </section>
 

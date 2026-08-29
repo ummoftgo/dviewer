@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
   import { docSourceText, errorMessage } from "../../ipc";
 
@@ -41,7 +42,7 @@
   onscroll={(e) => (tab.rawScrollTop = e.currentTarget.scrollTop)}
 >
   {#if tab.raw === null}
-    <p class="status">{tab.busy ? "원문을 읽는 중…" : "원문을 표시할 수 없습니다."}</p>
+    <p class="status">{tab.busy ? t("markdown.rawLoading") : t("markdown.rawUnavailable")}</p>
   {:else}
     <div class="raw-view">
       <div class="gutter" aria-hidden="true">{gutter}</div>

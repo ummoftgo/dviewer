@@ -37,13 +37,15 @@ const PROGRESS_STEP: usize = 8 * 1024 * 1024;
 /// Candidates for delimiter sniffing, in the order ties are broken.
 pub const DELIMITERS: [u8; 4] = [b',', b'\t', b';', b'|'];
 
+/// What the grid's status bar calls the delimiter — a code, not a word. The
+/// frontend has the words, in four languages.
 pub fn delimiter_name(delimiter: u8) -> &'static str {
     match delimiter {
-        b',' => "쉼표",
-        b'\t' => "탭",
-        b';' => "세미콜론",
-        b'|' => "파이프",
-        _ => "구분자",
+        b',' => "comma",
+        b'\t' => "tab",
+        b';' => "semicolon",
+        b'|' => "pipe",
+        _ => "other",
     }
 }
 
@@ -111,7 +113,7 @@ pub struct TableStats {
     pub byte_len: usize,
     /// Memory the record index occupies.
     pub index_bytes: usize,
-    /// The delimiter as a display string, e.g. "쉼표".
+    /// The delimiter as a code the frontend translates, e.g. "comma".
     pub delimiter: &'static str,
     pub has_header: bool,
     /// True when the scan stopped at `MAX_RECORDS`.
@@ -173,10 +175,10 @@ impl TableDoc {
         should_stop: &dyn Fn() -> bool,
     ) -> Result<Self> {
         if bytes.len() > MAX_DOC_BYTES {
-            return Err(Error::Parse(format!(
-                "파일이 너무 큽니다 ({}GB). 최대 4GB까지 열 수 있습니다.",
-                bytes.len() / 1024 / 1024 / 1024
-            )));
+            return Err(Error::FileTooLarge {
+                gigabytes: bytes.len() / 1024 / 1024 / 1024,
+                limit_gb: MAX_DOC_BYTES / 1024 / 1024 / 1024,
+            });
         }
 
         let scan = scan_records(&bytes, delimiter, &mut progress, should_stop)?;
@@ -279,7 +281,9 @@ impl TableDoc {
             .match_kind(MatchKind::LeftmostFirst)
             .ascii_case_insensitive(!case_sensitive)
             .build([query.as_bytes()])
-            .map_err(|e| Error::Parse(format!("검색어를 처리하지 못했습니다: {e}")))?;
+            .map_err(|e| Error::BadQuery {
+                detail: e.to_string(),
+            })?;
 
         let offset = self.header_offset();
         let mut hits: Vec<TableHit> = Vec::new();

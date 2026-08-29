@@ -20,7 +20,7 @@
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, Subject};
 use crate::tree::scanner::{Kind, MAX_DOC_BYTES, NO_PARENT, Node, Scan, ScanLimits};
 
 const PROGRESS_STEP: u64 = 8 * 1024 * 1024;
@@ -36,10 +36,10 @@ pub fn scan(
     should_stop: &dyn Fn() -> bool,
 ) -> Result<Scan> {
     if bytes.len() > MAX_DOC_BYTES {
-        return Err(Error::Parse(format!(
-            "파일이 너무 큽니다 ({}GB). 최대 4GB까지 열 수 있습니다.",
-            bytes.len() / 1024 / 1024 / 1024
-        )));
+        return Err(Error::FileTooLarge {
+            gigabytes: bytes.len() / 1024 / 1024 / 1024,
+            limit_gb: MAX_DOC_BYTES / 1024 / 1024 / 1024,
+        });
     }
 
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
@@ -83,7 +83,10 @@ pub fn scan(
 
         let event = reader
             .read_event()
-            .map_err(|e| Error::Parse(format!("XML을 읽지 못했습니다 ({start}바이트 부근): {e}")))?;
+            .map_err(|e| Error::XmlSyntax {
+                offset: start,
+                detail: e.to_string(),
+            })?;
         let end = reader.buffer_position();
         let span = (bom + start as u32, (end - start) as u32);
 
@@ -220,16 +223,15 @@ struct Builder<'a> {
 impl Builder<'_> {
     fn check_room(&self) -> Result<()> {
         if self.nodes.len() as u32 >= self.limits.max_nodes {
-            return Err(Error::Parse(format!(
-                "노드가 너무 많습니다 (최대 {}개).",
-                self.limits.max_nodes
-            )));
+            return Err(Error::TooManyNodes {
+                limit: self.limits.max_nodes,
+            });
         }
         if self.stack.len() as u16 >= self.limits.max_depth {
-            return Err(Error::Parse(format!(
-                "중첩이 너무 깊습니다 (최대 {}단계).",
-                self.limits.max_depth
-            )));
+            return Err(Error::TooDeep {
+                subject: Subject::Xml,
+                limit: u32::from(self.limits.max_depth),
+            });
         }
         Ok(())
     }
@@ -573,8 +575,17 @@ mod tests {
             max_depth: 8,
         };
         let src = format!("{}{}", "<a>".repeat(20), "</a>".repeat(20));
-        let err = scan(src.as_bytes(), &limits, |_| {}, &|| false).expect_err("should fail");
-        assert!(err.to_string().contains("중첩"), "{err}");
+        let error = scan(src.as_bytes(), &limits, |_| {}, &|| false).expect_err("should fail");
+        assert!(
+            matches!(
+                error,
+                Error::TooDeep {
+                    subject: Subject::Xml,
+                    limit: 8,
+                }
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]

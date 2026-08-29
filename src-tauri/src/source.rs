@@ -82,19 +82,25 @@ pub struct Fetched {
 }
 
 pub fn fetch_url(url: &str) -> Result<Fetched> {
-    let parsed = url::Url::parse(url).map_err(|_| Error::Fetch(format!("주소 형식이 올바르지 않습니다: {url}")))?;
+    let parsed = url::Url::parse(url).map_err(|_| Error::BadUrl {
+        url: url.to_owned(),
+    })?;
     if !matches!(parsed.scheme(), "http" | "https") {
-        return Err(Error::Fetch("http 또는 https 주소만 열 수 있습니다.".into()));
+        return Err(Error::UnsupportedScheme);
     }
 
     let mut response = ureq::get(parsed.as_str())
         .header("accept", "text/markdown, application/json, text/plain;q=0.9, */*;q=0.5")
         .call()
-        .map_err(|e| Error::Fetch(e.to_string()))?;
+        .map_err(|e| Error::FetchFailed {
+            detail: e.to_string(),
+        })?;
 
     let status = response.status();
     if !status.is_success() {
-        return Err(Error::Fetch(format!("서버가 {status} 응답을 보냈습니다.")));
+        return Err(Error::HttpStatus {
+            status: status.to_string(),
+        });
     }
 
     let content_type = response
@@ -108,7 +114,10 @@ pub fn fetch_url(url: &str) -> Result<Fetched> {
         .with_config()
         .limit(MAX_URL_BYTES)
         .read_to_vec()
-        .map_err(|e| Error::Fetch(format!("{e} (최대 {}MB)", MAX_URL_BYTES / 1024 / 1024)))?;
+        .map_err(|e| Error::DownloadFailed {
+            detail: e.to_string(),
+            limit_mb: MAX_URL_BYTES / 1024 / 1024,
+        })?;
 
     Ok(Fetched {
         title: title_from_url(&parsed),
@@ -121,7 +130,7 @@ fn title_from_url(url: &url::Url) -> String {
     url.path_segments()
         .and_then(|mut segments| segments.next_back().map(str::to_owned))
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| url.host_str().unwrap_or("문서").to_owned())
+        .unwrap_or_else(|| url.host_str().unwrap_or("Untitled").to_owned())
 }
 
 /// Content-Type is a hint only: many servers send `text/plain` for .md files

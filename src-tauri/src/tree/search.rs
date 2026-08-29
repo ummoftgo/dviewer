@@ -100,7 +100,7 @@ pub fn search(
     mut on_batch: impl FnMut(&[SearchHit], usize),
 ) -> Result<SearchResult> {
     if options.query.is_empty() {
-        return Err(Error::rejected("검색어를 입력해 주세요."));
+        return Err(Error::EmptyQuery);
     }
 
     // Paths are synthesised, so they need a tree walk rather than a byte scan.
@@ -112,7 +112,9 @@ pub fn search(
         .match_kind(MatchKind::LeftmostFirst)
         .ascii_case_insensitive(!options.case_sensitive)
         .build([options.query.as_bytes()])
-        .map_err(|e| Error::rejected(format!("검색어를 처리할 수 없습니다: {e}")))?;
+        .map_err(|e| Error::BadQuery {
+            detail: e.to_string(),
+        })?;
 
     let mut hits: Vec<SearchHit> = Vec::new();
     let mut batch_start = 0usize;

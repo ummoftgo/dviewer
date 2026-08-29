@@ -18,7 +18,7 @@ use std::fmt::Write;
 
 use serde::Deserialize;
 
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, Subject};
 
 /// Ceiling on a document that has to be parsed into memory. Well past any real
 /// config file, and far enough below the JSON path's 4GB that the two are not
@@ -30,13 +30,13 @@ pub const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;
 /// we can report.
 const MAX_DEPTH: usize = 512;
 
-fn check_size(bytes: &[u8], what: &str) -> Result<()> {
+fn check_size(bytes: &[u8], subject: Subject) -> Result<()> {
     if bytes.len() > MAX_INPUT_BYTES {
-        return Err(Error::Parse(format!(
-            "{what} 문서가 너무 큽니다 ({}MB). {}MB까지 읽을 수 있습니다.",
-            bytes.len() / 1024 / 1024,
-            MAX_INPUT_BYTES / 1024 / 1024
-        )));
+        return Err(Error::TooLarge {
+            subject,
+            megabytes: bytes.len() / 1024 / 1024,
+            limit_mb: MAX_INPUT_BYTES / 1024 / 1024,
+        });
     }
     Ok(())
 }
@@ -44,13 +44,16 @@ fn check_size(bytes: &[u8], what: &str) -> Result<()> {
 /// A byte-order mark is a marker, not content. The JSON, XML and CSV scanners
 /// each strip their own; these two parsers are handed a `&str`, so it has to
 /// come off here. TOML tolerates one, YAML refuses the whole document over it.
-fn text_of<'a>(bytes: &'a [u8], what: &str) -> Result<&'a str> {
+fn text_of<'a>(bytes: &'a [u8], subject: Subject) -> Result<&'a str> {
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
-    std::str::from_utf8(body).map_err(|_| Error::Parse(format!("{what} 문서가 UTF-8이 아닙니다.")))
+    std::str::from_utf8(body).map_err(|_| Error::NotUtf8 { subject })
 }
 
-fn too_deep(what: &str) -> Error {
-    Error::Parse(format!("{what} 문서의 중첩이 {MAX_DEPTH}단계를 넘습니다."))
+fn too_deep(subject: Subject) -> Error {
+    Error::TooDeep {
+        subject,
+        limit: MAX_DEPTH as u32,
+    }
 }
 
 /// Parse YAML and emit it as JSON text.
@@ -61,13 +64,16 @@ fn too_deep(what: &str) -> Error {
 pub fn yaml_to_json(bytes: &[u8]) -> Result<String> {
     use serde_yaml_ng::Value;
 
-    check_size(bytes, "YAML")?;
-    let text = text_of(bytes, "YAML")?;
+    check_size(bytes, Subject::Yaml)?;
+    let text = text_of(bytes, Subject::Yaml)?;
 
     let mut docs = Vec::new();
     for document in serde_yaml_ng::Deserializer::from_str(text) {
         let value = Value::deserialize(document)
-            .map_err(|e| Error::Parse(format!("YAML을 읽지 못했습니다: {e}")))?;
+            .map_err(|e| Error::ParseFailed {
+                subject: Subject::Yaml,
+                detail: e.to_string(),
+            })?;
         docs.push(value);
     }
 
@@ -93,7 +99,7 @@ fn write_yaml(out: &mut String, value: &serde_yaml_ng::Value, depth: usize) -> R
     use serde_yaml_ng::Value;
 
     if depth > MAX_DEPTH {
-        return Err(too_deep("YAML"));
+        return Err(too_deep(Subject::Yaml));
     }
     match value {
         Value::Null => out.push_str("null"),
@@ -142,20 +148,24 @@ fn scalar_text(value: &serde_yaml_ng::Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => s.clone(),
-        // A collection used as a key is vanishingly rare; show its shape.
-        Value::Sequence(_) => "[복합 키]".into(),
-        Value::Mapping(_) => "{복합 키}".into(),
+        // A collection used as a key is vanishingly rare. Its shape is the
+        // only useful thing to say about it, and a shape needs no translating.
+        Value::Sequence(_) => "[…]".into(),
+        Value::Mapping(_) => "{…}".into(),
         Value::Tagged(t) => scalar_text(&t.value),
     }
 }
 
 /// Parse TOML and emit it as JSON text.
 pub fn toml_to_json(bytes: &[u8]) -> Result<String> {
-    check_size(bytes, "TOML")?;
-    let text = text_of(bytes, "TOML")?;
+    check_size(bytes, Subject::Toml)?;
+    let text = text_of(bytes, Subject::Toml)?;
 
     let value: toml::Value =
-        toml::from_str(text).map_err(|e| Error::Parse(format!("TOML을 읽지 못했습니다: {e}")))?;
+        toml::from_str(text).map_err(|e| Error::ParseFailed {
+            subject: Subject::Toml,
+            detail: e.to_string(),
+        })?;
 
     let mut out = String::with_capacity(bytes.len() + bytes.len() / 4);
     write_toml(&mut out, &value, 0)?;
@@ -166,7 +176,7 @@ fn write_toml(out: &mut String, value: &toml::Value, depth: usize) -> Result<()>
     use toml::Value;
 
     if depth > MAX_DEPTH {
-        return Err(too_deep("TOML"));
+        return Err(too_deep(Subject::Toml));
     }
     match value {
         Value::String(s) => push_string(out, s),
@@ -323,9 +333,16 @@ mod tests {
 
     #[test]
     fn a_broken_document_reports_where() {
-        let err = yaml_to_json(b"a: [1, 2\nb: 3\n").expect_err("should fail");
-        let message = err.to_string();
-        assert!(message.contains("YAML"), "{message}");
+        let error = yaml_to_json(b"a: [1, 2
+b: 3
+").expect_err("should fail");
+        // The parser's own complaint carries the position, so it travels as
+        // `detail` rather than being replaced by something vaguer.
+        let Error::ParseFailed { subject, detail } = error else {
+            panic!("expected a parse failure, got {error:?}");
+        };
+        assert_eq!(subject, Subject::Yaml);
+        assert!(detail.contains("line"), "{detail}");
     }
 
     /// Windows editors add one without asking, and YAML refuses a document

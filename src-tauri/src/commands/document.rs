@@ -34,7 +34,7 @@ pub async fn open_path(
         }
     })
     .await
-    .map_err(|e| Error::rejected(e.to_string()))??;
+    .map_err(Error::internal)??;
     let (bytes, decoded, title, base_dir, kind) = opened;
 
     // Images in a markdown file are relative to it. Widen the asset scope to
@@ -65,7 +65,7 @@ pub async fn open_url(state: State<'_, AppState>, url: String) -> Result<DocMeta
         move || source::fetch_url(&url)
     })
     .await
-    .map_err(|e| Error::Fetch(e.to_string()))??;
+    .map_err(Error::internal)??;
 
     let bytes = Arc::new(DocBytes::from(fetched.bytes));
     let decoded = encoding::decode(Arc::clone(&bytes));
@@ -96,13 +96,15 @@ pub fn open_text(
     kind: Option<DocKind>,
 ) -> Result<DocMeta> {
     if content.trim().is_empty() {
-        return Err(Error::rejected("붙여넣은 내용이 비어 있습니다."));
+        return Err(Error::EmptyPaste);
     }
     // Pasted text arrived as a Rust String, so it is already UTF-8 and the
     // decode is free; it runs anyway so every document reports an encoding.
     let bytes = Arc::new(DocBytes::from(content.into_bytes()));
     let decoded = encoding::decode(Arc::clone(&bytes));
-    let title = title.unwrap_or_else(|| "붙여넣은 문서".to_owned());
+    // The frontend names pasted text, because naming is presentation. This
+    // fallback is only reachable if it forgets to.
+    let title = title.unwrap_or_else(|| "Untitled".to_owned());
     let kind = kind.unwrap_or_else(|| source::detect_kind(&title, &decoded.bytes));
 
     Ok(state
@@ -144,7 +146,9 @@ pub fn set_doc_encoding(
     encoding_name: String,
 ) -> Result<DocMeta> {
     let target = encoding::by_name(&encoding_name)
-        .ok_or_else(|| Error::rejected(format!("모르는 인코딩입니다: {encoding_name}")))?;
+        .ok_or_else(|| Error::UnknownEncoding {
+            name: encoding_name.clone(),
+        })?;
     let doc = state.get(doc_id)?;
     state.cancel_jobs(doc_id);
     doc.set_encoding(target);

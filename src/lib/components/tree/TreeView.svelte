@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import Icon from "../Icon.svelte";
+  import { n, t } from "../../i18n";
   import ContextMenu from "../ContextMenu.svelte";
   import Splitter from "../Splitter.svelte";
   import TreeInspector from "./TreeInspector.svelte";
@@ -415,9 +416,11 @@
   {#if !tab.treeStats && !tab.error}
     <div class="loading">
       <p>
-        {kindLabel(tab.kind)} 구조를 읽는 중… {formatBytes(tab.indexing?.done ?? 0)} / {formatBytes(
-          tab.meta.byteLen,
-        )}
+        {t("tree.indexing", {
+          format: kindLabel(tab.kind),
+          done: formatBytes(tab.indexing?.done ?? 0),
+          total: formatBytes(tab.meta.byteLen),
+        })}
       </p>
       <div class="bar"><div class="fill" style="width: {progressPercent}%"></div></div>
     </div>
@@ -446,7 +449,7 @@
     onkeydown={onKeydown}
     tabindex="0"
     role="tree"
-    aria-label="{kindLabel(tab.kind)} 트리"
+    aria-label={t("tree.label", { format: kindLabel(tab.kind) })}
     style="--row-height: {rowHeight}px"
   >
     <div class="spacer-box" style="height: {spacerHeight(metrics)}px">
@@ -480,7 +483,7 @@
           {#if row.container}
             <button
               class="twisty"
-              aria-label={row.collapsed ? "펼치기" : "접기"}
+              aria-label={row.collapsed ? t("tree.expand") : t("tree.collapse")}
               onclick={(e) => {
                 e.stopPropagation();
                 selectedRow = rowIndex;
@@ -525,8 +528,11 @@
             <button
               class="summary"
               tabindex="-1"
-              aria-label="{summarize(row)} {row.collapsed ? '펼치기' : '접기'}"
-              title={row.collapsed ? "펼치기" : "접기"}
+              aria-label={t("tree.summaryToggle", {
+                summary: summarize(row),
+                action: row.collapsed ? t("tree.expand") : t("tree.collapse"),
+              })}
+              title={row.collapsed ? t("tree.expand") : t("tree.collapse")}
               onclick={(e) => {
                 e.stopPropagation();
                 selectedRow = rowIndex;
@@ -537,7 +543,7 @@
             <span class="value" data-kind={row.kind}>
               {#if row.kind === "string"}"<EscapedText text={row.value ?? ""} />"{:else}<EscapedText
                   text={row.value ?? ""}
-                />{/if}{#if row.truncated}<span class="ellipsis" title="값이 길어 일부만 표시합니다"
+                />{/if}{#if row.truncated}<span class="ellipsis" title={t("tree.truncated")}
                   >…</span
                 >{/if}
             </span>
@@ -555,7 +561,7 @@
         step={16}
         keyDirection={-1}
         reset={320}
-        label="키 / 값 표 너비"
+        label={t("tree.inspector.width")}
         onCommit={() => settings.save()}
       />
       <TreeInspector {tab} onClose={() => (tab.showInspector = false)} />
@@ -564,14 +570,16 @@
 
   {#if tab.treeStats}
     <footer class="status">
-      <span>{tab.treeStats.nodeCount.toLocaleString()}개 노드</span>
-      <span>깊이 {tab.treeStats.maxDepth}</span>
+      <span>{t("tree.status.nodes", { n: n(tab.treeStats.nodeCount) })}</span>
+      <span>{t("tree.status.depth", { n: tab.treeStats.maxDepth })}</span>
       <span>{formatBytes(tab.treeStats.byteLen)}</span>
-      <span title="색인이 차지하는 메모리">색인 {formatBytes(tab.treeStats.indexBytes)}</span>
-      {#if tab.treeStats.filtered}<span class="tag">검색 결과만 표시 중</span>{/if}
-      {#if tab.treeStats.syntheticRoot}<span class="tag">여러 문서를 배열로 묶어 표시</span>{/if}
+      <span title={t("tree.status.indexTitle")}>
+        {t("tree.status.index", { size: formatBytes(tab.treeStats.indexBytes) })}
+      </span>
+      {#if tab.treeStats.filtered}<span class="tag">{t("tree.status.filtered")}</span>{/if}
+      {#if tab.treeStats.syntheticRoot}<span class="tag">{t("tree.status.synthetic")}</span>{/if}
       <span class="path" title={selectedPath}><bdi>{selectedPath}</bdi></span>
-      <span>{totalRows.toLocaleString()}행</span>
+      <span>{t("tree.status.rows", { n: n(totalRows) })}</span>
     </footer>
   {/if}
 </div>

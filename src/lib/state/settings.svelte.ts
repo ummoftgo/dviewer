@@ -1,11 +1,16 @@
+import { i18n, LOCALES, type Locale, type LocaleSetting } from "../i18n";
 import { errorMessage, systemFonts, type FontFamily } from "../ipc";
 import { getValue, setValue } from "../persist";
 
 export type ThemeMode = "auto" | "light" | "dark";
 
+/** Guards the stored value: a locale that is no longer offered must not stick. */
+const LOCALE_VALUES: Locale[] = LOCALES.map((entry) => entry.locale);
+
 export const UI_SCALE_STEPS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 const DEFAULTS = {
+  locale: "system" as LocaleSetting,
   theme: "auto" as ThemeMode,
   uiScale: 1,
   uiFontPx: 13,
@@ -24,6 +29,19 @@ const STORE_KEY = "settings";
 
 /** Global display settings: theme, sizing, fonts. */
 class Settings {
+  /**
+   * Kept in `i18n` rather than here, because `t()` has to read it and the
+   * settings store imports too much to be reachable from there. This pair of
+   * accessors is the setting's face; the state lives one module over.
+   */
+  get locale(): LocaleSetting {
+    return i18n.setting;
+  }
+
+  set locale(value: LocaleSetting) {
+    i18n.setting = value;
+  }
+
   theme = $state<ThemeMode>(DEFAULTS.theme);
   /** Zooms the whole interface, spacing included. */
   uiScale = $state(DEFAULTS.uiScale);
@@ -64,6 +82,9 @@ class Settings {
     const saved = await getValue<Partial<Persisted>>(STORE_KEY);
     if (!saved) return;
 
+    if (saved.locale && (saved.locale === "system" || LOCALE_VALUES.includes(saved.locale))) {
+      this.locale = saved.locale;
+    }
     if (saved.theme === "auto" || saved.theme === "light" || saved.theme === "dark") {
       this.theme = saved.theme;
     }
@@ -83,6 +104,7 @@ class Settings {
 
   save() {
     void setValue(STORE_KEY, {
+      locale: this.locale,
       theme: this.theme,
       uiScale: this.uiScale,
       uiFontPx: this.uiFontPx,

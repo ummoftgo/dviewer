@@ -7,7 +7,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::bytes::DocBytes;
-use crate::encoding::{self, Decoded, EncodingSource};
+use crate::encoding::{self, DecodeWarning, Decoded, EncodingSource};
 use crate::error::{Error, Result};
 use crate::tree::TreeDoc;
 use crate::table::TableDoc;
@@ -67,7 +67,7 @@ pub struct EncodingInfo {
     pub label: String,
     pub source: EncodingSource,
     /// Shown beside the picker when something did not decode cleanly.
-    pub warning: Option<String>,
+    pub warning: Option<DecodeWarning>,
 }
 
 /// What the frontend needs to render a tab. Deliberately small — the document
@@ -106,7 +106,7 @@ struct DocInner {
     bytes: Arc<DocBytes>,
     encoding: &'static encoding_rs::Encoding,
     encoding_source: EncodingSource,
-    encoding_warning: Option<String>,
+    encoding_warning: Option<DecodeWarning>,
     /// Built lazily and in the background; None until indexing completes.
     /// Only one of the two is ever populated — a document is a tree or a grid,
     /// never both.
@@ -241,7 +241,7 @@ impl AppState {
     }
 
     pub fn get(&self, id: DocId) -> Result<Arc<Document>> {
-        self.docs.read().get(&id).cloned().ok_or(Error::NoSuchDoc(id))
+        self.docs.read().get(&id).cloned().ok_or(Error::NoSuchDoc { id })
     }
 
     /// Dropping the Arc releases the mmap and the JSON index immediately,

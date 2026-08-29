@@ -6,6 +6,7 @@
  * protocol, laying out diagrams, and typesetting maths.
  */
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { t } from "../../i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DocMeta } from "../../ipc";
 
@@ -55,7 +56,7 @@ export function rewriteImages(root: HTMLElement, meta: DocMeta) {
         img.classList.add("img-missing");
         // The browser's broken-image icon says nothing useful; the path does.
         img.removeAttribute("src");
-        if (!img.alt) img.alt = `이미지를 찾을 수 없습니다: ${src}`;
+        if (!img.alt) img.alt = t("markdown.imageMissing", { src });
       },
       { once: true },
     );
@@ -79,7 +80,7 @@ export function interceptLinks(root: HTMLElement, onAnchor: (id: string) => void
       return;
     }
     if (/^https?:/i.test(href)) {
-      void openUrl(href).catch((err) => console.warn("[dviewer] 링크를 열지 못했습니다:", err));
+      void openUrl(href).catch((err) => console.warn("[dviewer] could not open the link:", err));
     }
   };
 
@@ -111,7 +112,9 @@ export async function renderMermaid(root: HTMLElement, dark: boolean) {
       } catch (err) {
         // A broken diagram should show its source and the reason, not vanish.
         container.classList.add("mermaid-error");
-        container.textContent = `mermaid 오류: ${err instanceof Error ? err.message : String(err)}`;
+        container.textContent = t("markdown.mermaidError", {
+        detail: err instanceof Error ? err.message : String(err),
+      });
         const pre = document.createElement("pre");
         pre.textContent = source;
         container.append(pre);

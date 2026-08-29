@@ -4,7 +4,7 @@
 use tauri::State;
 
 use crate::bytes::decode_utf8;
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, Subject};
 use crate::fonts::{self, FontFamily};
 use crate::highlight::{self, HighlightCss};
 use crate::markdown::{self, RenderedMarkdown};
@@ -19,17 +19,17 @@ pub async fn doc_source_text(state: State<'_, AppState>, doc_id: DocId) -> Resul
     let doc = state.get(doc_id)?;
     let bytes = doc.bytes();
     if bytes.len() > MAX_MARKDOWN_BYTES {
-        return Err(Error::rejected(format!(
-            "원문이 너무 큽니다 ({}MB). 최대 {}MB까지 표시합니다.",
-            bytes.len() / 1024 / 1024,
-            MAX_MARKDOWN_BYTES / 1024 / 1024
-        )));
+        return Err(Error::TooLarge {
+            subject: Subject::Source,
+            megabytes: bytes.len() / 1024 / 1024,
+            limit_mb: MAX_MARKDOWN_BYTES / 1024 / 1024,
+        });
     }
     // Turning megabytes of bytes into a String is not something to do on the
     // UI thread.
     tauri::async_runtime::spawn_blocking(move || decode_utf8(&bytes))
         .await
-        .map_err(|e| Error::rejected(e.to_string()))
+        .map_err(Error::internal)
 }
 
 #[tauri::command]
@@ -40,17 +40,17 @@ pub async fn render_markdown(
     let doc = state.get(doc_id)?;
     let bytes = doc.bytes();
     if bytes.len() > MAX_MARKDOWN_BYTES {
-        return Err(Error::rejected(format!(
-            "문서가 너무 큽니다 ({}MB). 마크다운 렌더링은 {}MB까지 지원합니다.",
-            bytes.len() / 1024 / 1024,
-            MAX_MARKDOWN_BYTES / 1024 / 1024
-        )));
+        return Err(Error::TooLarge {
+            subject: Subject::Markdown,
+            megabytes: bytes.len() / 1024 / 1024,
+            limit_mb: MAX_MARKDOWN_BYTES / 1024 / 1024,
+        });
     }
     let source = decode_utf8(&bytes);
     // Highlighting a large document takes long enough to drop frames.
     tauri::async_runtime::spawn_blocking(move || markdown::render(&source))
         .await
-        .map_err(|e| Error::rejected(e.to_string()))
+        .map_err(Error::internal)
 }
 
 #[tauri::command]
@@ -64,5 +64,7 @@ pub fn highlight_css() -> &'static HighlightCss {
 pub async fn system_fonts() -> Result<&'static [FontFamily]> {
     tauri::async_runtime::spawn_blocking(fonts::families)
         .await
-        .map_err(|e| Error::rejected(format!("글꼴 목록을 읽지 못했습니다: {e}")))
+        .map_err(|e| Error::FontsFailed {
+            detail: e.to_string(),
+        })
 }

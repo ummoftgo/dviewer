@@ -4,6 +4,7 @@
   import { workspace } from "../state/docs.svelte";
   import { recents } from "../state/recents.svelte";
   import { DOC_KINDS, kindBadge, type DocKind } from "../ipc";
+  import { n, t } from "../i18n";
 
   interface Props {
     onOpenSettings: () => void;
@@ -56,11 +57,11 @@
 
   function relativeTime(at: number) {
     const minutes = Math.round((Date.now() - at) / 60000);
-    if (minutes < 1) return "방금";
-    if (minutes < 60) return `${minutes}분 전`;
+    if (minutes < 1) return t("time.justNow");
+    if (minutes < 60) return t("time.minutes", { n: n(minutes) });
     const hours = Math.round(minutes / 60);
-    if (hours < 24) return `${hours}시간 전`;
-    return `${Math.round(hours / 24)}일 전`;
+    if (hours < 24) return t("time.hours", { n: n(hours) });
+    return t("time.days", { n: n(Math.round(hours / 24)) });
   }
 </script>
 
@@ -69,11 +70,12 @@
     <header>
       <div class="titles">
         <h1>dviewer</h1>
-        <p>마크다운 · JSON · YAML · TOML · XML · CSV · TSV를 엽니다. 창에 파일을 끌어다 놓아도 됩니다.</p>
+        <p>{t("start.intro")}</p>
       </div>
       <!-- The toolbar only exists once a document is open, so without this the
            settings are unreachable from a cold start. -->
-      <button class="icon-btn" onclick={onOpenSettings} title="표시 설정" aria-label="표시 설정">
+      <button class="icon-btn" onclick={onOpenSettings} title={t("toolbar.settings")}
+        aria-label={t("toolbar.settings")}>
         <Icon name="settings" />
       </button>
     </header>
@@ -87,13 +89,16 @@
 
     <div class="actions">
       <button class="btn btn-primary" onclick={pickFiles} disabled={workspace.opening}>
-        <Icon name="file" /> 파일 열기
+        <Icon name="file" />
+        {t("start.openFile")}
       </button>
       <button class="btn" class:on={mode === "url"} onclick={() => toggle("url")}>
-        <Icon name="link" /> 주소로 열기
+        <Icon name="link" />
+        {t("start.openUrl")}
       </button>
       <button class="btn" class:on={mode === "paste"} onclick={() => toggle("paste")}>
-        <Icon name="clipboard" /> 붙여넣기
+        <Icon name="clipboard" />
+        {t("start.paste")}
       </button>
     </div>
 
@@ -108,7 +113,7 @@
           spellcheck="false"
         />
         <button class="btn btn-primary" type="submit" disabled={!url.trim() || workspace.opening}>
-          {workspace.opening ? "여는 중…" : "열기"}
+          {workspace.opening ? t("action.opening") : t("action.open")}
         </button>
       </form>
     {/if}
@@ -119,7 +124,7 @@
           class="field"
           bind:value={pasted}
           rows="8"
-          placeholder="마크다운 · JSON · YAML · TOML · XML · CSV를 붙여넣으세요."
+          placeholder={t("start.pastePlaceholder")}
           spellcheck="false"
         ></textarea>
         <div class="row">
@@ -127,15 +132,17 @@
                recognised from their content alone, so the rest have to be
                named here. -->
           <label class="paste-kind">
-            형식
+            {t("toolbar.format.label")}
             <select bind:value={pastedKind}>
-              <option value="auto">자동</option>
+              <option value="auto">{t("start.auto")}</option>
               {#each DOC_KINDS as entry (entry.kind)}
-                <option value={entry.kind}>{entry.label}</option>
+                <option value={entry.kind}>{t(entry.label)}</option>
               {/each}
             </select>
           </label>
-          <button class="btn btn-primary" type="submit" disabled={!pasted.trim()}>열기</button>
+          <button class="btn btn-primary" type="submit" disabled={!pasted.trim()}>
+            {t("action.open")}
+          </button>
         </div>
       </form>
     {/if}
@@ -143,8 +150,10 @@
     {#if recents.entries.length > 0}
       <section class="recents">
         <div class="recents-head">
-          <h2>최근 문서</h2>
-          <button class="btn btn-ghost small" onclick={() => recents.clear()}>목록 지우기</button>
+          <h2>{t("start.recents")}</h2>
+          <button class="btn btn-ghost small" onclick={() => recents.clear()}>
+            {t("start.clearRecents")}
+          </button>
         </div>
         <ul>
           {#each recents.entries as entry (entry.path)}

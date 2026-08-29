@@ -20,7 +20,7 @@
       .catch((err) => {
         // Losing highlighting degrades code blocks to plain text, which is
         // survivable — log it and carry on.
-        console.warn("[dviewer] 구문 강조 스타일을 불러오지 못했습니다:", errorMessage(err));
+        console.warn("[dviewer] could not load the highlight stylesheet:", errorMessage(err));
       });
     return () => {
       cancelled = true;
