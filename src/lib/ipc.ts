@@ -9,15 +9,30 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { n, t, type MessageKey } from "./i18n";
 
-export type DocKind = "markdown" | "json" | "yaml" | "toml" | "xml" | "csv" | "tsv" | "text";
+export type DocKind =
+  | "markdown"
+  | "json"
+  | "yaml"
+  | "toml"
+  | "xml"
+  | "csv"
+  | "tsv"
+  | "text"
+  | "sqlite";
 
 /**
- * How a document is read. Seven formats, three views — routing on the view is
+ * How a document is read. Eight formats, four views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
-export type DocView = "prose" | "tree" | "table";
+export type DocView = "prose" | "tree" | "table" | "database";
 
-/** Menu order for the format switcher. `label` is a message key, not text. */
+/**
+ * Menu order for the format switcher. `label` is a message key, not text.
+ *
+ * `sqlite` is deliberately absent. Every entry here is a way of reading one run
+ * of bytes, and a database is not read as bytes at all — offering it would be
+ * offering a switch the backend refuses (`notInterchangeable`).
+ */
 export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "markdown", label: "format.markdown" },
   { kind: "json", label: "format.json" },
@@ -37,12 +52,15 @@ export function viewOf(kind: DocKind): DocView {
     case "tsv":
     case "text":
       return "table";
+    case "sqlite":
+      return "database";
     default:
       return "tree";
   }
 }
 
 export function kindLabel(kind: DocKind): string {
+  if (kind === "sqlite") return t("format.sqlite");
   const entry = DOC_KINDS.find((candidate) => candidate.kind === kind);
   return entry ? t(entry.label) : kind;
 }
@@ -61,6 +79,7 @@ const BADGES: Record<DocKind, string> = {
   csv: "CSV",
   tsv: "TSV",
   text: "TXT",
+  sqlite: "DB",
 };
 
 export function kindBadge(kind: DocKind): string {
@@ -400,6 +419,23 @@ export const tableCellText = (docId: number, row: number, column: number) =>
   invoke<CellText>("table_cell_text", { docId, row, column });
 export const tableRowText = (docId: number, row: number) =>
   invoke<CellText>("table_row_text", { docId, row });
+
+// --- SQLite ---------------------------------------------------------------
+
+/** A table or a view, as the collection picker lists it. */
+export interface Collection {
+  name: string;
+  isView: boolean;
+}
+
+export interface Collections {
+  items: Collection[];
+}
+
+export const sqliteCollections = (docId: number) =>
+  invoke<Collections>("sqlite_collections", { docId });
+export const sqliteSchema = (docId: number, name: string) =>
+  invoke<string | null>("sqlite_schema", { docId, name });
 export const tableSearch = (docId: number, query: string, caseSensitive: boolean) =>
   invoke<TableSearchResult>("table_search", { docId, query, caseSensitive });
 

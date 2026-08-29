@@ -33,8 +33,17 @@ pub async fn open_path(
             let bytes = Arc::new(bytes);
             // Decoding comes first: a UTF-16 document does not even begin with
             // the character that would say what format it is.
-            let decoded = encoding::decode(Arc::clone(&bytes));
-            let kind = source::detect_kind(&title, &decoded.bytes);
+            //
+            // A database is the exception. Its bytes are not text in any
+            // encoding, so running the detector over them would only produce a
+            // confident wrong answer — and the pages it would guess from are
+            // not what the reader is going to be shown anyway.
+            let kind = source::detect_kind(&title, &bytes);
+            let decoded = if kind == DocKind::Sqlite {
+                encoding::verbatim(Arc::clone(&bytes))
+            } else {
+                encoding::decode(Arc::clone(&bytes))
+            };
             Ok::<_, Error>((bytes, decoded, title, base_dir, kind))
         }
     })
@@ -162,6 +171,11 @@ pub fn set_doc_kind(
     kind: DocKind,
 ) -> Result<DocMeta> {
     let doc = state.get(doc_id)?;
+    // See `Error::NotInterchangeable`: the switcher reinterprets bytes, and a
+    // database has no reading to change.
+    if (kind == DocKind::Sqlite) != (doc.kind() == DocKind::Sqlite) {
+        return Err(Error::NotInterchangeable);
+    }
     state.cancel_jobs(doc_id);
     doc.set_kind(kind);
     // A document read as something else can become markdown here, and only

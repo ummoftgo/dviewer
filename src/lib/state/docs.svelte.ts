@@ -2,6 +2,7 @@ import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
 import { t } from "../i18n";
 import type {
+  Collection,
   DocKind,
   DocMeta,
   DocView,
@@ -153,6 +154,13 @@ export class DocTab {
   /** Cell the grid should jump to; cleared by the view once honoured. */
   pendingCell = $state<{ row: number; column: number } | null>(null);
   tableSearch = new TableSearchState();
+
+  // Database (SQLite)
+  /** Every table and view in the file; empty until the connection is opened. */
+  collections = $state<Collection[]>([]);
+  /** Which one is being read. Null only before the first list arrives. */
+  collection = $state<string | null>(null);
+  schema = $state<string | null>(null);
 
   constructor(meta: DocMeta) {
     this.meta = meta;

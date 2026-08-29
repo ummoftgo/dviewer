@@ -22,6 +22,7 @@ export const en: Messages = {
   "format.csv": "CSV",
   "format.tsv": "TSV",
   "format.text": "Text",
+  "format.sqlite": "SQLite",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "comma",
@@ -217,6 +218,10 @@ export const en: Messages = {
   "table.search.running": "Searching…",
   "table.search.capped": "Too many matches; only some were collected",
   "table.search.empty": "No matches",
+  "table.collection": "Table",
+  "table.noCollections": "This database has no tables or views.",
+  "table.view": "View",
+  "table.schema": "Schema",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "Path copied.",
@@ -247,6 +252,7 @@ export const en: Messages = {
   "subject.table": "table",
   "subject.tree": "tree",
   "subject.decompressed": "the decompressed content",
+  "subject.database": "the database",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "there is unreadable content after the value",
@@ -281,6 +287,7 @@ export const en: Messages = {
   "error.tooDeep": "Nested too deeply: {subject}, limit {limit}.",
   "error.notReady": "Still reading the {subject}.",
   "error.wrongView": "This format cannot be shown as a {subject}.",
+  "error.notInterchangeable": "A database and other formats cannot be read as each other.",
   "error.noSuchNode": "No such entry.",
   "error.noSuchCell": "No such cell.",
   "error.noSuchRow": "No such row.",

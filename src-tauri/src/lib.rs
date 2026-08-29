@@ -8,6 +8,7 @@ pub mod error;
 pub mod fonts;
 pub mod highlight;
 pub mod log;
+pub mod sqlite;
 pub mod tree;
 pub mod markdown;
 pub mod table;
@@ -116,6 +117,8 @@ pub fn run() {
             commands::table_set_has_header,
             commands::table_set_plain,
             commands::table_set_expand,
+            commands::sqlite_collections,
+            commands::sqlite_schema,
             commands::table_cell_text,
             commands::table_row_text,
             commands::table_search,

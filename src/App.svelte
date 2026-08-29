@@ -10,6 +10,7 @@
   import Toolbar from "./lib/components/Toolbar.svelte";
   import TreeView from "./lib/components/tree/TreeView.svelte";
   import TableView from "./lib/components/table/TableView.svelte";
+  import DatabaseView from "./lib/components/db/DatabaseView.svelte";
   import MarkdownView from "./lib/components/markdown/MarkdownView.svelte";
   import RawView from "./lib/components/markdown/RawView.svelte";
   import * as ipc from "./lib/ipc";
@@ -175,9 +176,12 @@
           }
           return;
         case "f":
-          // Both the tree and the grid have a search box; prose has the
-          // browser's own find, which this must not shadow.
-          if (active && active.view !== "prose") {
+          // The tree and the grid have a search box; prose has the browser's
+          // own find, which this must not shadow, and the database view has no
+          // box to focus yet. Named rather than negated: an unlisted view would
+          // otherwise reach for a binding left behind by the last one that had
+          // it.
+          if (active?.view === "tree" || active?.view === "table") {
             event.preventDefault();
             searchBarFocus?.();
           }
@@ -254,6 +258,8 @@
           </div>
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
+        {:else if active.view === "database"}
+          <DatabaseView tab={active} />
         {:else if active.view === "table"}
           <TableView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.mode === "raw"}

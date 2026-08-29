@@ -27,6 +27,13 @@ const TSV_EXTS: &[&str] = &["tsv", "tab"];
 /// its asterisks became emphasis and its hashes became headings. Text is what
 /// it says it is.
 const TEXT_EXTS: &[&str] = &["txt", "log"];
+const SQLITE_EXTS: &[&str] = &["db", "sqlite", "sqlite3", "db3"];
+
+/// The sixteen bytes every SQLite database begins with.
+///
+/// A self-declaration in the same sense as JSON's `{` or XML's `<`, and a far
+/// stronger one — no text file starts with this by accident.
+const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
 
 /// Every format the viewer knows, paired with the extensions that name it.
 const BY_EXTENSION: &[(DocKind, &[&str])] = &[
@@ -38,6 +45,7 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Csv, CSV_EXTS),
     (DocKind::Tsv, TSV_EXTS),
     (DocKind::Text, TEXT_EXTS),
+    (DocKind::Sqlite, SQLITE_EXTS),
 ];
 
 /// Decide how to read a document: extension first, then a peek at the content.
@@ -56,8 +64,19 @@ pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
 
+    // The magic comes first, because it is the one signal that cannot be wrong.
+    let is_sqlite = bytes.starts_with(SQLITE_MAGIC);
+    if is_sqlite {
+        return DocKind::Sqlite;
+    }
+
     for (kind, extensions) in BY_EXTENSION {
         if extensions.contains(&ext.as_str()) {
+            // `.db` names a dozen unrelated formats. Without the magic above,
+            // the name alone is not enough to promise a database.
+            if *kind == DocKind::Sqlite {
+                break;
+            }
             return *kind;
         }
     }
@@ -235,6 +254,24 @@ pub fn kind_from_response(title: &str, content_type: Option<&str>, bytes: &[u8])
 
 #[cfg(test)]
 mod tests {
+    /// The magic decides, not the name.
+    ///
+    /// `.db` names a dozen unrelated formats, so an extension alone must not
+    /// promise a database — and a database with no extension at all is still
+    /// one, because its first sixteen bytes say so.
+    #[test]
+    fn a_database_is_known_by_its_first_bytes() {
+        let magic = b"SQLite format 3\0rest of the header";
+        assert_eq!(detect_kind("app.sqlite", magic), DocKind::Sqlite);
+        assert_eq!(detect_kind("dump", magic), DocKind::Sqlite);
+        assert_eq!(detect_kind("notes.txt", magic), DocKind::Sqlite);
+
+        // The same names without the magic are whatever they otherwise are.
+        assert_eq!(detect_kind("app.db", b"id,name\n1,a\n"), DocKind::Text);
+        assert_eq!(detect_kind("app.sqlite", b"{\"a\":1}"), DocKind::Json);
+        assert_eq!(detect_kind("app.db3", "# 제목".as_bytes()), DocKind::Text);
+    }
+
     fn gzipped(bytes: &[u8]) -> Vec<u8> {
         use flate2::{write::GzEncoder, Compression};
         use std::io::Write;

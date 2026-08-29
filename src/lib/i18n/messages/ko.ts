@@ -27,6 +27,7 @@ export const ko = {
   "format.csv": "CSV",
   "format.tsv": "TSV",
   "format.text": "텍스트",
+  "format.sqlite": "SQLite",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "쉼표",
@@ -222,6 +223,10 @@ export const ko = {
   "table.search.running": "찾는 중…",
   "table.search.capped": "결과가 너무 많아 일부만 모았습니다",
   "table.search.empty": "결과 없음",
+  "table.collection": "테이블",
+  "table.noCollections": "이 데이터베이스에는 테이블도 뷰도 없습니다.",
+  "table.view": "뷰",
+  "table.schema": "스키마",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "경로를 복사했습니다.",
@@ -252,6 +257,7 @@ export const ko = {
   "subject.table": "표",
   "subject.tree": "트리",
   "subject.decompressed": "압축을 푼 내용",
+  "subject.database": "데이터베이스",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "값 뒤에 해석할 수 없는 내용이 있습니다",
@@ -286,6 +292,7 @@ export const ko = {
   "error.tooDeep": "{subject} — 중첩이 너무 깊습니다 (최대 {limit}단계).",
   "error.notReady": "{subject} — 아직 읽는 중입니다.",
   "error.wrongView": "이 형식은 {subject} 형태로 볼 수 없습니다.",
+  "error.notInterchangeable": "데이터베이스와 다른 형식은 서로 바꿔 읽을 수 없습니다.",
   "error.noSuchNode": "해당 항목을 찾을 수 없습니다.",
   "error.noSuchCell": "해당 칸을 찾을 수 없습니다.",
   "error.noSuchRow": "해당 행을 찾을 수 없습니다.",

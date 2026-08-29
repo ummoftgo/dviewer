@@ -74,7 +74,12 @@
       {/if}
     {/if}
 
-    <!-- Seven formats is past what a row of buttons can carry, and the point
+    <!-- Neither control is shown for a database. The format switcher offers
+         readings of one run of bytes and the encoding picker says how to turn
+         those bytes into characters; a database is queried, so both would be
+         controls with nothing to act on. -->
+    {#if tab.kind !== "sqlite"}
+    <!-- Eight formats is past what a row of buttons can carry, and the point
          of the control is to correct a wrong guess, not to be used often. -->
     <label class="format" title={t("toolbar.format.title")}>
       {t("toolbar.format.label")}
@@ -109,6 +114,7 @@
         {/if}
       </select>
     </label>
+    {/if}
 
     <span class="scale" title={t("toolbar.scale")}>
       {Math.round(settings.uiScale * 100)}%

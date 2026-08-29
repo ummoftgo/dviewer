@@ -22,6 +22,7 @@ export const zhHans: Messages = {
   "format.csv": "CSV",
   "format.tsv": "TSV",
   "format.text": "文本",
+  "format.sqlite": "SQLite",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "逗号",
@@ -217,6 +218,10 @@ export const zhHans: Messages = {
   "table.search.running": "正在查找…",
   "table.search.capped": "结果过多，仅收集了一部分",
   "table.search.empty": "无结果",
+  "table.collection": "表",
+  "table.noCollections": "该数据库中没有表或视图。",
+  "table.view": "视图",
+  "table.schema": "架构",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "已复制路径。",
@@ -247,6 +252,7 @@ export const zhHans: Messages = {
   "subject.table": "表格",
   "subject.tree": "树",
   "subject.decompressed": "解压后的内容",
+  "subject.database": "数据库",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "值之后有无法解析的内容",
@@ -281,6 +287,7 @@ export const zhHans: Messages = {
   "error.tooDeep": "{subject} 嵌套过深（上限 {limit}）。",
   "error.notReady": "仍在读取{subject}。",
   "error.wrongView": "此格式无法以{subject}形式显示。",
+  "error.notInterchangeable": "数据库与其他格式无法互相解读。",
   "error.noSuchNode": "找不到该项目。",
   "error.noSuchCell": "找不到该单元格。",
   "error.noSuchRow": "找不到该行。",

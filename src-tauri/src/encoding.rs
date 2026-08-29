@@ -106,6 +106,20 @@ pub fn decode(source: Arc<DocBytes>) -> Decoded {
     transcode(source, encoding, from)
 }
 
+/// Take `source` as it is, without deciding anything about it.
+///
+/// For a format whose bytes are not text — a database — where a detected
+/// encoding would be a confident wrong answer, and where nothing downstream is
+/// going to read these bytes as characters anyway.
+pub fn verbatim(source: Arc<DocBytes>) -> Decoded {
+    Decoded {
+        bytes: source,
+        encoding: encoding_rs::UTF_8,
+        source: EncodingSource::Utf8,
+        warning: None,
+    }
+}
+
 /// Decode `source` as `encoding`, whatever detection would have said.
 pub fn decode_as(source: Arc<DocBytes>, encoding: &'static Encoding) -> Decoded {
     transcode(source, encoding, EncodingSource::Chosen)

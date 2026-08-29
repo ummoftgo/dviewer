@@ -8,7 +8,7 @@
  * while and eat disk. Everything lands in ./fixtures, which is git-ignored.
  */
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import path from "node:path";
 
@@ -83,13 +83,13 @@ await writeFile(
   '{\n  "ok": [1, 2, 3],\n  "bad": {"unterminated": "값이 끝나지\n',
 );
 
+
 if (wantHuge) {
   // ~600MB. Indexing time and resident memory are the numbers to watch.
   await writeStream("huge.json", arrayOf(2_400_000, record));
 } else {
   console.log("  (huge.json 생략 — --huge 옵션으로 생성)");
 }
-
 
 
 // --- gzip ---------------------------------------------------------------
@@ -414,6 +414,51 @@ await writeFile(
   ["id\t이름\t점수", "1\t가나다\t10", "2\t라마바\t20", ""].join("\n"),
 );
 console.log("  sample.tsv");
+
+// --- SQLite ----------------------------------------------------------------
+// Written with node's own SQLite so the generator keeps its no-dependency rule.
+// It prints an experimental-feature warning; that is node's, not a problem here.
+// Shapes worth having: a plain table with a rowid, a table without one, a view,
+// a BLOB column, and text that is not ASCII.
+{
+  const { DatabaseSync } = await import("node:sqlite");
+  const file = path.join(OUT, "sample.sqlite");
+  await rm(file, { force: true });
+  const db = new DatabaseSync(file);
+  db.exec(`
+    CREATE TABLE customers (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT,
+      joined TEXT
+    );
+    CREATE TABLE orders (
+      id INTEGER PRIMARY KEY,
+      customer_id INTEGER REFERENCES customers(id),
+      total REAL,
+      placed TEXT,
+      receipt BLOB
+    );
+    CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;
+    CREATE VIEW recent_orders AS
+      SELECT o.id, c.name, o.total FROM orders o JOIN customers c ON c.id = o.customer_id;
+  `);
+  const names = ["김하늘", "Alice Nguyen", "佐藤 健", "Björn Öst", "O'Brien"];
+  const customer = db.prepare("INSERT INTO customers VALUES (?, ?, ?, ?)");
+  for (let i = 1; i <= 50; i += 1) {
+    customer.run(i, `${names[i % 5]} ${i}`, `user${i}@example.com`, `2026-0${(i % 9) + 1}-1${i % 9}`);
+  }
+  const order = db.prepare("INSERT INTO orders VALUES (?, ?, ?, ?, ?)");
+  for (let i = 1; i <= 200; i += 1) {
+    order.run(i, (i % 50) + 1, Math.round(i * 1370) / 100, `2026-08-${String((i % 28) + 1).padStart(2, "0")}`,
+      new Uint8Array(16).fill(i % 256));
+  }
+  const setting = db.prepare("INSERT INTO settings VALUES (?, ?)");
+  setting.run("theme", "dark");
+  setting.run("locale", "ko");
+  db.close();
+  console.log("  sample.sqlite");
+}
 
 if (wantHuge) {
   // Same shape as a real export: wide enough that columns matter, long enough

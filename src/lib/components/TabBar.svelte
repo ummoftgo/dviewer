@@ -147,6 +147,11 @@
     color: var(--success);
   }
 
+  /* A grid like the other two, but not read out of the file's own text. */
+  .tab.active .kind[data-kind="sqlite"] {
+    color: var(--json-bool);
+  }
+
   .title {
     overflow: hidden;
     text-overflow: ellipsis;

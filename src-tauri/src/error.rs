@@ -31,6 +31,8 @@ pub enum Subject {
     Tree,
     /// What came out of a compressed file, which is what the limit is on.
     Decompressed,
+    /// A SQLite database, and anything asked of it.
+    Database,
 }
 
 /// Why the JSON scanner stopped. Ten fixed reasons, so they are codes rather
@@ -94,6 +96,13 @@ pub enum Error {
     NotReady { subject: Subject },
     /// This format cannot be read that way at all.
     WrongView { subject: Subject },
+    /// A database and a text format are not two readings of the same bytes.
+    ///
+    /// Every other format switch is a reinterpretation of one run of bytes, so
+    /// any of them can become any other and the reader decides. A database is
+    /// not read as bytes at all — it is queried — so there is nothing to
+    /// reinterpret in either direction.
+    NotInterchangeable,
     NoSuchNode,
     NoSuchCell,
     NoSuchRow,
@@ -154,6 +163,7 @@ impl Error {
             Error::TooDeep { .. } => "tooDeep",
             Error::NotReady { .. } => "notReady",
             Error::WrongView { .. } => "wrongView",
+            Error::NotInterchangeable => "notInterchangeable",
             Error::NoSuchNode => "noSuchNode",
             Error::NoSuchCell => "noSuchCell",
             Error::NoSuchRow => "noSuchRow",
@@ -280,6 +290,7 @@ mod tests {
             Error::TooDeep { subject: Subject::Yaml, limit: 1 },
             Error::NotReady { subject: Subject::Tree },
             Error::WrongView { subject: Subject::Table },
+            Error::NotInterchangeable,
             Error::NoSuchNode,
             Error::NoSuchCell,
             Error::NoSuchRow,

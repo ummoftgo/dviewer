@@ -22,6 +22,7 @@ export const ja: Messages = {
   "format.csv": "CSV",
   "format.tsv": "TSV",
   "format.text": "テキスト",
+  "format.sqlite": "SQLite",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "カンマ",
@@ -217,6 +218,10 @@ export const ja: Messages = {
   "table.search.running": "検索中…",
   "table.search.capped": "結果が多すぎるため一部のみ収集しました",
   "table.search.empty": "結果なし",
+  "table.collection": "テーブル",
+  "table.noCollections": "このデータベースにはテーブルもビューもありません。",
+  "table.view": "ビュー",
+  "table.schema": "スキーマ",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "パスをコピーしました。",
@@ -247,6 +252,7 @@ export const ja: Messages = {
   "subject.table": "表",
   "subject.tree": "ツリー",
   "subject.decompressed": "展開後の内容",
+  "subject.database": "データベース",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "値の後に解釈できない内容があります",
@@ -281,6 +287,7 @@ export const ja: Messages = {
   "error.tooDeep": "{subject} のネストが深すぎます (最大 {limit})。",
   "error.notReady": "まだ{subject}を読み込んでいます。",
   "error.wrongView": "この形式は{subject}として表示できません。",
+  "error.notInterchangeable": "データベースと他の形式は互いに読み替えられません。",
   "error.noSuchNode": "該当する項目が見つかりません。",
   "error.noSuchCell": "該当するセルが見つかりません。",
   "error.noSuchRow": "該当する行が見つかりません。",

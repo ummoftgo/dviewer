@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use super::{DocError, IndexProgress, IndexSlot};
 use crate::error::{Error, Result, Subject};
-use crate::state::{AppState, DocId, DocView};
+use crate::state::{AppState, DocId, DocKind, DocSource, DocView};
 use crate::table::{self, TableDoc, TablePage, TableSearch, TableStats};
 
 #[derive(Clone, Serialize)]
@@ -125,6 +125,62 @@ pub fn table_rows(
 ) -> Result<TablePage> {
     // A viewport request should never be able to ask for the whole file.
     Ok(table_doc(&state, doc_id)?.page(start, count.min(2000)))
+}
+
+/// What a database offers to look at.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Collections {
+    pub items: Vec<crate::sqlite::Collection>,
+}
+
+/// The tables and views in a database.
+///
+/// Opening the connection is the whole cost here; nothing is scanned. A
+/// database with two hundred tables must not read two hundred tables to show
+/// their names — the rows come later, and only for the one that is chosen.
+#[tauri::command]
+pub fn sqlite_collections(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+) -> Result<Collections> {
+    let doc = state.get(doc_id)?;
+    if doc.kind() != DocKind::Sqlite {
+        return Err(Error::WrongView {
+            subject: Subject::Database,
+        });
+    }
+    if let Some(database) = doc.database() {
+        return Ok(Collections {
+            items: database.collections().to_vec(),
+        });
+    }
+
+    let DocSource::File { path } = &doc.meta().source else {
+        // A database is a file on disk. There is nothing to connect to in a
+        // downloaded buffer or a pasted string.
+        return Err(Error::UnsupportedScheme);
+    };
+    let database = Arc::new(crate::sqlite::SqliteDoc::open(std::path::Path::new(path))?);
+    let items = database.collections().to_vec();
+    doc.set_database(database);
+    Ok(Collections { items })
+}
+
+/// The statement that created a table or view.
+#[tauri::command]
+pub fn sqlite_schema(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    name: String,
+) -> Result<Option<String>> {
+    state
+        .get(doc_id)?
+        .database()
+        .ok_or(Error::NotReady {
+            subject: Subject::Database,
+        })?
+        .schema_of(&name)
 }
 
 #[derive(Serialize)]

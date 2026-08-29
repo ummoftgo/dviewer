@@ -27,6 +27,8 @@ pub enum DocKind {
     Tsv,
     /// Plain text and logs: one line, one row, no header.
     Text,
+    /// A SQLite database. The first format that is not text at all.
+    Sqlite,
 }
 
 /// How a document is presented. Seven formats, but only three ways to read
@@ -39,8 +41,15 @@ pub enum DocView {
     Prose,
     /// The collapsible node tree.
     Tree,
-    /// The row-and-column grid.
+    /// The row-and-column grid, read out of the document's own bytes.
     Table,
+    /// The same grid, read out of a connection.
+    ///
+    /// A view of its own and not a kind of `Table`, because the two share only
+    /// their appearance: nothing that makes a table — the record index, the
+    /// byte search, the original text — exists for a database, and a command
+    /// that accepted both would have to say so in every line of its body.
+    Database,
 }
 
 impl DocKind {
@@ -49,6 +58,7 @@ impl DocKind {
             DocKind::Markdown => DocView::Prose,
             DocKind::Json | DocKind::Yaml | DocKind::Toml | DocKind::Xml => DocView::Tree,
             DocKind::Csv | DocKind::Tsv | DocKind::Text => DocView::Table,
+            DocKind::Sqlite => DocView::Database,
         }
     }
 }
@@ -115,6 +125,8 @@ struct DocInner {
     /// never both.
     tree: Option<Arc<TreeDoc>>,
     table: Option<Arc<TableDoc>>,
+    /// An open database, for the one format that is not bytes.
+    database: Option<Arc<crate::sqlite::SqliteDoc>>,
 }
 
 impl Document {
@@ -141,6 +153,7 @@ impl Document {
                 encoding_warning: decoded.warning,
                 tree: None,
                 table: None,
+                database: None,
             }),
         }
     }
@@ -190,6 +203,14 @@ impl Document {
 
     pub fn table(&self) -> Option<Arc<TableDoc>> {
         self.inner.read().table.clone()
+    }
+
+    pub fn database(&self) -> Option<Arc<crate::sqlite::SqliteDoc>> {
+        self.inner.read().database.clone()
+    }
+
+    pub fn set_database(&self, database: Arc<crate::sqlite::SqliteDoc>) {
+        self.inner.write().database = Some(database);
     }
 
     pub fn set_table(&self, table: Arc<TableDoc>) {
