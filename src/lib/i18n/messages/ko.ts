@@ -213,6 +213,8 @@ export const ko = {
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "경로를 복사했습니다.",
+  "link.unsupported": "이 앱에서 열 수 없는 링크입니다.",
+  "link.failed": "링크를 열지 못했습니다.",
   "toast.keyCopied": "키를 복사했습니다.",
   "toast.valueCopied": "값을 복사했습니다.",
   "toast.valueTruncated": "값이 너무 커서 앞부분만 복사했습니다.",

@@ -108,6 +108,9 @@ b` there is
     if (node === null) {
       page = null;
       loaded = [];
+      // The error belonged to a node that is no longer selected; leaving it up
+      // would blame the empty panel for something it did not do.
+      error = null;
       return;
     }
     const seq = ++requestSeq;

@@ -208,6 +208,8 @@ export const en: Messages = {
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "Path copied.",
+  "link.unsupported": "This app cannot open that link.",
+  "link.failed": "The link could not be opened.",
   "toast.keyCopied": "Key copied.",
   "toast.valueCopied": "Value copied.",
   "toast.valueTruncated": "The value was too large; only the start was copied.",

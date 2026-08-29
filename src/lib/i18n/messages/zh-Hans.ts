@@ -208,6 +208,8 @@ export const zhHans: Messages = {
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "已复制路径。",
+  "link.unsupported": "此应用无法打开该链接。",
+  "link.failed": "无法打开链接。",
   "toast.keyCopied": "已复制键。",
   "toast.valueCopied": "已复制值。",
   "toast.valueTruncated": "值过大，仅复制了开头部分。",

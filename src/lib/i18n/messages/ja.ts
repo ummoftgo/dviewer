@@ -208,6 +208,8 @@ export const ja: Messages = {
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "パスをコピーしました。",
+  "link.unsupported": "このアプリでは開けないリンクです。",
+  "link.failed": "リンクを開けませんでした。",
   "toast.keyCopied": "キーをコピーしました。",
   "toast.valueCopied": "値をコピーしました。",
   "toast.valueTruncated": "値が大きすぎるため先頭部分のみコピーしました。",

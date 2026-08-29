@@ -15,9 +15,37 @@ export const MAX_AUTO_COLUMN = 420;
 const FALLBACK_COLUMN = 140;
 
 /** Hangul and CJK occupy two columns in a monospaced face; Latin one. */
+/**
+ * Whether a character occupies two columns in a monospaced font.
+ *
+ * The ranges are the East Asian Wide and Fullwidth blocks. Treating everything
+ * past Hangul Jamo as wide was close enough for CJK and wrong for the things
+ * that sit between: arrows, dashes, bullets and maths signs are one column
+ * each, and a table of them came out with columns twice the width they needed.
+ */
+function isWide(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0x303e) || // CJK radicals, Kangxi, CJK punctuation
+    (cp >= 0x3041 && cp <= 0x33ff) || // kana, Hangul compatibility, CJK marks
+    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK extension A
+    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK unified ideographs
+    (cp >= 0xa000 && cp <= 0xa4cf) || // Yi
+    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul syllables
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK compatibility ideographs
+    (cp >= 0xfe10 && cp <= 0xfe19) || // vertical forms
+    (cp >= 0xfe30 && cp <= 0xfe6f) || // CJK compatibility forms
+    (cp >= 0xff00 && cp <= 0xff60) || // fullwidth forms
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x1f300 && cp <= 0x1f64f) || // emoji
+    (cp >= 0x1f900 && cp <= 0x1f9ff) ||
+    (cp >= 0x20000 && cp <= 0x3fffd) // CJK extensions B and beyond
+  );
+}
+
 export function visualLength(text: string): number {
   let total = 0;
-  for (const ch of text) total += ch.codePointAt(0)! > 0x1100 ? 2 : 1;
+  for (const ch of text) total += isWide(ch.codePointAt(0)!) ? 2 : 1;
   return total;
 }
 

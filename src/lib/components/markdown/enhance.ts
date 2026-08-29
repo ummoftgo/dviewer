@@ -7,6 +7,7 @@
  */
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { t } from "../../i18n";
+import { toasts } from "../../state/toast.svelte";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DocMeta } from "../../ipc";
 
@@ -79,9 +80,21 @@ export function interceptLinks(root: HTMLElement, onAnchor: (id: string) => void
       onAnchor(decodeURIComponent(href.slice(1)));
       return;
     }
-    if (/^https?:/i.test(href)) {
-      void openUrl(href).catch((err) => console.warn("[dviewer] could not open the link:", err));
+    // Handed to the OS, which decides what opens them. The list is closed on
+    // purpose: `javascript:` and `data:` must never reach a handler, and a
+    // scheme nobody recognises is better refused out loud than swallowed.
+    if (/^(https?|mailto|tel):/i.test(href)) {
+      void openUrl(href).catch((err) => {
+        console.warn("[dviewer] could not open the link:", err);
+        toasts.show(t("link.failed"), "error");
+      });
+      return;
     }
+
+    // Everything else — a relative path to another document, an unknown
+    // scheme — was cancelled and then dropped, so the link simply did nothing
+    // and never said why.
+    toasts.show(t("link.unsupported"), "info");
   };
 
   root.addEventListener("click", onClick);

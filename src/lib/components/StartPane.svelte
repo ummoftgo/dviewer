@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
   import { pickFiles } from "../open";
   import { workspace } from "../state/docs.svelte";
@@ -55,8 +56,21 @@
     return cut > 0 ? path.slice(0, cut) : "";
   }
 
+  /**
+   * Re-read once a minute so "방금" does not sit there for an hour.
+   *
+   * The start pane can stay open as long as the reader likes — it is what an
+   * empty tab shows — and a recents list frozen at the moment it rendered is
+   * quietly wrong.
+   */
+  let now = $state(Date.now());
+  onMount(() => {
+    const timer = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(timer);
+  });
+
   function relativeTime(at: number) {
-    const minutes = Math.round((Date.now() - at) / 60000);
+    const minutes = Math.round((now - at) / 60000);
     if (minutes < 1) return t("time.justNow");
     if (minutes < 60) return t("time.minutes", { n: n(minutes) });
     const hours = Math.round(minutes / 60);
