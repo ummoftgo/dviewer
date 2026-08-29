@@ -16,6 +16,7 @@
   import { detectSystemLocale, t } from "./lib/i18n";
   import { pickFiles } from "./lib/open";
   import { workspace } from "./lib/state/docs.svelte";
+  import { shortcutKey } from "./lib/keys";
   import { recents } from "./lib/state/recents.svelte";
   import { applySettings, settings, watchSystemTheme } from "./lib/state/settings.svelte";
 
@@ -151,7 +152,7 @@
       ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName);
 
     if (event.ctrlKey || event.metaKey) {
-      switch (event.key) {
+      switch (shortcutKey(event)) {
         case "o":
           event.preventDefault();
           void pickFiles();

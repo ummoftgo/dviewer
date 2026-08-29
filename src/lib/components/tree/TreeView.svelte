@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { shortcutKey } from "../../keys";
   import Icon from "../Icon.svelte";
   import { n, t } from "../../i18n";
   import ContextMenu from "../ContextMenu.svelte";
@@ -367,7 +368,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.ctrlKey && event.key.toLowerCase() === "c") {
+    if (event.ctrlKey && shortcutKey(event) === "c") {
       event.preventDefault();
       if (selected) void copyValue(tab.id, selected);
       return;

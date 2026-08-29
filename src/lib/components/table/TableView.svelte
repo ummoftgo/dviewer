@@ -12,6 +12,7 @@
    * spreadsheets in a text editor unreadable.
    */
   import { untrack } from "svelte";
+  import { shortcutKey } from "../../keys";
   import Icon from "../Icon.svelte";
   import { n, t, type MessageKey } from "../../i18n";
   import ContextMenu from "../ContextMenu.svelte";
@@ -314,7 +315,7 @@
 
   function onKeydown(event: KeyboardEvent) {
     if (event.ctrlKey || event.metaKey) {
-      if (event.key === "c" && tab.selectedCell) {
+      if (shortcutKey(event) === "c" && tab.selectedCell) {
         event.preventDefault();
         void copyCell(tab.selectedCell.row, tab.selectedCell.column);
       }
