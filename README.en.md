@@ -87,5 +87,5 @@ The technical documentation lives in `doc/` (Korean).
 - Search is literal; case-insensitivity works in the ASCII range only. No regular expressions or JSONPath expressions yet — path search is a substring match against path strings like `$.items[3].name`.
 - Markdown rendering up to 16MB. Larger files do not open.
 - The expand-depth presets go up to 9, which is also the default. Deeper levels are opened node by node.
-- Files are mmap-ed, so a file changed externally while open needs to be reopened.
+- Files are mmap-ed, so a file changed externally while open needs to be reopened. Edited content only mixes old and new bytes, but **truncating the file kills the process outright on Linux and macOS** (SIGBUS). Windows is unaffected: the OS refuses to shrink a file that has a mapping open.
 - No editing or saving. This is a read-only viewer.

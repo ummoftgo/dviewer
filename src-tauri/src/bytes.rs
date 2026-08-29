@@ -12,9 +12,18 @@ use crate::error::Result;
 /// pasted content arrives as an owned buffer. Everything downstream works
 /// against `&[u8]` and does not care which it got.
 ///
-/// Note: a mapped file that changes on disk under us yields torn reads. That is
-/// acceptable for a read-only viewer — the fix is to reopen the document, which
-/// the user can do explicitly.
+/// A mapped file that changes on disk under us is a real hazard, and a bigger
+/// one than it first looks. Content edited in place gives torn reads, which a
+/// read-only viewer can live with — reopen and the question goes away. But a
+/// file *truncated* while mapped is different: on Linux and macOS, touching a
+/// page past the new end raises SIGBUS and takes the process with it, with no
+/// error to report and nothing to catch. Windows does not have this problem,
+/// because the OS refuses to shrink a file that has a mapping open.
+///
+/// Defending against it properly costs the reason the map exists — copying the
+/// file, or installing a signal handler and unwinding out of it. Neither is
+/// worth it for a viewer, so it stands as a documented limitation. See the
+/// "알려진 한계" section of the README.
 pub enum DocBytes {
     Mapped(Mmap),
     Owned(Vec<u8>),
@@ -28,8 +37,9 @@ impl DocBytes {
         if len == 0 {
             return Ok(Self::Owned(Vec::new()));
         }
-        // SAFETY: see the note above — external modification is a known,
-        // accepted risk for a viewer, and we never write through the map.
+        // SAFETY: we never write through the map, and the map is dropped with
+        // the document. External modification is the accepted risk documented
+        // above; on Unix a truncation here is fatal to the process.
         let mmap = unsafe { Mmap::map(&file)? };
         Ok(Self::Mapped(mmap))
     }
