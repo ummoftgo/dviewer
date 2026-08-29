@@ -163,6 +163,25 @@ textarea {
   cursor: default;
 }
 
+/* A pressed icon button has to keep saying so under the pointer.
+   `.icon-btn:enabled:hover` outranks any `.on` class a component can write, so
+   hovering replaced the active background outright: the only way to tell
+   whether a toggle had taken was to move the mouse off it. Keyed on
+   `aria-pressed` rather than a class, because that is the state itself and
+   every one of these buttons already carries it. */
+.icon-btn[aria-pressed="true"] {
+  background: var(--accent-subtle);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
+/* More specific than the plain hover rule, so pressed survives it — and reads
+   as a stronger version of pressed rather than as a different state. */
+.icon-btn[aria-pressed="true"]:enabled:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  border-color: var(--accent);
+}
+
 .field {
   width: 100%;
   padding: 0.375rem 0.5rem;

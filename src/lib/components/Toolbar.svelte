@@ -69,7 +69,6 @@
       {#if tab.mode === "rendered" && tab.toc.length > 1}
         <button
           class="icon-btn"
-          class:on={showToc}
           onclick={onToggleToc}
           aria-pressed={showToc}
           title={t("toolbar.toc")}
@@ -164,11 +163,6 @@
     align-items: center;
     gap: 0.35rem;
     flex: none;
-  }
-
-  .icon-btn.on {
-    background: var(--accent-subtle);
-    color: var(--accent);
   }
 
   .format {

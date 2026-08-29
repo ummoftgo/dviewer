@@ -24,11 +24,19 @@
   // flag is how the UI and the backend drift apart.
   const filtered = $derived(tab.treeStats?.filtered ?? false);
 
-  const SCOPES: { value: SearchScope; label: MessageKey; title: MessageKey }[] = [
+  /**
+   * The three scopes that read the file, and the one that does not.
+   *
+   * Paths are derived from the tree and are written nowhere in the document, so
+   * no widening of a byte scan reaches them — which is why `all` does not, and
+   * why the two sit in separate groups. Four buttons in one row said they were
+   * four slices of one thing, and a reader who took `all` at its word got
+   * nothing back and no reason for it.
+   */
+  const TEXT_SCOPES: { value: SearchScope; label: MessageKey; title: MessageKey }[] = [
     { value: "all", label: "search.scope.all", title: "search.scope.all.title" },
     { value: "keys", label: "search.scope.keys", title: "search.scope.keys.title" },
     { value: "values", label: "search.scope.values", title: "search.scope.values.title" },
-    { value: "paths", label: "search.scope.paths", title: "search.scope.paths.title" },
   ];
 
   const placeholder = $derived(
@@ -103,6 +111,26 @@
     if (event.key === "Escape") void clear();
   }
 
+  /**
+   * A dead end worth offering a way out of.
+   *
+   * Paths are derived from the tree and are written nowhere in the file, so no
+   * byte scan can match one however wide its scope is called. A reader who
+   * types one into `all` gets nothing and no reason why. Offered only when the
+   * search actually came back empty, so it never argues with a result.
+   */
+  const suggestPaths = $derived(
+    tab.search.scope !== "paths" &&
+      !tab.search.running &&
+      tab.search.summary?.total === 0 &&
+      /^\s*[$/@]/.test(tab.search.query),
+  );
+
+  function searchPaths() {
+    tab.search.scope = "paths";
+    void run();
+  }
+
   const status = $derived.by(() => {
     const search = tab.search;
     if (search.error) return search.error;
@@ -134,10 +162,15 @@
       autocomplete="off"
     />
     {#if status}<span class="count" class:error={!!tab.search.error}>{status}</span>{/if}
+    {#if suggestPaths}
+      <button type="button" class="try-paths" onclick={searchPaths} title={t("search.tryPaths.title")}>
+        {t("search.tryPaths")}
+      </button>
+    {/if}
   </div>
 
-  <div class="segmented">
-    {#each SCOPES as scope (scope.value)}
+  <div class="segmented" role="group" aria-label={t("search.scope.group")}>
+    {#each TEXT_SCOPES as scope (scope.value)}
       <button
         type="button"
         title={t(scope.title)}
@@ -150,10 +183,21 @@
     {/each}
   </div>
 
+  <div class="segmented apart">
+    <button
+      type="button"
+      title={t("search.scope.paths.title")}
+      aria-pressed={tab.search.scope === "paths"}
+      onclick={() => {
+        tab.search.scope = "paths";
+        void run();
+      }}>{t("search.scope.paths")}</button
+    >
+  </div>
+
   <button
     type="button"
     class="icon-btn"
-    class:on={tab.search.caseSensitive}
     title={t("search.caseSensitive")}
     aria-pressed={tab.search.caseSensitive}
     onclick={() => {
@@ -188,7 +232,6 @@
   <button
     type="button"
     class="icon-btn"
-    class:on={filtered}
     title={t("search.filter")}
     aria-pressed={filtered}
     disabled={tab.search.hits.length === 0 && !filtered}
@@ -205,6 +248,28 @@
 </form>
 
 <style>
+  /* Set apart, not merely spaced: this scope does not read the file at all.
+     The gap is the only thing saying so before the reader finds out by
+     searching for a path and getting nothing. */
+  .apart {
+    margin-left: 0.35rem;
+  }
+
+  .try-paths {
+    flex: none;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.85em;
+    white-space: nowrap;
+  }
+
+  .try-paths:hover {
+    text-decoration: underline;
+  }
+
   .search {
     display: flex;
     align-items: center;
@@ -255,11 +320,6 @@
 
   .count.error {
     color: var(--danger);
-  }
-
-  .icon-btn.on {
-    background: var(--accent-subtle);
-    color: var(--accent);
   }
 
   .icon-btn:disabled {

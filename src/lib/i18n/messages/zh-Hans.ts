@@ -161,6 +161,7 @@ export const zhHans: Messages = {
   "inspector.keyWidth": "键列宽度",
 
   // --- 트리 검색 / tree search -----------------------------------------------
+  "search.scope.group": "搜索范围",
   "search.scope.all": "全部",
   "search.scope.all.title": "在键和值中查找",
   "search.scope.keys": "键",
@@ -169,6 +170,8 @@ export const zhHans: Messages = {
   "search.scope.values.title": "仅在值中查找",
   "search.scope.paths": "路径",
   "search.scope.paths.title": "在 $.items[3].name 这样的路径中查找",
+  "search.tryPaths": "在路径中搜索",
+  "search.tryPaths.title": "路径不在文件中，而是由树生成。改用路径范围重新搜索。",
   "search.placeholder": "在键和值中查找 (Ctrl+F)",
   "search.placeholder.paths": "在路径中查找 — 例如 items[3].name",
   "search.running": "正在查找… {n} 项",

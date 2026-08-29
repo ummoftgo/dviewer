@@ -161,6 +161,7 @@ export const en: Messages = {
   "inspector.keyWidth": "Key column width",
 
   // --- 트리 검색 / tree search -----------------------------------------------
+  "search.scope.group": "Search scope",
   "search.scope.all": "All",
   "search.scope.all.title": "Search keys and values",
   "search.scope.keys": "Keys",
@@ -169,6 +170,8 @@ export const en: Messages = {
   "search.scope.values.title": "Search values only",
   "search.scope.paths": "Paths",
   "search.scope.paths.title": "Search paths like $.items[3].name",
+  "search.tryPaths": "Search paths",
+  "search.tryPaths.title": "Paths are built from the tree, not written in the file. Run this query in the path scope.",
   "search.placeholder": "Search keys and values (Ctrl+F)",
   "search.placeholder.paths": "Search paths — e.g. items[3].name",
   "search.running": "Searching… {n} found",

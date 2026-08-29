@@ -166,6 +166,7 @@ export const ko = {
   "inspector.keyWidth": "키 열 너비",
 
   // --- 트리 검색 / tree search -----------------------------------------------
+  "search.scope.group": "검색 범위",
   "search.scope.all": "전체",
   "search.scope.all.title": "키와 값에서 찾기",
   "search.scope.keys": "키",
@@ -174,6 +175,8 @@ export const ko = {
   "search.scope.values.title": "값에서만 찾기",
   "search.scope.paths": "경로",
   "search.scope.paths.title": "$.items[3].name 같은 경로에서 찾기",
+  "search.tryPaths": "경로에서 찾기",
+  "search.tryPaths.title": "경로는 파일에 적혀 있지 않고 트리에서 만들어집니다. 경로 범위로 다시 찾습니다.",
   "search.placeholder": "키와 값에서 찾기 (Ctrl+F)",
   "search.placeholder.paths": "경로에서 찾기 — 예: items[3].name",
   "search.running": "찾는 중… {n}건",

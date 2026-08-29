@@ -161,6 +161,7 @@ export const ja: Messages = {
   "inspector.keyWidth": "キー列の幅",
 
   // --- 트리 검색 / tree search -----------------------------------------------
+  "search.scope.group": "検索範囲",
   "search.scope.all": "すべて",
   "search.scope.all.title": "キーと値を検索",
   "search.scope.keys": "キー",
@@ -169,6 +170,8 @@ export const ja: Messages = {
   "search.scope.values.title": "値のみを検索",
   "search.scope.paths": "パス",
   "search.scope.paths.title": "$.items[3].name のようなパスを検索",
+  "search.tryPaths": "パスから検索",
+  "search.tryPaths.title": "パスはファイルに書かれておらず、ツリーから作られます。パス範囲で検索し直します。",
   "search.placeholder": "キーと値を検索 (Ctrl+F)",
   "search.placeholder.paths": "パスを検索 — 例: items[3].name",
   "search.running": "検索中… {n}件",
