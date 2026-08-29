@@ -7,6 +7,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::bytes::DocBytes;
+use crate::cli::LaunchRequest;
 use crate::encoding::{self, DecodeWarning, Decoded, EncodingSource};
 use crate::error::{Error, Result};
 use crate::tree::TreeDoc;
@@ -227,9 +228,29 @@ pub struct AppState {
     next_id: AtomicU32,
     docs: RwLock<HashMap<DocId, Arc<Document>>>,
     jobs: RwLock<Jobs>,
+    /// What each window should open as soon as it is ready, keyed by label.
+    ///
+    /// A window cannot be told what to open until its frontend exists, and a
+    /// window created for a second `dviewer` invocation does not exist yet when
+    /// the arguments arrive. So the request waits here and the window collects
+    /// it — see `commands::startup_request`.
+    pending: RwLock<HashMap<String, LaunchRequest>>,
 }
 
 impl AppState {
+    /// Leave a request for `window` to collect when it mounts.
+    pub fn queue(&self, window: &str, request: LaunchRequest) {
+        if request.is_empty() {
+            return;
+        }
+        self.pending.write().insert(window.to_owned(), request);
+    }
+
+    /// Take whatever was left for `window`. Empty on every call but the first.
+    pub fn take_pending(&self, window: &str) -> LaunchRequest {
+        self.pending.write().remove(window).unwrap_or_default()
+    }
+
     pub fn next_id(&self) -> DocId {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
     }

@@ -72,8 +72,12 @@ export class DocTab {
    * strip does not tear itself down when the real document arrives.
    */
   readonly key = ++nextKey;
-  /** `opening` while the backend is still reading the file. */
-  status = $state<"opening" | "ready">("ready");
+  /**
+   * `blank` is a tab with no document yet — it shows the start pane, so the
+   * new-tab button offers every way in (a file, a URL, pasted text, something
+   * opened before) rather than only the file dialog.
+   */
+  status = $state<"blank" | "opening" | "ready">("ready");
   meta = $state<DocMeta>()!;
   mode = $state<ViewMode>("rendered");
   error = $state<string | null>(null);
@@ -127,6 +131,7 @@ export class DocTab {
   }
 
   get subtitle(): string {
+    if (this.status === "blank") return "";
     const source = this.meta.source;
     if (source.type === "file") return source.path;
     if (source.type === "url") return source.url;
@@ -174,6 +179,32 @@ class Workspace {
     );
   }
 
+  /**
+   * A tab with nothing in it yet.
+   *
+   * One is enough: a second empty tab would look identical to the first and
+   * behave identically too, so an existing one is raised instead.
+   */
+  newTab(): DocTab {
+    const existing = this.tabs.find((tab) => tab.status === "blank");
+    if (existing) {
+      this.activeId = existing.id;
+      return existing;
+    }
+    const tab = new DocTab(placeholder(""));
+    tab.status = "blank";
+    this.tabs = [...this.tabs, tab];
+    this.activeId = tab.id;
+    this.notice = null;
+    return tab;
+  }
+
+  /** Everything a launch asked for, in the order it was asked. */
+  async openLaunch(request: { files: string[]; urls: string[] }) {
+    for (const path of request.files) await this.openPath(path);
+    for (const url of request.urls) await this.openUrl(url);
+  }
+
   async openPath(path: string) {
     const existing = this.findByPath(path);
     if (existing) {
@@ -208,9 +239,14 @@ class Workspace {
     load: () => Promise<DocMeta>,
     failedPath?: string,
   ): Promise<DocTab | null> {
-    const tab = new DocTab(meta);
+    // Opening from a blank tab fills that tab in rather than adding another —
+    // the blank one is where the reader started, so it is where they expect
+    // the document to land.
+    const blank = this.tabs.find((tab) => tab.status === "blank" && tab.id === this.activeId);
+    const tab = blank ?? new DocTab(meta);
+    if (blank) blank.meta = meta;
+    else this.tabs = [...this.tabs, tab];
     tab.status = "opening";
-    this.tabs = [...this.tabs, tab];
     this.activeId = tab.id;
     this.notice = null;
     this.opening = true;
@@ -225,8 +261,16 @@ class Workspace {
       if (this.activeId === meta.id) this.activeId = tab.id;
       return tab;
     } catch (err) {
-      this.tabs = this.tabs.filter((t) => t !== tab);
-      if (this.activeId === meta.id) this.activeId = this.tabs.at(-1)?.id ?? null;
+      // A tab that was blank goes back to blank; one created for this document
+      // has nothing left to show.
+      if (blank) {
+        blank.status = "blank";
+        blank.meta = placeholder("");
+        this.activeId = blank.id;
+      } else {
+        this.tabs = this.tabs.filter((t) => t !== tab);
+        if (this.activeId === meta.id) this.activeId = this.tabs.at(-1)?.id ?? null;
+      }
       this.notice = ipc.errorMessage(err);
       // A recent entry pointing at a file that no longer opens is just noise.
       if (failedPath) recents.remove(failedPath);
@@ -245,6 +289,9 @@ class Workspace {
       this.activeId = next?.id ?? null;
     }
     forgetDoc(id);
+    // A blank tab has no document behind it, and a placeholder id is one the
+    // backend has never heard of.
+    if (id <= 0) return;
     try {
       await ipc.closeDoc(id);
     } catch (err) {

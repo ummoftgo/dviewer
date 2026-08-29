@@ -57,10 +57,11 @@ export const ko = {
   "start.clearRecents": "목록 지우기",
 
   // --- 탭 / tabs ----------------------------------------------------------
+  "tab.blank": "새 탭",
   "tab.opening": "여는 중",
   "tab.close": "{title} 탭 닫기",
-  "tab.new": "새 문서 열기 (Ctrl+O)",
-  "tab.newLabel": "새 문서 열기",
+  "tab.new": "새 탭 (Ctrl+T)",
+  "tab.newLabel": "새 탭",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "렌더링",

@@ -52,10 +52,11 @@ export const zhHans: Messages = {
   "start.clearRecents": "清空列表",
 
   // --- 탭 / tabs ----------------------------------------------------------
+  "tab.blank": "新标签页",
   "tab.opening": "正在打开",
   "tab.close": "关闭 {title} 标签页",
-  "tab.new": "打开新文档 (Ctrl+O)",
-  "tab.newLabel": "打开新文档",
+  "tab.new": "新标签页 (Ctrl+T)",
+  "tab.newLabel": "新标签页",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "渲染",

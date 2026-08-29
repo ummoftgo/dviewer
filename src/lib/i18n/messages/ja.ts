@@ -52,10 +52,11 @@ export const ja: Messages = {
   "start.clearRecents": "履歴を消す",
 
   // --- 탭 / tabs ----------------------------------------------------------
+  "tab.blank": "新しいタブ",
   "tab.opening": "開いています",
   "tab.close": "{title} タブを閉じる",
-  "tab.new": "新しい文書を開く (Ctrl+O)",
-  "tab.newLabel": "新しい文書を開く",
+  "tab.new": "新しいタブ (Ctrl+T)",
+  "tab.newLabel": "新しいタブ",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "プレビュー",

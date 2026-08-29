@@ -46,8 +46,8 @@
     void settings.load();
     void recents.load();
     void ipc
-      .startupPaths()
-      .then((paths) => Promise.all(paths.map((path) => workspace.openPath(path))))
+      .startupRequest()
+      .then((request) => workspace.openLaunch(request))
       .catch((err) => console.warn("[dviewer] could not handle the startup arguments:", err));
   });
 
@@ -110,6 +110,10 @@
         tab.error = message;
         tab.indexing = null;
       }),
+      // A second `dviewer` handed its arguments to this window.
+      ipc.on("open-request", (request) => {
+        void workspace.openLaunch(request);
+      }),
     ];
 
     return () => {
@@ -149,6 +153,10 @@
         case "o":
           event.preventDefault();
           void pickFiles();
+          return;
+        case "t":
+          event.preventDefault();
+          workspace.newTab();
           return;
         case "w":
           if (active) {
@@ -208,10 +216,10 @@
 
 <div class="app" class:dropping={dropActive}>
   {#if workspace.tabs.length > 0}
-    <TabBar onNew={pickFiles} />
+    <TabBar onNew={() => workspace.newTab()} />
   {/if}
 
-  {#if active}
+  {#if active && active.status !== "blank"}
     <Toolbar
       tab={active}
       {showToc}
@@ -221,7 +229,7 @@
   {/if}
 
   <main>
-    {#if !active}
+    {#if !active || active.status === "blank"}
       <StartPane onOpenSettings={() => (settingsOpen = true)} />
     {:else}
       <!-- Keyed so switching tabs rebuilds the view against the right document

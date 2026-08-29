@@ -52,10 +52,11 @@ export const en: Messages = {
   "start.clearRecents": "Clear list",
 
   // --- 탭 / tabs ----------------------------------------------------------
+  "tab.blank": "New tab",
   "tab.opening": "Opening",
   "tab.close": "Close {title}",
-  "tab.new": "Open another document (Ctrl+O)",
-  "tab.newLabel": "Open another document",
+  "tab.new": "New tab (Ctrl+T)",
+  "tab.newLabel": "New tab",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "Rendered",

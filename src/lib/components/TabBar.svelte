@@ -46,7 +46,7 @@
         {:else}
           <span class="kind" data-kind={tab.kind}>{kindBadge(tab.kind)}</span>
         {/if}
-        <span class="title">{tab.meta.title}</span>
+        <span class="title">{tab.status === "blank" ? t("tab.blank") : tab.meta.title}</span>
         <button
           class="close"
           aria-label={t("tab.close", { title: tab.meta.title })}

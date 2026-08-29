@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: file picking, settings storage and opening links externally. File reads deliberately stay in Rust, so no fs permissions are granted here.",
-  "windows": ["main"],
+  "description": "Every window: file picking, settings storage and opening links externally. File reads deliberately stay in Rust, so no fs permissions are granted here.",
+  "windows": [
+    "main",
+    "doc-*"
+  ],
   "permissions": [
     "core:default",
     "core:webview:allow-internal-toggle-devtools",

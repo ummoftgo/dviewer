@@ -274,9 +274,21 @@ export const openText = (content: string, title?: string, kind?: DocKind) =>
 export const closeDoc = (docId: number) => invoke<void>("close_doc", { docId });
 export const setDocKind = (docId: number, kind: DocKind) =>
   invoke<DocMeta>("set_doc_kind", { docId, kind });
+/** What a window was asked to open, from the command line or a second launch. */
+export interface LaunchRequest {
+  files: string[];
+  urls: string[];
+}
+
+/** What a window was asked to open, from the command line or a second launch. */
+export interface LaunchRequest {
+  files: string[];
+  urls: string[];
+}
+
 export const setDocEncoding = (docId: number, encodingName: string) =>
   invoke<DocMeta>("set_doc_encoding", { docId, encodingName });
-export const startupPaths = () => invoke<string[]>("startup_paths");
+export const startupRequest = () => invoke<LaunchRequest>("startup_request");
 
 /**
  * The encodings the picker offers, as `[name, label]`. The list lives in Rust
@@ -388,6 +400,8 @@ type EventMap = {
   "table:progress": IndexProgress;
   "table:ready": TableReady;
   "table:error": DocErrorEvent;
+  /** A second `dviewer` handed its arguments to this window. */
+  "open-request": LaunchRequest;
 };
 
 export function on<K extends keyof EventMap>(

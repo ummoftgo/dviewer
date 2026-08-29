@@ -1,6 +1,7 @@
 // Public so `examples/scan.rs` can drive the indexer directly — measuring the
 // scanner without a window is the only honest way to check the size claims.
 pub mod bytes;
+pub mod cli;
 pub mod convert;
 pub mod encoding;
 pub mod error;
@@ -14,16 +15,39 @@ pub mod xml;
 mod commands;
 mod source;
 mod state;
+mod window;
+
+use tauri::Manager;
 
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // First, as the plugin requires: a second `dviewer` must hand over its
+        // arguments and exit before anything else in it starts up.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let launch = cli::parse(argv.get(1..).unwrap_or_default());
+            if launch.new_window {
+                let _ = window::open(app, launch.request);
+            } else {
+                window::deliver(app, launch.request);
+            }
+        }))
+        // Restores size, position and maximised state, and saves them on exit.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::default())
+        .setup(|app| {
+            // The window from tauri.conf.json is called "main"; it collects
+            // this the moment its frontend mounts.
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            app.state::<AppState>()
+                .queue("main", cli::parse(&args).request);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::open_path,
             commands::open_url,
@@ -32,7 +56,7 @@ pub fn run() {
             commands::set_doc_kind,
             commands::set_doc_encoding,
             commands::encoding_choices,
-            commands::startup_paths,
+            commands::startup_request,
             commands::doc_source_text,
             commands::render_markdown,
             commands::highlight_css,
