@@ -92,11 +92,21 @@
         <Icon name="file" />
         {t("start.openFile")}
       </button>
-      <button class="btn" class:on={mode === "url"} onclick={() => toggle("url")}>
+      <button
+        class="btn"
+        class:on={mode === "url"}
+        aria-pressed={mode === "url"}
+        onclick={() => toggle("url")}
+      >
         <Icon name="link" />
         {t("start.openUrl")}
       </button>
-      <button class="btn" class:on={mode === "paste"} onclick={() => toggle("paste")}>
+      <button
+        class="btn"
+        class:on={mode === "paste"}
+        aria-pressed={mode === "paste"}
+        onclick={() => toggle("paste")}
+      >
         <Icon name="clipboard" />
         {t("start.paste")}
       </button>

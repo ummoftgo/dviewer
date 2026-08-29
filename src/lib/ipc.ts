@@ -17,7 +17,6 @@ export type DocKind = "markdown" | "json" | "yaml" | "toml" | "xml" | "csv" | "t
  */
 export type DocView = "prose" | "tree" | "table";
 
-/** Menu order and labels for the format switcher, in one place. */
 /** Menu order for the format switcher. `label` is a message key, not text. */
 export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "markdown", label: "format.markdown" },
@@ -276,12 +275,6 @@ export const openText = (content: string, title?: string, kind?: DocKind) =>
 export const closeDoc = (docId: number) => invoke<void>("close_doc", { docId });
 export const setDocKind = (docId: number, kind: DocKind) =>
   invoke<DocMeta>("set_doc_kind", { docId, kind });
-/** What a window was asked to open, from the command line or a second launch. */
-export interface LaunchRequest {
-  files: string[];
-  urls: string[];
-}
-
 /** What a window was asked to open, from the command line or a second launch. */
 export interface LaunchRequest {
   files: string[];

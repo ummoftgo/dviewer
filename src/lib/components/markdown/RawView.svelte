@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
   import { docSourceText, errorMessage } from "../../ipc";
@@ -31,8 +32,18 @@
   const lines = $derived(tab.raw === null ? [] : tab.raw.split("\n"));
   const gutter = $derived(lines.map((_, i) => i + 1).join("\n"));
 
+  /**
+   * Put the reader back where they were, once.
+   *
+   * Reading `rawScrollTop` in a tracked effect made scrolling retrigger the
+   * effect that restores the scroll — every frame of every scroll, to assign
+   * the value it already had.
+   */
+  let restored = false;
   $effect(() => {
-    if (tab.raw !== null && scroller) scroller.scrollTop = tab.rawScrollTop;
+    if (restored || tab.raw === null || !scroller) return;
+    restored = true;
+    scroller.scrollTop = untrack(() => tab.rawScrollTop);
   });
 </script>
 

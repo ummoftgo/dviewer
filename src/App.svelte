@@ -134,7 +134,14 @@
         dropActive = true;
       } else if (event.payload.type === "drop") {
         dropActive = false;
-        void Promise.all(event.payload.paths.map((path) => workspace.openPath(path)));
+        // One at a time, not all at once: `openPath` marks the workspace busy
+        // for the duration, so the first to finish would clear that while the
+        // rest are still loading — and two of them would race for the same
+        // blank tab to fill. This is what a command-line launch already does.
+        const paths = event.payload.paths;
+        void (async () => {
+          for (const path of paths) await workspace.openPath(path);
+        })();
       } else {
         dropActive = false;
       }

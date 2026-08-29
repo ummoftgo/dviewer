@@ -12,6 +12,7 @@
    * spreadsheets in a text editor unreadable.
    */
   import { untrack } from "svelte";
+  import { formatBytes } from "../../format";
   import { shortcutKey } from "../../keys";
   import Icon from "../Icon.svelte";
   import { n, t, type MessageKey } from "../../i18n";
@@ -357,12 +358,6 @@
     }
   }
 
-  function formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  }
 </script>
 
 <svelte:window onresize={() => void ensureWindow(true)} />

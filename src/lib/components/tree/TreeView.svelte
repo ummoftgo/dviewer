@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
+  import { formatBytes } from "../../format";
   import { shortcutKey } from "../../keys";
   import Icon from "../Icon.svelte";
   import { n, t } from "../../i18n";
@@ -71,6 +72,11 @@
   /** Path of the selected row, shown in the status bar. */
   let selectedPath = $state("");
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Switching tabs tears this view down, and a timer already ticking would
+  // otherwise wake up in a component that no longer exists — asking Rust for a
+  // path nobody is waiting for, then writing to state nobody reads.
+  onMount(() => () => clearTimeout(hoverTimer));
 
   // Row height is computed here rather than read from CSS so the spacer maths
   // and the rendered rows can never drift apart.
@@ -456,12 +462,6 @@
     return "label meta";
   }
 
-  function formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  }
 
   const progressPercent = $derived(
     tab.indexing && tab.indexing.total > 0
