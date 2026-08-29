@@ -35,21 +35,26 @@
       search.reset();
       return;
     }
-    search.running = true;
-    search.error = null;
-    search.searched = true;
+    // Starting a search cancels the one before it, so the earlier call comes
+    // back as a cancellation — an answer to a question nobody is asking any
+    // more. Without this it would clear the hits and show that cancellation as
+    // an error while the search the reader is waiting for is still running.
+    const seq = search.begin();
+    const mine = () => seq === search.seq;
     try {
       const result = await tableSearch(tab.id, query, search.caseSensitive);
+      if (!mine()) return;
       search.hits = result.hits;
       search.capped = result.capped;
       search.current = result.hits.length > 0 ? 0 : -1;
       if (result.hits.length > 0) tab.pendingCell = result.hits[0];
     } catch (err) {
+      if (!mine()) return;
       search.error = errorMessage(err);
       search.hits = [];
       search.current = -1;
     } finally {
-      search.running = false;
+      if (mine()) search.running = false;
     }
   }
 

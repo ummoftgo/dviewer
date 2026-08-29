@@ -61,15 +61,29 @@
     applySettings();
   });
 
+  /**
+   * Which node the header is being told about.
+   *
+   * Following two containers quickly asks twice, and the answers need not come
+   * back in order — the header would then name a node this window has already
+   * left.
+   */
+  let asked = 0;
+
   $effect(() => {
     const node = current;
+    const seq = ++asked;
     panelInfo(docId, node)
       .then((info) => {
+        if (seq !== asked) return;
         path = info.path;
         title = info.title;
         error = null;
       })
-      .catch((err) => (error = errorMessage(err)));
+      .catch((err) => {
+        if (seq !== asked) return;
+        error = errorMessage(err);
+      });
   });
 
   function drillInto(row: TreeRow) {

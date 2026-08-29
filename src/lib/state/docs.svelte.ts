@@ -42,12 +42,14 @@ class SearchState {
   /** Begin a search, and return the generation its events must carry. */
   begin(): number {
     this.reset();
-    this.seq += 1;
     this.running = true;
     return this.seq;
   }
 
   reset() {
+    // Bumped here rather than only in `begin`, so clearing the box while a
+    // search is in flight also disowns whatever it is about to send back.
+    this.seq += 1;
     this.running = false;
     this.hits = [];
     this.summary = null;
@@ -60,6 +62,15 @@ class SearchState {
  *  one call rather than streaming, because the hit list is capped low enough to
  *  cross the IPC boundary whole. */
 class TableSearchState {
+  /**
+   * Which search the arriving result belongs to.
+   *
+   * The grid's search is one call rather than a stream, but starting a second
+   * one cancels the first — so the first comes back as a cancellation, and
+   * without this it would blank the hits and show an error while the search
+   * the reader is actually waiting for is still running.
+   */
+  seq = $state(0);
   query = $state("");
   caseSensitive = $state(false);
   running = $state(false);
@@ -71,7 +82,16 @@ class TableSearchState {
   searched = $state(false);
   error = $state<string | null>(null);
 
+  /** Begin a search, and return the generation its result must carry. */
+  begin(): number {
+    this.reset();
+    this.running = true;
+    this.searched = true;
+    return this.seq;
+  }
+
   reset() {
+    this.seq += 1;
     this.running = false;
     this.hits = [];
     this.current = -1;
