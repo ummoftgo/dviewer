@@ -91,4 +91,5 @@ The technical documentation lives in `doc/` (Korean).
 - The expand-depth presets go up to 9, which is also the default. Deeper levels are opened node by node.
 - Files are mmap-ed, so a file changed externally while open needs to be reopened. Edited content only mixes old and new bytes, but **truncating the file kills the process outright on Linux and macOS** (SIGBUS). Windows is unaffected: the OS refuses to shrink a file that has a mapping open.
 - Remote images in markdown are allowed. `img-src` includes `https:`, so badges and the like render as they would on the web — at the cost of telling the server that hosts them that the document was opened. A deliberate choice in favour of showing documents as they are written.
+- SQLite is opened read-only. A database left with a rollback journal (`-journal`) by an interrupted transaction cannot have that journal replayed read-only, so the first query fails. The program that wrote it has to open it once and settle it first.
 - No editing or saving. This is a read-only viewer.

@@ -98,12 +98,20 @@ fn sibling(path: &Path, name: &str) -> PathBuf {
 
 /// The `file:` URI to open the database with.
 fn connection_uri(path: &Path) -> String {
-    // Percent-encode what a URI cannot carry literally. Windows paths bring
-    // backslashes and drive letters, and a filename may hold a `?` or a `#`.
+    // Percent-encode everything a URI cannot carry literally. Windows paths
+    // bring backslashes and drive letters, and a filename may hold a `?` or a
+    // `#`.
+    //
+    // Non-ASCII bytes go the same way, and this is the part that is easy to get
+    // wrong: pushing a byte as a `char` turns 0x80..=0xFF into U+0080..U+00FF,
+    // which the string then writes back out as two UTF-8 bytes each. The URI
+    // would name a path that does not exist, and only for readers whose
+    // directories are not in English — every ASCII test would pass. Percent
+    // escapes are bytes, and SQLite turns them back into the same bytes.
     let mut encoded = String::new();
     for byte in path.to_string_lossy().bytes() {
         match byte {
-            b'?' | b'#' | b'%' => encoded.push_str(&format!("%{byte:02X}")),
+            b'?' | b'#' | b'%' | 0x80..=0xFF => encoded.push_str(&format!("%{byte:02X}")),
             b'\\' => encoded.push('/'),
             _ => encoded.push(byte as char),
         }
@@ -117,8 +125,12 @@ fn connection_uri(path: &Path) -> String {
 
 /// Every table and view, in the order a reader would look for them.
 ///
-/// SQLite's own bookkeeping tables are left out — `sqlite_sequence` and the
-/// shadow tables of an FTS index are not what anyone opened the file to see.
+/// SQLite's own bookkeeping is left out: `sqlite_sequence` and friends are not
+/// what anyone opened the file to see. The shadow tables an extension makes —
+/// FTS5's `<name>_data`, `<name>_idx` — do show up, because they are named
+/// after their owner and nothing in the schema marks them as internal. Telling
+/// them apart from a real table would mean guessing, and a guess that hides a
+/// reader's own table is worse than a list with a few rows they will not open.
 fn list_collections(connection: &Connection) -> Result<Vec<Collection>> {
     let mut statement = connection
         .prepare(
@@ -228,6 +240,32 @@ mod tests {
             !uri.contains("immutable"),
             "a database with a WAL must not be read as if it could not change"
         );
+    }
+
+/// A path outside ASCII has to survive the trip through the URI.
+    ///
+    /// Every other test here writes to a directory named in English, which is
+    /// exactly the reading under which the encoding bug this guards against was
+    /// invisible: the file opened, the list came back, and only a reader whose
+    /// folders are named in their own language ever saw the failure.
+    #[test]
+    fn a_path_outside_ascii_opens() {
+        let dir = temp_dir("한글-경로");
+        let path = write_db(
+            &dir,
+            "내역.sqlite",
+            "CREATE TABLE 주문 (번호 INTEGER PRIMARY KEY, 이름 TEXT);",
+        );
+
+        let uri = connection_uri(&path);
+        assert!(
+            uri.is_ascii(),
+            "every non-ASCII byte must leave as a percent escape: {uri}"
+        );
+
+        let doc = SqliteDoc::open(&path).expect("a database under a Korean path opens");
+        assert_eq!(doc.collections().len(), 1);
+        assert_eq!(doc.collections()[0].name, "주문");
     }
 
     /// The schema comes back as it was written.
