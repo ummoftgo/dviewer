@@ -459,20 +459,65 @@ fn is_value_start(b: u8) -> bool {
     matches!(b, b'{' | b'[' | b'"' | b't' | b'f' | b'n' | b'-' | b'0'..=b'9')
 }
 
+/// JSON's number grammar, exactly: `-? int frac? exp?`.
+///
+/// This is the only thing standing between a malformed number and a document
+/// reported as sound. Accepting any run of the characters a number may contain
+/// let `1.2.3`, `--`, `1e` and `01` through — the viewer showed them and said
+/// nothing, which is worse than refusing the file.
 fn is_number(text: &[u8]) -> bool {
-    !text.is_empty()
-        && text
-            .iter()
-            .all(|b| matches!(b, b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E'))
+    let mut i = 0usize;
+    let digits = |i: &mut usize| {
+        let from = *i;
+        while *i < text.len() && text[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        *i > from
+    };
+
+    if i < text.len() && text[i] == b'-' {
+        i += 1;
+    }
+    // A leading zero stands alone: `01` is not a JSON number.
+    if i < text.len() && text[i] == b'0' {
+        i += 1;
+    } else if !digits(&mut i) {
+        return false;
+    }
+    if i < text.len() && text[i] == b'.' {
+        i += 1;
+        if !digits(&mut i) {
+            return false;
+        }
+    }
+    if i < text.len() && (text[i] == b'e' || text[i] == b'E') {
+        i += 1;
+        if i < text.len() && (text[i] == b'+' || text[i] == b'-') {
+            i += 1;
+        }
+        if !digits(&mut i) {
+            return false;
+        }
+    }
+    i == text.len()
 }
 
+/// Where `pos` is, as a reader would count it.
+///
+/// The column counts characters, not bytes. Counting bytes puts the error two
+/// columns further along for every Korean character earlier on the line, and
+/// this number exists only to be looked at.
 fn line_col(b: &[u8], pos: usize) -> (usize, usize) {
-    let upto = &b[..pos.min(b.len())];
+    let pos = pos.min(b.len());
+    let upto = &b[..pos];
     let line = memchr::memchr_iter(b'\n', upto).count() + 1;
-    let col = match memchr::memrchr(b'\n', upto) {
-        Some(newline) => pos - newline,
-        None => pos + 1,
-    };
+    let line_start = memchr::memrchr(b'\n', upto).map_or(0, |newline| newline + 1);
+    // Every byte that is not a UTF-8 continuation byte starts a character.
+    let col = b[line_start..pos]
+        .iter()
+        .filter(|&&byte| byte & 0xC0 != 0x80)
+        .count()
+        + 1;
     (line, col)
 }
 
@@ -509,6 +554,42 @@ pub(crate) fn wrap_in_synthetic_root(nodes: &mut Vec<Node>, root_count: u32, tot
 
 #[cfg(test)]
 mod tests {
+    /// A malformed number must not pass for a sound document.
+    #[test]
+    fn numbers_follow_the_grammar() {
+        for good in ["0", "-0", "1", "42", "-17", "1.5", "-1.5", "1e9", "1E+9", "1e-9", "0.5e2"] {
+            let src = format!("[{good}]");
+            assert!(
+                scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).is_ok(),
+                "rejected {good}"
+            );
+        }
+        for bad in ["1.2.3", "--", "1e", "01", "1.", "+1", "1e+", "-", "1ee9"] {
+            let src = format!("[{bad}]");
+            assert!(
+                scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).is_err(),
+                "accepted {bad}"
+            );
+        }
+    }
+
+    /// The column in a syntax error counts characters, not bytes.
+    #[test]
+    fn the_error_column_counts_characters() {
+        // Ten Korean characters before the malformed value; each is three bytes,
+        // so a byte count would report column 36 rather than 16.
+        let src = "{\"키키키키키키키키키키\": tru}";
+        let err = scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false)
+            .expect_err("must not parse");
+        match err {
+            Error::JsonSyntax { line, column, .. } => {
+                assert_eq!(line, 1);
+                assert_eq!(column, 16);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
     use super::*;
 
     fn scan_ok(src: &str) -> Scan {

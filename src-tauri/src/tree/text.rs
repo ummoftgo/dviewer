@@ -303,6 +303,11 @@ fn unescape_unicode(raw: &[u8], i: usize) -> (char, usize) {
 
 fn hex4(raw: &[u8], i: usize) -> Option<u32> {
     let digits = raw.get(i..i + 4)?;
+    // `from_str_radix` accepts a leading sign, so `\u+041` would come back
+    // as `A` rather than as the malformed escape it is.
+    if !digits.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
     let text = std::str::from_utf8(digits).ok()?;
     u32::from_str_radix(text, 16).ok()
 }
