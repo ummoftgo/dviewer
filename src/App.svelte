@@ -75,14 +75,16 @@
         tab.error = message;
         tab.indexing = null;
       }),
-      ipc.on("tree:search-batch", ({ docId, hits }) => {
+      // Batches from a search the reader has already replaced are dropped
+      // rather than appended: cancelling does not unsend what is in flight.
+      ipc.on("tree:search-batch", ({ docId, seq, hits }) => {
         const tab = workspace.tab(docId);
-        if (!tab) return;
+        if (!tab || seq !== tab.search.seq) return;
         tab.search.hits = [...tab.search.hits, ...hits];
       }),
-      ipc.on("tree:search-done", ({ docId, summary }) => {
+      ipc.on("tree:search-done", ({ docId, seq, summary }) => {
         const tab = workspace.tab(docId);
-        if (!tab) return;
+        if (!tab || seq !== tab.search.seq) return;
         tab.search.running = false;
         tab.search.summary = summary;
       }),

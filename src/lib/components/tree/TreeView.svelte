@@ -159,6 +159,21 @@
   // the cached window stale. The dependencies are listed explicitly and the
   // call is untracked, so editing ensureWindow can never widen them by accident
   // — reading `rows` in there would otherwise make this effect retrigger itself.
+  /**
+   * Put the reader back where they were.
+   *
+   * Only once — and only once there is something to scroll, since the spacer
+   * has no height before the stats arrive. The view is rebuilt per tab
+   * (`{#key active.id}` in App.svelte), so this runs again for the next one.
+   */
+  let restored = false;
+  $effect(() => {
+    if (restored || !viewport || !tab.treeStats) return;
+    restored = true;
+    viewport.scrollTop = tab.treeScrollTop;
+    untrack(() => void ensureWindow(true));
+  });
+
   $effect(() => {
     void tab.treeStats;
     void rowHeight;

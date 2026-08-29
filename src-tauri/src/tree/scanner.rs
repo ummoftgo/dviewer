@@ -148,6 +148,7 @@ pub fn scan(
         p: 0,
         nodes: Vec::new(),
         stack: Vec::new(),
+        roots: 0,
         pending_key: None,
         descended: false,
         limits,
@@ -186,6 +187,10 @@ struct Scanner<'a, 'l> {
     nodes: Vec<Node>,
     /// Open containers: (node id, children seen so far).
     stack: Vec<(u32, u32)>,
+    /// Top-level values seen so far. A multi-root document — NDJSON, or JSON
+    /// Lines — numbers its records from this, the same way the stack numbers
+    /// the children of a container.
+    roots: u32,
     /// Key span parsed but not yet attached to its value.
     pending_key: Option<(u32, u32)>,
     /// Set when the value just parsed was a container we stepped into.
@@ -201,7 +206,6 @@ impl Scanner<'_, '_> {
         progress: &mut impl FnMut(usize),
         should_stop: &dyn Fn() -> bool,
     ) -> Result<u32> {
-        let mut roots = 0u32;
         self.skip_ws();
         if self.p >= self.b.len() {
             return Err(Error::JsonEmpty);
@@ -216,12 +220,8 @@ impl Scanner<'_, '_> {
                 self.next_progress = self.p + PROGRESS_STEP;
             }
 
-            let at_root = self.stack.is_empty();
             let key = self.pending_key.take();
             self.begin_value(key)?;
-            if at_root {
-                roots += 1;
-            }
 
             // A container we stepped into leaves the loop to parse its first
             // child; everything else walks back up.
@@ -239,7 +239,9 @@ impl Scanner<'_, '_> {
         if self.p < self.b.len() {
             return Err(self.err_at(SyntaxReason::TrailingContent));
         }
-        Ok(roots)
+        // `begin_value` counts the roots as it numbers them; a second counter
+        // here could only ever disagree with the numbering.
+        Ok(self.roots)
     }
 
     /// Close finished containers. Returns true when the document is complete.
@@ -327,7 +329,14 @@ impl Scanner<'_, '_> {
                 *count += 1;
                 (*pid, index)
             }
-            None => (NO_PARENT, self.nodes.len() as u32),
+            // Numbering a root by how many nodes came before it only agrees
+            // with its position when every root is a scalar. `$[1]` has to be
+            // the second record, not the second node.
+            None => {
+                let index = self.roots;
+                self.roots += 1;
+                (NO_PARENT, index)
+            }
         };
 
         let id = self.nodes.len() as u32;
@@ -654,6 +663,45 @@ mod tests {
         assert_eq!(scan.nodes[1].parent, 0);
         assert_eq!(scan.nodes[2].depth, 2);
         assert_eq!(scan.nodes[2].parent, 1);
+    }
+
+    /// Records are `$[0]`, `$[1]`, `$[2]` — not `$[0]`, `$[2]`, `$[4]`.
+    ///
+    /// Every top-level value used to be numbered by how many nodes had been
+    /// scanned before it, which is only the same thing when the roots are
+    /// scalars. Paths, path copying and the `[N]` segment of path search all
+    /// read this field.
+    #[test]
+    fn ndjson_roots_are_numbered_in_order() {
+        let scan = scan_ok("{\"a\":1}
+{\"a\":2}
+{\"a\":3}
+");
+        let roots: Vec<u32> = scan
+            .nodes
+            .iter()
+            .filter(|node| node.parent == 0 && node.depth == 1)
+            .map(|node| node.sibling_index)
+            .collect();
+        assert_eq!(roots, [0, 1, 2]);
+    }
+
+    /// Bare scalars hid the bug: one node each means the counter happened to
+    /// agree. Mixing them with containers does not.
+    #[test]
+    fn mixed_roots_are_numbered_in_order() {
+        let scan = scan_ok("1
+{\"a\":1,\"b\":2}
+2
+[7,8]
+");
+        let roots: Vec<u32> = scan
+            .nodes
+            .iter()
+            .filter(|node| node.parent == 0 && node.depth == 1)
+            .map(|node| node.sibling_index)
+            .collect();
+        assert_eq!(roots, [0, 1, 2, 3]);
     }
 
     #[test]

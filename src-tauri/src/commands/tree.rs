@@ -31,12 +31,14 @@ struct IndexReady {
 #[tauri::command]
 pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> Result<()> {
     let doc = state.get(doc_id)?;
-    if doc.tree().is_some() {
+    // Taken once, not asked-then-taken: those are two separate locks, and a
+    // format switch between them clears the tree the second one expects.
+    if let Some(tree) = doc.tree() {
         let _ = app.emit(
             "tree:ready",
             IndexReady {
                 doc_id,
-                stats: doc.tree().expect("just checked").stats(),
+                stats: tree.stats(),
                 elapsed_ms: 0,
             },
         );
@@ -252,6 +254,9 @@ pub fn tree_node_text(
 #[serde(rename_all = "camelCase")]
 struct SearchBatch {
     doc_id: DocId,
+    /// The search that produced this, echoed back so a view can tell the tail
+    /// of an abandoned query from the head of the current one.
+    seq: u64,
     hits: Vec<SearchHit>,
     total: usize,
 }
@@ -260,6 +265,7 @@ struct SearchBatch {
 #[serde(rename_all = "camelCase")]
 struct SearchDone {
     doc_id: DocId,
+    seq: u64,
     summary: SearchSummary,
     elapsed_ms: u64,
 }
@@ -275,6 +281,7 @@ pub fn tree_search(
 ) -> Result<()> {
     let json = tree_doc(&state, doc_id)?;
     let cancel = state.start_search_job(doc_id);
+    let seq = options.seq;
 
     std::thread::spawn(move || {
         let started = std::time::Instant::now();
@@ -283,6 +290,7 @@ pub fn tree_search(
                 "tree:search-batch",
                 SearchBatch {
                     doc_id,
+                    seq,
                     hits: hits.to_vec(),
                     total,
                 },
@@ -298,11 +306,15 @@ pub fn tree_search(
                     "tree:search-done",
                     SearchDone {
                         doc_id,
+                        seq,
                         summary,
                         elapsed_ms: started.elapsed().as_millis() as u64,
                     },
                 );
             }
+            // Cancellation is not a failure the reader needs told about: it
+            // happens because they asked for something else.
+            Err(Error::Cancelled) => {}
             Err(err) => {
                 let _ = app.emit(
                     "tree:search-error",

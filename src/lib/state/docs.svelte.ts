@@ -20,6 +20,15 @@ import { recents } from "./recents.svelte";
 export type ViewMode = "rendered" | "raw";
 
 class SearchState {
+  /**
+   * Which search the arriving hits belong to.
+   *
+   * Results stream back as events, and an event carries no proof of what asked
+   * for it: cancelling a search does not unsend the batches already in flight.
+   * Without this, the tail of a query the reader has replaced lands in front of
+   * the hits for the one they are waiting on.
+   */
+  seq = $state(0);
   query = $state("");
   caseSensitive = $state(false);
   scope = $state<SearchScope>("all");
@@ -29,6 +38,14 @@ class SearchState {
   /** Index into `hits` of the match the view is parked on. */
   current = $state(-1);
   error = $state<string | null>(null);
+
+  /** Begin a search, and return the generation its events must carry. */
+  begin(): number {
+    this.reset();
+    this.seq += 1;
+    this.running = true;
+    return this.seq;
+  }
 
   reset() {
     this.running = false;
@@ -150,6 +167,11 @@ export class DocTab {
     this.treeStats = null;
     this.indexing = null;
     this.history.reset();
+    // Node ids do not survive re-indexing. A selection kept across one names
+    // whichever node happens to have taken that number — and the inspector,
+    // the path popover and the copied path would all follow it.
+    this.selectedNode = null;
+    this.pendingRow = null;
     this.error = null;
     this.search.reset();
     this.tableStats = null;
@@ -257,7 +279,16 @@ class Workspace {
     this.opening = true;
 
     try {
-      tab.meta = await load();
+      const loaded = await load();
+      // The reader can close a tab while it is still opening — a 500MB file
+      // spends seconds here. The tab goes at once, but the document it was
+      // waiting for arrives afterwards with nobody left to close it, and its
+      // mmap and index would then be held until the app exits.
+      if (!this.tabs.includes(tab)) {
+        void ipc.closeDoc(loaded.id).catch(() => {});
+        return null;
+      }
+      tab.meta = loaded;
       tab.status = "ready";
       if (tab.meta.source.type === "file") {
         recents.add({ path: tab.meta.source.path, title: tab.meta.title, kind: tab.meta.kind });
@@ -310,6 +341,9 @@ class Workspace {
     if (!tab || tab.kind === kind) return;
     try {
       const meta = await ipc.setDocKind(id, kind);
+      // The document id survives re-indexing but the node ids under it do not,
+      // and the path cache is keyed by both — so it has to go with them.
+      forgetDoc(id);
       tab.invalidate();
       tab.meta = meta;
     } catch (err) {
@@ -324,7 +358,8 @@ class Workspace {
     try {
       const meta = await ipc.setDocEncoding(id, encodingName);
       // Byte offsets do not survive a change of encoding, so every index built
-      // from the old reading has to go with it.
+      // from the old reading has to go with it — the cached paths included.
+      forgetDoc(id);
       tab.invalidate();
       tab.meta = meta;
     } catch (err) {

@@ -100,6 +100,21 @@
   // Anything that changes the grid's shape invalidates the cached window. The
   // dependencies are listed explicitly and the call untracked so that reading
   // `rows` inside ensureWindow cannot make this effect retrigger itself.
+  /**
+   * Put the reader back where they were.
+   *
+   * Only once — and only once there is something to scroll, since the spacer
+   * has no height before the stats arrive. The view is rebuilt per tab
+   * (`{#key active.id}` in App.svelte), so this runs again for the next one.
+   */
+  let restored = false;
+  $effect(() => {
+    if (restored || !viewport || !tab.tableStats) return;
+    restored = true;
+    viewport.scrollTop = tab.tableScrollTop;
+    untrack(() => void ensureWindow(true));
+  });
+
   $effect(() => {
     void tab.tableStats;
     void rowHeight;

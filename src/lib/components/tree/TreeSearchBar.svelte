@@ -46,13 +46,13 @@
       await clear();
       return;
     }
-    search.reset();
-    search.running = true;
+    const seq = search.begin();
     try {
       await treeSearch(tab.id, {
         query: search.query,
         caseSensitive: search.caseSensitive,
         scope: search.scope,
+        seq,
       });
     } catch (err) {
       search.running = false;

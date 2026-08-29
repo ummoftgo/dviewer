@@ -43,6 +43,13 @@ pub struct SearchOptions {
     pub case_sensitive: bool,
     #[serde(default = "default_scope")]
     pub scope: SearchScope,
+    /// Which search this is, counted by the frontend.
+    ///
+    /// Results come back as events, and an event carries no proof of what
+    /// asked for it. Echoing this on every batch is what lets a view drop the
+    /// tail of a query the reader has already replaced.
+    #[serde(default)]
+    pub seq: u64,
 }
 
 fn default_scope() -> SearchScope {
@@ -120,28 +127,25 @@ pub fn search(
     let mut batch_start = 0usize;
     let mut capped = false;
 
-    for found in automaton.find_iter(bytes) {
-        if cancel.load(Ordering::Relaxed) {
-            break;
-        }
-        let offset = found.start() as u32;
+    scan_chunked(bytes, options.query.len(), cancel, SCAN_CHUNK, |offset| {
         let Some(hit) = classify(index, offset) else {
-            continue;
+            return true;
         };
         if !scope_allows(options.scope, hit.field) {
-            continue;
+            return true;
         }
 
         hits.push(hit);
         if hits.len() >= MAX_HITS {
             capped = true;
-            break;
+            return false;
         }
         if hits.len() - batch_start >= BATCH {
             on_batch(&hits[batch_start..], hits.len());
             batch_start = hits.len();
         }
-    }
+        true
+    }, &automaton)?;
 
     if batch_start < hits.len() {
         on_batch(&hits[batch_start..], hits.len());
@@ -155,6 +159,51 @@ pub fn search(
 }
 
 const BATCH: usize = 512;
+
+/// How much haystack one uninterruptible pass covers.
+///
+/// `find_iter` yields only matches, so a query with none in a 500MB file would
+/// otherwise scan to the end with nothing to check the cancel flag between —
+/// closing the tab would not stop it. Chunking gives the check somewhere to
+/// happen. 4MB is ~1ms of scanning.
+const SCAN_CHUNK: usize = 4 * 1024 * 1024;
+
+/// Run `automaton` over `bytes` in windows, checking `cancel` between them.
+///
+/// Windows overlap by one byte less than the pattern, so a match straddling a
+/// boundary is still whole inside the next one; matches starting at or past a
+/// window's own end are left for that next window, which is what keeps them
+/// from being reported twice. `on_match` returns false to stop early.
+pub(crate) fn scan_chunked(
+    bytes: &[u8],
+    pattern_len: usize,
+    cancel: &AtomicBool,
+    chunk: usize,
+    mut on_match: impl FnMut(u32) -> bool,
+    automaton: &AhoCorasick,
+) -> Result<()> {
+    let overlap = pattern_len.saturating_sub(1);
+    let mut base = 0usize;
+
+    while base < bytes.len() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(Error::Cancelled);
+        }
+        let end = (base + chunk).min(bytes.len());
+        let window_end = (end + overlap).min(bytes.len());
+        for found in automaton.find_iter(&bytes[base..window_end]) {
+            let start = base + found.start();
+            if start >= end && end < bytes.len() {
+                break;
+            }
+            if !on_match(start as u32) {
+                return Ok(());
+            }
+        }
+        base = end;
+    }
+    Ok(())
+}
 
 fn scope_allows(scope: SearchScope, field: SearchField) -> bool {
     match scope {
@@ -246,7 +295,7 @@ fn search_paths(
 
     for (id, node) in index.nodes.iter().enumerate() {
         if id % 4096 == 0 && cancel.load(Ordering::Relaxed) {
-            break;
+            return Err(Error::Cancelled);
         }
 
         let depth = node.depth as usize;
@@ -335,6 +384,61 @@ fn append(path: &mut Vec<u8>, segment: &[u8], case_sensitive: bool) {
 
 #[cfg(test)]
 mod tests {
+
+    /// Chunking must not change what a search finds.
+    ///
+    /// The windows overlap, so a match lying across a boundary has to be found
+    /// exactly once — not missed, and not reported by both windows.
+    #[test]
+    fn chunking_finds_the_same_matches() {
+        let mut hay = Vec::new();
+        for i in 0..400 {
+            hay.extend_from_slice(format!("filler{i}-").as_bytes());
+            if i % 7 == 0 {
+                hay.extend_from_slice(b"needle");
+            }
+        }
+        let automaton = AhoCorasick::builder()
+            .match_kind(MatchKind::LeftmostFirst)
+            .build([b"needle".as_slice()])
+            .expect("automaton");
+        let expected: Vec<u32> = automaton
+            .find_iter(&hay)
+            .map(|m| m.start() as u32)
+            .collect();
+        assert!(expected.len() > 20, "the fixture must exercise many windows");
+
+        let never = AtomicBool::new(false);
+        for chunk in [1, 2, 5, 6, 7, 13, 64, 997, hay.len(), hay.len() * 2] {
+            let mut found = Vec::new();
+            scan_chunked(&hay, 6, &never, chunk, |offset| {
+                found.push(offset);
+                true
+            }, &automaton)
+            .expect("not cancelled");
+            assert_eq!(found, expected, "chunk = {chunk}");
+        }
+    }
+
+    /// A query with no matches anywhere still has to notice the cancel flag —
+    /// that is the case `find_iter` alone could never interrupt.
+    #[test]
+    fn a_cancelled_scan_stops_without_a_single_match() {
+        let hay = vec![b'x'; 8192];
+        let automaton = AhoCorasick::builder()
+            .match_kind(MatchKind::LeftmostFirst)
+            .build([b"needle".as_slice()])
+            .expect("automaton");
+        let cancel = AtomicBool::new(true);
+        let mut seen = 0usize;
+        let result = scan_chunked(&hay, 6, &cancel, 64, |_| {
+            seen += 1;
+            true
+        }, &automaton);
+        assert!(matches!(result, Err(Error::Cancelled)));
+        assert_eq!(seen, 0);
+    }
+
     use super::super::scanner::{ScanLimits, scan};
     use super::*;
 
@@ -349,6 +453,7 @@ mod tests {
             query: query.to_owned(),
             case_sensitive,
             scope,
+            seq: 0,
         };
         let cancel = AtomicBool::new(false);
         search(src.as_bytes(), &index, &options, &cancel, |_, _| {})
@@ -459,17 +564,32 @@ mod tests {
         assert_eq!(paths(src, "needle", true), ["$.needle"]);
     }
 
+    /// A cancelled search reports cancellation rather than a short answer.
+    ///
+    /// It used to return the hits it had as an ordinary result, and the caller
+    /// stored them — so the remains of an abandoned query could replace the
+    /// results of the one that replaced it.
     #[test]
-    fn cancellation_ends_the_scan_early() {
+    fn cancellation_is_not_a_result() {
         let index = build(SRC);
         let options = SearchOptions {
             query: "name".to_owned(),
             case_sensitive: false,
             scope: SearchScope::All,
+            seq: 0,
         };
         let cancel = AtomicBool::new(true);
-        let result = search(SRC.as_bytes(), &index, &options, &cancel, |_, _| {}).unwrap();
-        assert!(result.hits.is_empty());
+        let result = search(SRC.as_bytes(), &index, &options, &cancel, |_, _| {});
+        assert!(matches!(result, Err(Error::Cancelled)));
+
+        let paths = SearchOptions {
+            query: "$.name".to_owned(),
+            case_sensitive: false,
+            scope: SearchScope::Paths,
+            seq: 0,
+        };
+        let result = search(SRC.as_bytes(), &index, &paths, &cancel, |_, _| {});
+        assert!(matches!(result, Err(Error::Cancelled)));
     }
 
     #[test]
@@ -481,6 +601,7 @@ mod tests {
             query: "needle".to_owned(),
             case_sensitive: false,
             scope: SearchScope::All,
+            seq: 0,
         };
         let cancel = AtomicBool::new(false);
         let mut batches = 0;

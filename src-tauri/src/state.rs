@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
@@ -241,6 +241,8 @@ pub struct AppState {
     /// panel pointing at a closed document shows nothing, and one whose opener
     /// is gone would keep the app alive with no way back to it.
     panels: RwLock<HashMap<String, PanelOwner>>,
+    /// Directories already added to the asset scope. See `grant_asset_dir`.
+    asset_dirs: RwLock<HashSet<PathBuf>>,
     /// What each window should open as soon as it is ready, keyed by label.
     ///
     /// A window cannot be told what to open until its frontend exists, and a
@@ -328,6 +330,16 @@ impl AppState {
             previous.store(true, Ordering::Relaxed);
         }
         flag
+    }
+
+    /// Record that `dir` has been added to the asset scope.
+    ///
+    /// Returns false when it was already there. Tauri's scope has no way back
+    /// — `forbid_*` is permanent and outranks every allow, so a directory
+    /// granted once can only be granted again, and re-adding it on every open
+    /// would grow the pattern list a viewer walks on every asset request.
+    pub fn grant_asset_dir(&self, dir: &std::path::Path) -> bool {
+        self.asset_dirs.write().insert(dir.to_path_buf())
     }
 
     pub fn start_search_job(&self, id: DocId) -> Arc<AtomicBool> {

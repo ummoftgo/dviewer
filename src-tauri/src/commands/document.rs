@@ -38,10 +38,22 @@ pub async fn open_path(
     .map_err(Error::internal)??;
     let (bytes, decoded, title, base_dir, kind) = opened;
 
-    // Images in a markdown file are relative to it. Widen the asset scope to
-    // that one directory rather than granting the webview the whole disk.
-    if let Some(dir) = &base_dir {
-        let _ = app.asset_protocol_scope().allow_directory(dir, true);
+    // Images in a markdown file are relative to it, so the webview needs to
+    // reach that directory. Nothing else does: a tree or a table never resolves
+    // a local asset, and granting for those widened the scope for the rest of
+    // the session with nothing asking for it — opening one file at the root of
+    // a drive handed the webview the whole drive.
+    //
+    // The grant is one-way. Tauri's `forbid_*` outranks every allow and cannot
+    // be undone, so revoking on close would make that directory unopenable for
+    // the rest of the session; keeping the grant narrow is the part that can
+    // actually be controlled.
+    if kind.view() == crate::state::DocView::Prose {
+        if let Some(dir) = &base_dir {
+            if state.grant_asset_dir(dir) {
+                let _ = app.asset_protocol_scope().allow_directory(dir, true);
+            }
+        }
     }
     Ok(state
         .insert(Document::new(
@@ -131,10 +143,25 @@ pub fn close_doc(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) {
 }
 
 #[tauri::command]
-pub fn set_doc_kind(state: State<'_, AppState>, doc_id: DocId, kind: DocKind) -> Result<DocMeta> {
+pub fn set_doc_kind(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    kind: DocKind,
+) -> Result<DocMeta> {
     let doc = state.get(doc_id)?;
     state.cancel_jobs(doc_id);
     doc.set_kind(kind);
+    // A document read as something else can become markdown here, and only
+    // then does it need its directory. See `open_path` for why the grant is
+    // withheld until something asks for it.
+    if kind.view() == crate::state::DocView::Prose {
+        if let Some(dir) = doc.base_dir.clone() {
+            if state.grant_asset_dir(&dir) {
+                let _ = app.asset_protocol_scope().allow_directory(&dir, true);
+            }
+        }
+    }
     Ok(doc.meta())
 }
 

@@ -10,7 +10,7 @@
 //! spreadsheet than the spreadsheet.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use aho_corasick::{AhoCorasick, MatchKind};
 use parking_lot::RwLock;
@@ -31,6 +31,10 @@ pub const CELL_PREVIEW_CHARS: usize = 500;
 pub const MAX_CELL_TEXT_BYTES: usize = 8 * 1024 * 1024;
 /// Past this the hit list stops being something a person steps through.
 pub const MAX_SEARCH_HITS: usize = 20_000;
+
+/// How much of the file one uninterruptible scanning pass covers. See
+/// `tree::search::scan_chunked` for why the scan is broken up at all.
+const SEARCH_CHUNK: usize = 4 * 1024 * 1024;
 
 const PROGRESS_STEP: usize = 8 * 1024 * 1024;
 
@@ -65,15 +69,22 @@ pub fn sniff_delimiter(bytes: &[u8]) -> u8 {
     let mut in_quotes = false;
     let mut lines = 0;
 
-    for (i, &b) in head.iter().enumerate() {
+    // Stepped by hand rather than iterated: an escaped quote is two bytes and
+    // has to be consumed as one. Skipping only the first leaves the second to
+    // be read as a closing quote, and every delimiter after it is then counted
+    // on the wrong side of the quotes. `scan_records` walks it the same way.
+    let mut i = 0usize;
+    while i < head.len() {
+        let b = head[i];
         if in_quotes {
             if b == b'"' {
-                // A doubled quote is an escaped quote, not the end of the field.
                 if head.get(i + 1) == Some(&b'"') {
+                    i += 2;
                     continue;
                 }
                 in_quotes = false;
             }
+            i += 1;
             continue;
         }
         match b {
@@ -90,6 +101,7 @@ pub fn sniff_delimiter(bytes: &[u8]) -> u8 {
                 }
             }
         }
+        i += 1;
     }
 
     let best = counts
@@ -293,50 +305,57 @@ impl TableDoc {
         // only ever moves forward and one cached split serves a run of them.
         let mut cached: Option<(u32, Vec<(u32, u32)>)> = None;
 
-        for found in finder.find_iter(&self.bytes[..]) {
-            if cancel.load(Ordering::Relaxed) {
-                return Err(Error::Cancelled);
-            }
-            if hits.len() >= MAX_SEARCH_HITS {
-                capped = true;
-                break;
-            }
-            let at = found.start() as u32;
-            let Some(record) = self.record_at(at) else {
-                continue;
-            };
+        // Scanned in windows so the cancel flag is checked even when nothing
+        // matches — `find_iter` alone yields nothing to check between, and a
+        // closed tab would not stop a fruitless search over a large file.
+        crate::tree::search::scan_chunked(
+            &self.bytes[..],
+            query.len(),
+            cancel,
+            SEARCH_CHUNK,
+            |at| {
+                if hits.len() >= MAX_SEARCH_HITS {
+                    capped = true;
+                    return false;
+                }
+                let Some(record) = self.record_at(at) else {
+                    return true;
+                };
             // Matches in the header are not data rows; the header is always on
             // screen anyway, so there is nothing to scroll to.
-            if record < offset {
-                continue;
-            }
-            let fields = match &cached {
-                Some((cached_record, fields)) if *cached_record == record => fields,
-                _ => {
-                    let Some((start, end)) = self.record_span(record) else {
-                        continue;
-                    };
-                    let fields = record_fields(&self.bytes, start, end, self.delimiter);
-                    cached = Some((record, fields));
-                    &cached.as_ref().expect("just set").1
+                if record < offset {
+                    return true;
                 }
-            };
-            let Some(column) = fields.iter().position(|&(s, e)| at >= s && at < e) else {
-                // The match straddles a delimiter or a quote, so it is not
-                // inside any one cell and there is nothing to point at.
-                continue;
-            };
-            let row = record - offset;
-            // One hit per cell: a query occurring twice in the same cell is one
-            // place to look, not two.
-            if hits.last().map(|h| (h.row, h.column)) == Some((row, column as u32)) {
-                continue;
-            }
-            hits.push(TableHit {
-                row,
-                column: column as u32,
-            });
-        }
+                let fields = match &cached {
+                    Some((cached_record, fields)) if *cached_record == record => fields,
+                    _ => {
+                        let Some((start, end)) = self.record_span(record) else {
+                            return true;
+                        };
+                        let fields = record_fields(&self.bytes, start, end, self.delimiter);
+                        cached = Some((record, fields));
+                        &cached.as_ref().expect("just set").1
+                    }
+                };
+                let Some(column) = fields.iter().position(|&(s, e)| at >= s && at < e) else {
+                    // The match straddles a delimiter or a quote, so it is not
+                    // inside any one cell and there is nothing to point at.
+                    return true;
+                };
+                let row = record - offset;
+                // One hit per cell: a query occurring twice in the same cell is
+                // one place to look, not two.
+                if hits.last().map(|h| (h.row, h.column)) == Some((row, column as u32)) {
+                    return true;
+                }
+                hits.push(TableHit {
+                    row,
+                    column: column as u32,
+                });
+                true
+            },
+            &finder,
+        )?;
 
         Ok(TableSearch { hits, capped })
     }
@@ -722,6 +741,24 @@ mod tests {
     #[test]
     fn sniffing_ignores_delimiters_inside_quotes() {
         let src = b"a;b\n\"x,y,z,w,v,u,t,s\";2\n\"p,q,r,s,t,u,v,w\";3\n";
+        assert_eq!(sniff_delimiter(src), b';');
+    }
+
+    /// A doubled quote is one escaped quote, not a field closing and another
+    /// opening. Getting that wrong inverts the in-quotes state for the rest of
+    /// the sample, so the real delimiter stops being counted and the file opens
+    /// as a single column.
+    #[test]
+    fn sniffing_survives_escaped_quotes() {
+        let src = b"name;note\n\"a\"\"b\";x\n\"c\"\"d\";y\n\"e\"\"f\";z\n";
+        assert_eq!(sniff_delimiter(src), b';');
+    }
+
+    /// The same shape with the delimiter inside the quoted field, so a wrong
+    /// parity is counted rather than merely missed.
+    #[test]
+    fn sniffing_survives_escaped_quotes_around_delimiters() {
+        let src = b"a;b\n\"x\"\",,,,,,\"\"y\";1\n\"p\"\",,,,,,\"\"q\";2\n";
         assert_eq!(sniff_delimiter(src), b';');
     }
 

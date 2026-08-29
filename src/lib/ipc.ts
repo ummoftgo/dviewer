@@ -200,6 +200,8 @@ export interface SearchOptions {
   query: string;
   caseSensitive: boolean;
   scope: SearchScope;
+  /** Which search this is; echoed on every event it produces. */
+  seq: number;
 }
 
 export interface SearchHit {
@@ -384,12 +386,14 @@ export interface DocErrorEvent {
 
 export interface SearchBatch {
   docId: number;
+  seq: number;
   hits: SearchHit[];
   total: number;
 }
 
 export interface SearchDone {
   docId: number;
+  seq: number;
   summary: SearchSummary;
   elapsedMs: number;
 }

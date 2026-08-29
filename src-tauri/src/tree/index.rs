@@ -46,13 +46,20 @@ impl BitSet {
         }
     }
 
+    /// A bit the set does not have is not set — and cannot be set.
+    ///
+    /// Ids reach these two straight from the frontend, which can be a
+    /// re-indexing behind; a `Vec` index would take the process down with it.
     #[inline]
     fn get(&self, i: usize) -> bool {
-        self.words[i / 64] >> (i % 64) & 1 == 1
+        i < self.len && self.words[i / 64] >> (i % 64) & 1 == 1
     }
 
     #[inline]
     fn set(&mut self, i: usize, value: bool) {
+        if i >= self.len {
+            return;
+        }
         let (word, bit) = (i / 64, i % 64);
         if value {
             self.words[word] |= 1 << bit;
@@ -227,6 +234,12 @@ impl Visibility {
     }
 
     pub fn toggle(&mut self, nodes: &[Node], id: u32) {
+        if !nodes
+            .get(id as usize)
+            .is_some_and(|node| node.kind.is_container())
+        {
+            return;
+        }
         let collapsed = self.is_collapsed(id);
         if self.filtered {
             // Leaving the filtered view on the first manual toggle is less
@@ -261,6 +274,9 @@ impl Visibility {
     /// Expand every ancestor of `id` so it becomes visible. Outermost first,
     /// because expanding a hidden node is a no-op by design.
     pub fn reveal(&mut self, nodes: &[Node], id: u32) {
+        if id as usize >= nodes.len() {
+            return;
+        }
         if self.filtered {
             // Search hits are visible by construction in the filtered view;
             // jumping between them must not tear the filter down.
@@ -610,6 +626,49 @@ mod tests {
             };
         }
         out
+    }
+
+    /// A node id from a stale frontend must be ignored, not crash the app.
+    ///
+    /// Re-indexing a document — a format switch, an encoding switch — keeps the
+    /// document id and renumbers the nodes, so a view that has not caught up
+    /// sends ids that no longer exist. These all reach Rust straight from a
+    /// command, and an index out of a `Vec` would take the process with it.
+    #[test]
+    fn out_of_range_ids_are_ignored() {
+        let index = index("{\"a\":[1,2],\"b\":3}");
+        // Far enough out to land in a word the bitset does not have. An id
+        // just past the end sits in the same word and reads a spare bit, which
+        // is wrong quietly rather than loudly.
+        let past_the_end = index.nodes.len() as u32 + 5000;
+
+        let mut vis = Visibility::new(&index.nodes, DEFAULT_EXPAND_DEPTH);
+        let before = vis.visible_total();
+
+        assert!(!vis.is_collapsed(past_the_end));
+        vis.toggle(&index.nodes, past_the_end);
+        vis.reveal(&index.nodes, past_the_end);
+        vis.set_collapsed(&index.nodes, past_the_end, true);
+
+        assert_eq!(vis.visible_total(), before);
+        assert_rows_match(&index, &vis);
+    }
+
+    /// The same, with a search filter in force — `toggle` and `reveal` both
+    /// take a different path there, and both used to index without checking.
+    #[test]
+    fn out_of_range_ids_are_ignored_while_filtered() {
+        let index = index("{\"a\":[1,2],\"b\":3}");
+        let past_the_end = index.nodes.len() as u32 + 5000;
+
+        let mut vis = Visibility::new(&index.nodes, DEFAULT_EXPAND_DEPTH);
+        vis.apply_filter(&index.nodes, &[1]);
+        let before = vis.visible_total();
+
+        vis.reveal(&index.nodes, past_the_end);
+        vis.toggle(&index.nodes, past_the_end);
+
+        assert_eq!(vis.visible_total(), before);
     }
 
     fn assert_rows_match(index: &TreeIndex, vis: &Visibility) {

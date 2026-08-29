@@ -514,6 +514,7 @@ mod xml_tests {
             query: "/catalog/book/@id".into(),
             case_sensitive: false,
             scope: search::SearchScope::Paths,
+            seq: 0,
         };
         let summary = doc
             .run_search(&options, &AtomicBool::new(false), |_, _| {})

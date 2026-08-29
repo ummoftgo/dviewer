@@ -24,6 +24,7 @@ fn timed_search(doc: &TreeDoc, query: &str, scope: SearchScope, label: &str) {
                 query: query.to_owned(),
                 case_sensitive: false,
                 scope,
+                seq: 0,
             },
             &AtomicBool::new(false),
             |_, _| {},
