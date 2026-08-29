@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Every window: file picking, settings storage and opening links externally. File reads deliberately stay in Rust, so no fs permissions are granted here.",
+  "description": "Every window: file picking, settings storage and opening links externally. `allow-open-url` enables the command but grants no scope, and an empty allow list forbids every URL — `allow-default-urls` is what actually permits http, https, mailto and tel. File reads deliberately stay in Rust, so no fs permissions are granted here.",
   "windows": [
     "main",
     "doc-*",
@@ -12,6 +12,7 @@
     "core:webview:allow-internal-toggle-devtools",
     "dialog:allow-open",
     "store:default",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    "opener:allow-default-urls"
   ]
 }
