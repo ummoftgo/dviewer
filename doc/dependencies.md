@@ -1,0 +1,33 @@
+# 의존성
+
+← [README](../README.md)
+
+프런트엔드와 Rust 모두 각 패키지의 **최신 버전**을 씁니다. 다만 하나는 최신이 아닙니다:
+
+- **TypeScript는 6.x** 입니다. 7.x가 나와 있지만 `svelte-check` 최신판(4.7.6)이 `typescript: ^5 || ^6` 만 지원해서, 7로 올리면 `npm run check` 가 동작하지 않습니다. svelte-check이 7을 지원하면 함께 올리면 됩니다.
+
+Vite 8은 번들러가 rollup에서 rolldown으로 바뀌었고 esbuild를 더 이상 동봉하지 않습니다. 그래서 `vite.config.ts` 는 미니파이어를 이름으로 지정하지 않고 불리언만 넘깁니다 — 이름을 박아 두면 릴리스마다 따라가야 합니다.
+
+형식과 인코딩 지원이 늘면서 들어온 크레이트입니다.
+
+| 크레이트 | 쓰임 | 고른 이유 |
+| --- | --- | --- |
+| `quick-xml` | XML 토크나이저 | 스트리밍 풀 파서라 DOM을 만들지 않고, 입력 슬라이스에서 직접 빌려 주므로 이름과 값의 바이트 위치를 그대로 얻습니다 |
+| `serde_yaml_ng` | YAML 파싱 | `serde_yaml` 의 유지보수 포크. 매핑이 삽입 순서를 지킵니다 |
+| `encoding_rs` | 인코딩 변환 | Gecko의 구현. Encoding Standard를 그대로 따르므로 브라우저가 읽는 것과 같게 읽습니다 |
+| `chardetng` | 인코딩 추측 | Firefox가 레거시 웹 콘텐츠에 쓰는 판별기 |
+| `toml` | TOML 파싱 | `preserve_order` 를 켜서 테이블 키 순서를 파일 그대로 유지합니다 |
+
+CSV·TSV는 크레이트를 쓰지 않습니다. 필요한 것이 레코드의 **바이트 위치**인데 그건 파서가 내주는 값이 아니고, 따옴표를 다루는 상태 기계는 JSON 스캐너와 같은 방식으로 60줄이면 끝납니다.
+
+취약점 점검:
+
+```bash
+npm audit
+cd src-tauri && cargo audit     # cargo install cargo-audit
+```
+
+작성 시점 기준 양쪽 모두 **취약점 0건**입니다. `cargo audit` 이 남기는 19건은 전부 "미관리(unmaintained)" 또는 unsound 경고이고, 대부분 Tauri의 리눅스 백엔드가 쓰는 GTK3 바인딩이라 Windows 빌드에는 아예 컴파일되지 않습니다. 나머지(`unic-*`, `bincode`, `proc-macro-error`)도 전이 의존성이라 직접 손댈 수 없습니다.
+
+직접 줄인 것은 하나입니다. syntect의 `yaml-load`·`plist-load` 기능을 껐습니다 — 내장 문법·테마 덤프만 쓰고 런타임에 `.sublime-syntax` 를 읽지 않으므로 필요 없고, 그 결과 미관리 크레이트 `yaml-rust` 가 컴파일 대상에서 빠집니다. `cargo audit` 은 Cargo.lock 을 훑기 때문에 경고 수는 그대로지만, 바이너리에는 들어가지 않습니다.
+
