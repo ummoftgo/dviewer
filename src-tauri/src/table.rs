@@ -17,6 +17,7 @@ use parking_lot::RwLock;
 use serde::Serialize;
 
 use crate::bytes::DocBytes;
+use crate::state::DocKind;
 use crate::error::{Error, Result};
 use crate::tree::text::push_display;
 
@@ -187,6 +188,26 @@ pub enum Records {
 }
 
 impl Records {
+    /// How a document of `kind` should be read.
+    ///
+    /// Both the app and the measuring example ask here, so what the benchmarks
+    /// report is what a reader gets. Promising that in a comment was not
+    /// enough — the example had drifted into sniffing a delimiter for logs.
+    pub fn for_kind(kind: DocKind, bytes: &[u8]) -> Self {
+        match kind {
+            // A log names nothing to split on, so nothing is sniffed.
+            DocKind::Text => Records::Lines,
+            // `.tsv` names its delimiter and is taken at its word. `.csv` does
+            // not: the extension is used loosely, and a European spreadsheet's
+            // semicolons would otherwise show up as a single column and look
+            // like a failed load.
+            DocKind::Tsv => Records::Delimited { delimiter: b'\t' },
+            _ => Records::Delimited {
+                delimiter: sniff_delimiter(bytes),
+            },
+        }
+    }
+
     /// The code the frontend translates for the status bar.
     pub fn name(self) -> &'static str {
         match self {

@@ -1104,6 +1104,7 @@ dependencies = [
  "chardetng",
  "comrak",
  "encoding_rs",
+ "flate2",
  "fontdb",
  "memchr",
  "memmap2",

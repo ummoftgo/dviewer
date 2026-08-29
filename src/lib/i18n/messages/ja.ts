@@ -236,6 +236,7 @@ export const ja: Messages = {
   "subject.xml": "XML",
   "subject.table": "表",
   "subject.tree": "ツリー",
+  "subject.decompressed": "展開後の内容",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "値の後に解釈できない内容があります",

@@ -241,6 +241,7 @@ export const ko = {
   "subject.xml": "XML",
   "subject.table": "표",
   "subject.tree": "트리",
+  "subject.decompressed": "압축을 푼 내용",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "값 뒤에 해석할 수 없는 내용이 있습니다",

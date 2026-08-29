@@ -236,6 +236,7 @@ export const zhHans: Messages = {
   "subject.xml": "XML",
   "subject.table": "表格",
   "subject.tree": "树",
+  "subject.decompressed": "解压后的内容",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "值之后有无法解析的内容",

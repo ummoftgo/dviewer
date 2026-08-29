@@ -8,7 +8,7 @@
  * while and eat disk. Everything lands in ./fixtures, which is git-ignored.
  */
 import { createWriteStream } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import path from "node:path";
 
@@ -90,6 +90,25 @@ if (wantHuge) {
   console.log("  (huge.json 생략 — --huge 옵션으로 생성)");
 }
 
+
+
+// --- gzip ---------------------------------------------------------------
+
+// 안쪽 이름이 형식을 정한다: report.json.gz 는 JSON, 맨 .gz 는 내용으로.
+{
+  const { gzipSync } = await import("node:zlib");
+  const json = await readFile(path.join(OUT, "small.json"));
+  await writeFile(path.join(OUT, "report.json.gz"), gzipSync(json));
+  console.log("  report.json.gz");
+
+  const log = await readFile(path.join(OUT, "sample.log"));
+  await writeFile(path.join(OUT, "sample.log.gz"), gzipSync(log));
+  console.log("  sample.log.gz");
+
+  // 확장자가 형식을 말하지 않는 경우 — 내용으로 판별해야 한다.
+  await writeFile(path.join(OUT, "dump.gz"), gzipSync(json));
+  console.log("  dump.gz (안쪽 이름 없음)");
+}
 
 // --- 텍스트와 로그 -----------------------------------------------------------
 

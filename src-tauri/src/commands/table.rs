@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use super::{DocError, IndexProgress, IndexSlot};
 use crate::error::{Error, Result, Subject};
-use crate::state::{AppState, DocId, DocKind, DocView};
+use crate::state::{AppState, DocId, DocView};
 use crate::table::{self, TableDoc, TablePage, TableSearch, TableStats};
 
 #[derive(Clone, Serialize)]
@@ -50,17 +50,7 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
     };
     let bytes = doc.bytes();
     let total = bytes.len();
-    // `.tsv` names its delimiter and is taken at its word. `.csv` does not:
-    // the extension is used loosely, and a European spreadsheet's semicolons
-    // would otherwise show up as a single column and look like a failed load.
-    // Text names nothing to split on, so nothing is sniffed.
-    let records = match doc.kind() {
-        DocKind::Text => table::Records::Lines,
-        DocKind::Tsv => table::Records::Delimited { delimiter: b'\t' },
-        _ => table::Records::Delimited {
-            delimiter: table::sniff_delimiter(&bytes),
-        },
-    };
+    let records = table::Records::for_kind(doc.kind(), &bytes);
 
     std::thread::spawn(move || {
         // Hands the slot back whichever way this thread leaves — success,

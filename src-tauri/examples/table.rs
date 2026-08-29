@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::encoding;
-use dviewer_lib::state::DocKind;
+use dviewer_lib::source;
 use dviewer_lib::table::{self, TableDoc};
 
 fn human(bytes: usize) -> String {
@@ -35,7 +35,11 @@ fn main() {
     let query = args.next();
 
     let opening = Instant::now();
-    let source = Arc::new(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"));
+    // The app opens the archive before anything reads it, so measuring
+    // the file as it sits on disk would measure the wrong thing.
+    let (source, path) = source::ungzip(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"), &path)
+        .expect("압축을 풀 수 없습니다");
+    let source = Arc::new(source);
     let total = source.len();
     let map_time = opening.elapsed();
 
@@ -43,15 +47,7 @@ fn main() {
     // UTF-8 before anything looks for a delimiter in it.
     let decoded = encoding::decode(source);
     let bytes = decoded.bytes;
-    // The same choice `table_open` makes, so what is measured is what the app
-    // does: text is read as lines, and nothing is sniffed for it.
-    let records = match dviewer_lib::source::detect_kind(&path, &bytes) {
-        DocKind::Text => table::Records::Lines,
-        DocKind::Tsv => table::Records::Delimited { delimiter: b'\t' },
-        _ => table::Records::Delimited {
-            delimiter: table::sniff_delimiter(&bytes),
-        },
-    };
+    let records = table::Records::for_kind(source::detect_kind(&path, &bytes), &bytes);
 
     println!("파일      {path} ({})", human(total));
     println!("열기      {:.1}ms (mmap + 메타데이터)", map_time.as_secs_f64() * 1000.0);

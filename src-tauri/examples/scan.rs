@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::encoding;
+use dviewer_lib::source;
 use dviewer_lib::tree::TreeDoc;
 use dviewer_lib::tree::index::Syntax;
 use dviewer_lib::tree::scanner::ScanLimits;
@@ -49,7 +50,11 @@ fn main() {
     // What `open_path` does before a tab can exist — the window the UI spends
     // with no feedback at all.
     let opening = Instant::now();
-    let source = Arc::new(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"));
+    // The app opens the archive before anything reads it, so measuring
+    // the file as it sits on disk would measure the wrong thing.
+    let (source, path) = source::ungzip(DocBytes::map_file(path.as_ref()).expect("파일을 열 수 없습니다"), &path)
+        .expect("압축을 풀 수 없습니다");
+    let source = Arc::new(source);
     let total = source.len();
     let map_time = opening.elapsed();
 

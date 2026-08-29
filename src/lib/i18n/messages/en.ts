@@ -236,6 +236,7 @@ export const en: Messages = {
   "subject.xml": "XML",
   "subject.table": "table",
   "subject.tree": "tree",
+  "subject.decompressed": "the decompressed content",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "there is unreadable content after the value",

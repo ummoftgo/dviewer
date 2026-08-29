@@ -1,8 +1,11 @@
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::bytes::DocBytes;
-use crate::error::{Error, Result};
+use flate2::read::GzDecoder;
+
+use crate::error::{Error, Subject, Result};
 use crate::state::DocKind;
 
 /// Hard ceiling on remote documents. Local files are memory-mapped so their
@@ -43,8 +46,10 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
 /// themselves in their first non-space character and cannot be mistaken for
 /// prose. The others cannot: a paragraph containing a colon is valid YAML and
 /// one containing commas is valid CSV, so guessing at them would silently
-/// mangle ordinary text files. Anything unrecognised falls back to markdown,
-/// which renders plain text unharmed.
+/// mangle ordinary text files. Anything unrecognised is text: a file that names
+/// no format is far more often a log or a dump than prose, and reading it as
+/// markdown renders it — asterisks become emphasis, hashes become headings.
+/// Whoever wants that says so in the toolbar.
 pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
     let ext = Path::new(name)
         .extension()
@@ -56,9 +61,6 @@ pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
             return *kind;
         }
     }
-    // Text, not markdown. A file that names no format is far more often a log
-    // or a dump than prose, and rendering it as markdown eats its punctuation.
-    // Whoever wants it rendered says so in the toolbar.
     sniff(bytes).unwrap_or(DocKind::Text)
 }
 
@@ -72,6 +74,54 @@ fn sniff(bytes: &[u8]) -> Option<DocKind> {
         b'<' => Some(DocKind::Xml),
         _ => None,
     }
+}
+
+/// What a compressed document may weigh once opened.
+///
+/// The limit is on the result, not on the file. gzip reaches a thousand to one,
+/// so a one-megabyte `.gz` can ask for gigabytes — and the only moment anyone
+/// can refuse is while it is coming out. Checking the file's own size would
+/// stop nothing.
+pub const MAX_DECOMPRESSED_BYTES: usize = 512 * 1024 * 1024;
+
+/// The two bytes a gzip member begins with.
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// Decompress a document if it is gzip, and say what it should be called.
+///
+/// The name matters as much as the bytes: `report.json.gz` is JSON, and only
+/// the inner name says so. A bare `.gz` leaves the content to speak.
+///
+/// The result is an owned buffer, so a decompressed document gives up the mmap
+/// the file had. That is the same trade an encoding conversion already makes,
+/// and the limit above is what keeps it finite.
+pub fn ungzip(bytes: DocBytes, title: &str) -> Result<(DocBytes, String)> {
+    if !bytes.starts_with(&GZIP_MAGIC) {
+        return Ok((bytes, title.to_owned()));
+    }
+
+    let mut out = Vec::new();
+    // One byte past the limit is enough to know, and stops the read there
+    // rather than after the whole thing has been built.
+    let mut reader = GzDecoder::new(&bytes[..]).take(MAX_DECOMPRESSED_BYTES as u64 + 1);
+    reader.read_to_end(&mut out).map_err(|e| Error::ParseFailed {
+        subject: Subject::Decompressed,
+        detail: e.to_string(),
+    })?;
+
+    if out.len() > MAX_DECOMPRESSED_BYTES {
+        return Err(Error::TooLarge {
+            subject: Subject::Decompressed,
+            megabytes: out.len() / 1024 / 1024,
+            limit_mb: MAX_DECOMPRESSED_BYTES / 1024 / 1024,
+        });
+    }
+
+    let inner = title
+        .strip_suffix(".gz")
+        .or_else(|| title.strip_suffix(".GZ"))
+        .unwrap_or(title);
+    Ok((DocBytes::Owned(out), inner.to_owned()))
 }
 
 pub fn load_file(path: &Path) -> Result<(DocBytes, String, Option<PathBuf>)> {
@@ -185,6 +235,69 @@ pub fn kind_from_response(title: &str, content_type: Option<&str>, bytes: &[u8])
 
 #[cfg(test)]
 mod tests {
+    fn gzipped(bytes: &[u8]) -> Vec<u8> {
+        use flate2::{write::GzEncoder, Compression};
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(bytes).expect("compress");
+        encoder.finish().expect("finish")
+    }
+
+    /// A file that is not gzip comes back untouched, name and all.
+    #[test]
+    fn plain_bytes_pass_through() {
+        let (bytes, title) = ungzip(DocBytes::Owned(b"plain".to_vec()), "notes.txt").expect("ok");
+        assert_eq!(&bytes[..], b"plain");
+        assert_eq!(title, "notes.txt");
+    }
+
+    /// The inner name decides the format — the outer one only says "compressed".
+    #[test]
+    fn the_inner_name_is_what_the_document_is_called() {
+        let packed = gzipped(br#"{"a":1}"#);
+        let (bytes, title) = ungzip(DocBytes::Owned(packed.clone()), "report.json.gz").expect("ok");
+        assert_eq!(&bytes[..], br#"{"a":1}"#);
+        assert_eq!(title, "report.json");
+        assert_eq!(detect_kind(&title, &bytes), DocKind::Json);
+
+        // A bare `.gz` has no inner name, so the content has to speak.
+        let (bytes, title) = ungzip(DocBytes::Owned(packed), "dump.gz").expect("ok");
+        assert_eq!(title, "dump");
+        assert_eq!(detect_kind(&title, &bytes), DocKind::Json);
+    }
+
+    /// A small file that expands enormously is refused, not swallowed.
+    ///
+    /// This is why the limit is on the result and not on the file: the archive
+    /// below is a few kilobytes and would ask for more than half a gigabyte.
+    #[test]
+    fn a_compression_bomb_is_refused() {
+        let packed = gzipped(&vec![b'0'; MAX_DECOMPRESSED_BYTES + 1024]);
+        assert!(
+            packed.len() < 1024 * 1024,
+            "the archive itself is small — {} bytes",
+            packed.len()
+        );
+        match ungzip(DocBytes::Owned(packed), "bomb.gz").map(|(_, title)| title) {
+            Err(Error::TooLarge { subject, limit_mb, .. }) => {
+                assert_eq!(subject, Subject::Decompressed);
+                assert_eq!(limit_mb, MAX_DECOMPRESSED_BYTES / 1024 / 1024);
+            }
+            other => panic!("expected a size refusal, got {other:?}"),
+        }
+    }
+
+    /// Truncated gzip is reported, not shown as whatever came out first.
+    #[test]
+    fn a_broken_archive_is_an_error() {
+        let mut packed = gzipped(b"some content that was cut short");
+        packed.truncate(packed.len() / 2);
+        assert!(matches!(
+            ungzip(DocBytes::Owned(packed), "cut.gz").map(|(_, title)| title),
+            Err(Error::ParseFailed { subject: Subject::Decompressed, .. })
+        ));
+    }
+
     /// A server that accepts and then says nothing must not hold the thread.
     ///
     /// Opening a URL runs on a blocking thread with no way to cancel it, and

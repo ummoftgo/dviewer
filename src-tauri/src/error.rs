@@ -29,6 +29,8 @@ pub enum Subject {
     Xml,
     Table,
     Tree,
+    /// What came out of a compressed file, which is what the limit is on.
+    Decompressed,
 }
 
 /// Why the JSON scanner stopped. Ten fixed reasons, so they are codes rather

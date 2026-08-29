@@ -27,6 +27,9 @@ pub async fn open_path(
         let path = path.clone();
         move || {
             let (bytes, title, base_dir) = source::load_file(&path)?;
+            // Before anything reads it: a compressed file says nothing about
+            // its encoding or its format until it is open.
+            let (bytes, title) = source::ungzip(bytes, &title)?;
             let bytes = Arc::new(bytes);
             // Decoding comes first: a UTF-16 document does not even begin with
             // the character that would say what format it is.
@@ -85,10 +88,13 @@ pub async fn open_url(
     .await
     .map_err(Error::internal)??;
 
-    let bytes = Arc::new(DocBytes::from(fetched.bytes));
+    // A `.gz` served as bytes arrives compressed; `Content-Encoding: gzip` is
+    // already undone by the HTTP client, so this only sees the former.
+    let (bytes, title) = source::ungzip(DocBytes::from(fetched.bytes), &fetched.title)?;
+    let bytes = Arc::new(bytes);
     let decoded = encoding::decode(Arc::clone(&bytes));
     let kind = source::kind_from_response(
-        &fetched.title,
+        &title,
         fetched.content_type.as_deref(),
         &decoded.bytes,
     );
@@ -96,7 +102,7 @@ pub async fn open_url(
     Ok(state
         .insert(window.label(), Document::new(
             state.next_id(),
-            fetched.title,
+            title,
             DocSource::Url { url },
             None,
             kind,
