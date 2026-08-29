@@ -43,3 +43,9 @@ chardetng = "1.0"
 tauri-plugin-window-state = "2"
 tauri-plugin-single-instance = "2"
 
+# Serves the frontend from the binary instead of a dev server. The Tauri CLI
+# turns this on for `tauri build`; without it — a plain `cargo build`, whatever
+# the profile — `generate_context!` wires the webview to `devUrl`, and the app
+# opens on an empty page unless vite happens to be running.
+[features]
+custom-protocol = ["tauri/custom-protocol"]
