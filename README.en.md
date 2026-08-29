@@ -10,11 +10,12 @@ Eight formats, but only **three** ways of reading. Build a screen per format and
 | --- | --- | --- |
 | Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle |
 | Tree | JSON · JSONL/NDJSON · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy |
-| Table | CSV · TSV · text/logs | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy. Text is a one-column table: one line, one row |
+| Table | CSV · TSV · text/logs | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy. **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 
 - Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
 - The format is decided by extension (text when nothing else matches); the character encoding (UTF-8 · CP949/EUC-KR · UTF-16, …) is detected from the content. Both can be changed from the toolbar at any time.
+- **Logs become columns.** The leading time, level and `[source]` are recognised and everything else stays in one message column. `key=value` pairs can be expanded from the toolbar, and the whole thing folds back to one line at any time. When the guess is not confident, nothing is split.
 - **gzip files just open.** `access.log.gz` is decompressed and read under its inner name (`access.log`). The raw view shows the decompressed content.
 - Dark/light (auto by default), interface scale, separate interface and content font sizes, and content/code fonts picked from the fonts installed on the system.
 
