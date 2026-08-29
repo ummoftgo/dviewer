@@ -358,6 +358,17 @@ pub fn tree_clear_search(state: State<'_, AppState>, doc_id: DocId) -> Result<Tr
     Ok(json.stats())
 }
 
+/// Where a node is on screen right now. Used to put a selection back after the
+/// view has been rebuilt — switching tabs tears it down and builds it again.
+#[tauri::command]
+pub fn tree_row_of(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    node_id: u32,
+) -> Result<Option<u32>> {
+    Ok(tree_doc(&state, doc_id)?.row_of(node_id))
+}
+
 #[tauri::command]
 pub fn tree_hit_row(
     state: State<'_, AppState>,

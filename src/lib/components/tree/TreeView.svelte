@@ -13,6 +13,7 @@
     treeOpen,
     treeRows,
     treeToggle,
+    treeRowOf,
     kindLabel,
     openPanel,
     type TreeRow,
@@ -172,6 +173,18 @@
     restored = true;
     viewport.scrollTop = tab.treeScrollTop;
     untrack(() => void ensureWindow(true));
+
+    // The highlighted row is this component's own state, so it goes with the
+    // component — and the tab keeps only the node. Asked for rather than
+    // revealed: revealing would expand what the reader left folded and scroll
+    // away from the place just restored.
+    const node = tab.selectedNode;
+    if (node === null) return;
+    treeRowOf(tab.id, node)
+      .then((row) => {
+        if (row !== null) selectedRow = row;
+      })
+      .catch(() => {});
   });
 
   $effect(() => {

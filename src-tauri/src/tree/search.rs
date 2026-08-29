@@ -182,25 +182,31 @@ pub(crate) fn scan_chunked(
     mut on_match: impl FnMut(u32) -> bool,
     automaton: &AhoCorasick,
 ) -> Result<()> {
-    let overlap = pattern_len.saturating_sub(1);
-    let mut base = 0usize;
+    // One window is `chunk` bytes of new ground plus enough tail that a match
+    // starting inside it is whole — so a match never falls between windows.
+    let window = chunk + pattern_len.saturating_sub(1);
+    let mut at = 0usize;
 
-    while base < bytes.len() {
+    while at < bytes.len() {
         if cancel.load(Ordering::Relaxed) {
             return Err(Error::Cancelled);
         }
-        let end = (base + chunk).min(bytes.len());
-        let window_end = (end + overlap).min(bytes.len());
-        for found in automaton.find_iter(&bytes[base..window_end]) {
-            let start = base + found.start();
-            if start >= end && end < bytes.len() {
-                break;
+        let end = (at + window).min(bytes.len());
+        match automaton.find(&bytes[at..end]) {
+            // The leftmost match in the window is the leftmost match from `at`,
+            // and resuming past its end is what `find_iter` does — which is why
+            // a self-overlapping pattern is counted the same either way.
+            Some(found) => {
+                let start = at + found.start();
+                if !on_match(start as u32) {
+                    return Ok(());
+                }
+                at += found.end();
             }
-            if !on_match(start as u32) {
-                return Ok(());
-            }
+            // Nothing here. Anything starting before `at + chunk` would have
+            // fit in the window, so that ground is covered.
+            None => at += chunk,
         }
-        base = end;
     }
     Ok(())
 }
@@ -420,6 +426,33 @@ mod tests {
         }
     }
 
+    /// Chunking must not turn one match into two.
+    ///
+    /// `find_iter` reports non-overlapping matches, and "non-overlapping" is a
+    /// property of the whole scan: a pattern that can overlap itself is
+    /// consumed by the match that claimed it. Restarting the iterator at each
+    /// window boundary forgets that.
+    #[test]
+    fn chunking_does_not_invent_overlapping_matches() {
+        let hay = b"aaaaaaaaaaaaaaaa".to_vec();
+        let automaton = AhoCorasick::builder()
+            .match_kind(MatchKind::LeftmostFirst)
+            .build([b"aa".as_slice()])
+            .expect("automaton");
+        let expected: Vec<u32> = automaton.find_iter(&hay).map(|m| m.start() as u32).collect();
+
+        let never = AtomicBool::new(false);
+        for chunk in [1, 2, 3, 5, 7, hay.len()] {
+            let mut found = Vec::new();
+            scan_chunked(&hay, 2, &never, chunk, |offset| {
+                found.push(offset);
+                true
+            }, &automaton)
+            .expect("not cancelled");
+            assert_eq!(found, expected, "chunk = {chunk}");
+        }
+    }
+
     /// A query with no matches anywhere still has to notice the cancel flag —
     /// that is the case `find_iter` alone could never interrupt.
     #[test]
@@ -554,6 +587,35 @@ mod tests {
         // A value never appears in any path, however common the string is.
         let empty: Vec<String> = Vec::new();
         assert_eq!(paths(r#"{"a":"needle"}"#, "needle", true), empty);
+    }
+
+    /// What the four scopes are each supposed to answer, on one document.
+    ///
+    /// `All` scans the file's bytes, so it sees keys and values. Paths are not
+    /// in the file at all — they are derived from the tree — so they are found
+    /// only by the scope that walks it.
+    #[test]
+    fn scopes_cover_what_they_claim() {
+        let src = r#"{"alpha":{"beta":"gamma"},"delta":["alpha","x"]}"#;
+        assert_eq!(run(src, "alpha", SearchScope::All, false).len(), 2);
+        assert_eq!(run(src, "alpha", SearchScope::Keys, false).len(), 1);
+        assert_eq!(run(src, "alpha", SearchScope::Values, false).len(), 1);
+        assert_eq!(paths(src, "alpha", false), ["$.alpha", "$.alpha.beta"]);
+
+        // A path string is nowhere in the bytes, so no byte scan can find it.
+        assert_eq!(run(src, "$.alpha", SearchScope::All, false).len(), 0);
+        assert_eq!(paths(src, "$.alpha", false), ["$.alpha", "$.alpha.beta"]);
+    }
+
+    /// Path search must reach the last node, not stop at the first block.
+    #[test]
+    fn path_search_covers_the_whole_document() {
+        let items: Vec<String> = (0..9000).map(|i| format!(r#"{{"needle{i}":{i}}}"#)).collect();
+        let src = format!("[{}]", items.join(","));
+        let found = paths(&src, "needle", false);
+        assert_eq!(found.len(), 9000);
+        assert_eq!(found[0], "$[0].needle0");
+        assert_eq!(found[8999], "$[8999].needle8999");
     }
 
     #[test]

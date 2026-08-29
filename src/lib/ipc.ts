@@ -335,6 +335,8 @@ export const treeSetExpandDepth = (docId: number, depth: number) =>
   invoke<TreeStats>("tree_set_expand_depth", { docId, depth });
 export const treeChildren = (docId: number, nodeId: number, start: number, count: number) =>
   invoke<ChildrenPage | null>("tree_children", { docId, nodeId, start, count });
+export const treeRowOf = (docId: number, nodeId: number) =>
+  invoke<number | null>("tree_row_of", { docId, nodeId });
 export const treeReveal = (docId: number, nodeId: number) =>
   invoke<RevealResult>("tree_reveal", { docId, nodeId });
 export const treePath = (docId: number, nodeId: number) =>

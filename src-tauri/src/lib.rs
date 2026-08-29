@@ -82,6 +82,7 @@ pub fn run() {
             commands::tree_set_expand_depth,
             commands::tree_children,
             commands::tree_reveal,
+            commands::tree_row_of,
             commands::tree_path,
             commands::tree_node_text,
             commands::tree_search,

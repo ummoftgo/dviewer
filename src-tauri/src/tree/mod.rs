@@ -202,6 +202,15 @@ impl TreeDoc {
         Some(text::decode_full(&self.bytes, node, MAX_NODE_TEXT_BYTES))
     }
 
+    /// Which row `id` is on, or None when an ancestor is collapsed.
+    ///
+    /// Unlike `reveal`, this changes nothing. Restoring a selection must not
+    /// expand what the reader left folded, nor scroll the view somewhere they
+    /// did not ask to be.
+    pub fn row_of(&self, id: u32) -> Option<u32> {
+        self.visibility.read().row_of(id)
+    }
+
     pub fn path_of(&self, id: u32) -> Option<String> {
         self.index.node(id)?;
         Some(self.index.path_of(&self.bytes, id))
