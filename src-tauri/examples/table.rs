@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::encoding;
+use dviewer_lib::state::DocKind;
 use dviewer_lib::table::{self, TableDoc};
 
 fn human(bytes: usize) -> String {
@@ -42,7 +43,15 @@ fn main() {
     // UTF-8 before anything looks for a delimiter in it.
     let decoded = encoding::decode(source);
     let bytes = decoded.bytes;
-    let delimiter = table::sniff_delimiter(&bytes);
+    // The same choice `table_open` makes, so what is measured is what the app
+    // does: text is read as lines, and nothing is sniffed for it.
+    let records = match dviewer_lib::source::detect_kind(&path, &bytes) {
+        DocKind::Text => table::Records::Lines,
+        DocKind::Tsv => table::Records::Delimited { delimiter: b'\t' },
+        _ => table::Records::Delimited {
+            delimiter: table::sniff_delimiter(&bytes),
+        },
+    };
 
     println!("파일      {path} ({})", human(total));
     println!("열기      {:.1}ms (mmap + 메타데이터)", map_time.as_secs_f64() * 1000.0);
@@ -52,10 +61,15 @@ fn main() {
         // something was flagged.
         println!("경고      {warning:?}");
     }
-    println!("구분자    {}", table::delimiter_name(delimiter));
+    println!("레코드    {}", records.name());
 
     let started = Instant::now();
-    let doc = match TableDoc::build(Arc::clone(&bytes), delimiter, |_| {}, &|| false) {
+    let doc = match TableDoc::build(
+        Arc::clone(&bytes),
+        records,
+        |_| {},
+        &|| false,
+    ) {
         Ok(doc) => doc,
         Err(err) => {
             eprintln!("실패: {err}");

@@ -386,17 +386,21 @@
 
   {#if tab.tableStats}
     <div class="toolbar">
-      <button
-        class="btn toggle"
-        class:on={tab.tableStats.hasHeader}
-        aria-pressed={tab.tableStats.hasHeader}
-        onclick={toggleHeader}
-        title={t("table.header.title")}
-      >
-        <Icon name="list" size={13} />
-        {t("table.header")}
-        <span class="state">{tab.tableStats.hasHeader ? t("state.on") : t("state.off")}</span>
-      </button>
+      <!-- Text has no first row to promote, so the toggle is not shown rather
+           than shown and refused. -->
+      {#if tab.tableStats.headerPossible}
+        <button
+          class="btn toggle"
+          class:on={tab.tableStats.hasHeader}
+          aria-pressed={tab.tableStats.hasHeader}
+          onclick={toggleHeader}
+          title={t("table.header.title")}
+        >
+          <Icon name="list" size={13} />
+          {t("table.header")}
+          <span class="state">{tab.tableStats.hasHeader ? t("state.on") : t("state.off")}</span>
+        </button>
+      {/if}
 
       <span class="spacer"></span>
 

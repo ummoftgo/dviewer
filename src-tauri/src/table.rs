@@ -128,6 +128,8 @@ pub struct TableStats {
     /// The delimiter as a code the frontend translates, e.g. "comma".
     pub delimiter: &'static str,
     pub has_header: bool,
+    /// False for text, where there is no first row to promote.
+    pub header_possible: bool,
     /// True when the scan stopped at `MAX_RECORDS`.
     pub truncated: bool,
 }
@@ -169,9 +171,34 @@ pub struct TableSearch {
     pub capped: bool,
 }
 
+/// How a document's records are found, and how one splits into cells.
+///
+/// The difference between a spreadsheet export and a log is not that one has a
+/// delimiter and the other does not — it is whether a quote can hold a record
+/// open across a newline. In CSV it can, and must; in a log a stray `"` that
+/// swallowed the next twenty lines would be a bug the reader cannot explain.
+/// Naming that here keeps the two readings of the same bytes side by side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Records {
+    /// RFC 4180: a newline inside quotes continues the record.
+    Delimited { delimiter: u8 },
+    /// One line, one record, one cell. Quotes are ordinary characters.
+    Lines,
+}
+
+impl Records {
+    /// The code the frontend translates for the status bar.
+    pub fn name(self) -> &'static str {
+        match self {
+            Records::Delimited { delimiter } => delimiter_name(delimiter),
+            Records::Lines => "lines",
+        }
+    }
+}
+
 pub struct TableDoc {
     pub bytes: Arc<DocBytes>,
-    pub delimiter: u8,
+    pub records: Records,
     /// Byte offset where each record begins, in document order.
     starts: Vec<u32>,
     column_count: u32,
@@ -182,7 +209,7 @@ pub struct TableDoc {
 impl TableDoc {
     pub fn build(
         bytes: Arc<DocBytes>,
-        delimiter: u8,
+        records: Records,
         mut progress: impl FnMut(usize),
         should_stop: &dyn Fn() -> bool,
     ) -> Result<Self> {
@@ -193,16 +220,18 @@ impl TableDoc {
             });
         }
 
-        let scan = scan_records(&bytes, delimiter, &mut progress, should_stop)?;
+        let scan = scan_records(&bytes, records, &mut progress, should_stop)?;
         progress(bytes.len());
 
         Ok(Self {
             bytes,
-            delimiter,
+            records,
             starts: scan.starts,
             column_count: scan.column_count,
             truncated: scan.truncated,
-            has_header: RwLock::new(true),
+            // A line has no header to promote, and offering to treat the first
+            // line of a log as column names would only lose it.
+            has_header: RwLock::new(records != Records::Lines),
         })
     }
 
@@ -214,14 +243,20 @@ impl TableDoc {
         u32::from(*self.has_header.read() && self.record_count() > 0)
     }
 
+    /// Whether the first record can be read as column names.
+    fn header_possible(&self) -> bool {
+        self.records != Records::Lines
+    }
+
     pub fn stats(&self) -> TableStats {
         TableStats {
             row_count: self.record_count().saturating_sub(self.header_offset()),
             column_count: self.column_count,
             byte_len: self.bytes.len(),
             index_bytes: self.starts.capacity() * std::mem::size_of::<u32>(),
-            delimiter: delimiter_name(self.delimiter),
+            delimiter: self.records.name(),
             has_header: *self.has_header.read(),
+            header_possible: self.header_possible(),
             truncated: self.truncated,
         }
     }
@@ -229,6 +264,9 @@ impl TableDoc {
     /// Treating the first record as a header or as data. Everything else is
     /// derived from this, so nothing has to be re-scanned when it changes.
     pub fn set_has_header(&self, on: bool) {
+        if !self.header_possible() {
+            return;
+        }
         *self.has_header.write() = on;
     }
 
@@ -268,10 +306,16 @@ impl TableDoc {
     pub fn cell_text(&self, row: u32, column: u32) -> Option<(String, bool)> {
         let record = row.checked_add(self.header_offset())?;
         let (start, end) = self.record_span(record)?;
-        let span = record_fields(&self.bytes, start, end, self.delimiter)
+        let span = record_fields(&self.bytes, start, end, self.records)
             .into_iter()
             .nth(column as usize)?;
-        Some(decode_cell(&self.bytes, span, usize::MAX, MAX_CELL_TEXT_BYTES))
+        Some(decode_cell(
+            &self.bytes,
+            span,
+            self.records,
+            usize::MAX,
+            MAX_CELL_TEXT_BYTES,
+        ))
     }
 
     /// A whole record, verbatim — the line as the file wrote it.
@@ -332,7 +376,7 @@ impl TableDoc {
                         let Some((start, end)) = self.record_span(record) else {
                             return true;
                         };
-                        let fields = record_fields(&self.bytes, start, end, self.delimiter);
+                        let fields = record_fields(&self.bytes, start, end, self.records);
                         cached = Some((record, fields));
                         &cached.as_ref().expect("just set").1
                     }
@@ -392,11 +436,11 @@ impl TableDoc {
         let Some((start, end)) = self.record_span(record) else {
             return Vec::new();
         };
-        let mut cells: Vec<TableCell> = record_fields(&self.bytes, start, end, self.delimiter)
+        let mut cells: Vec<TableCell> = record_fields(&self.bytes, start, end, self.records)
             .into_iter()
             .map(|span| {
                 let (text, truncated) =
-                    decode_cell(&self.bytes, span, CELL_PREVIEW_CHARS, usize::MAX);
+                    decode_cell(&self.bytes, span, self.records, CELL_PREVIEW_CHARS, usize::MAX);
                 TableCell { text, truncated }
             })
             .collect();
@@ -421,10 +465,16 @@ struct RecordScan {
 /// quoted field is part of the value, not the end of the row.
 fn scan_records(
     bytes: &[u8],
-    delimiter: u8,
+    records: Records,
     progress: &mut impl FnMut(usize),
     should_stop: &dyn Fn() -> bool,
 ) -> Result<RecordScan> {
+    // Text is the same walk with the quote rule taken out: a newline always
+    // ends the record, and every record is one cell.
+    let delimiter = match records {
+        Records::Delimited { delimiter } => Some(delimiter),
+        Records::Lines => None,
+    };
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let bom = (bytes.len() - body.len()) as u32;
 
@@ -463,10 +513,10 @@ fn scan_records(
             continue;
         }
 
-        if b == b'"' && at_field_start {
+        if b == b'"' && at_field_start && delimiter.is_some() {
             in_quotes = true;
             at_field_start = false;
-        } else if b == delimiter {
+        } else if Some(b) == delimiter {
             fields += 1;
             at_field_start = true;
         } else if b == b'\n' {
@@ -510,7 +560,12 @@ fn scan_records(
 }
 
 /// Byte spans of each field in one record, quotes included.
-fn record_fields(bytes: &[u8], start: u32, end: u32, delimiter: u8) -> Vec<(u32, u32)> {
+fn record_fields(bytes: &[u8], start: u32, end: u32, records: Records) -> Vec<(u32, u32)> {
+    // One line, one cell — there is nothing in a log line to split on that the
+    // reader would thank us for guessing at.
+    let Records::Delimited { delimiter } = records else {
+        return vec![(start, end)];
+    };
     let mut spans = Vec::new();
     let mut field_start = start;
     let mut in_quotes = false;
@@ -552,13 +607,22 @@ fn record_fields(bytes: &[u8], start: u32, end: u32, delimiter: u8) -> Vec<(u32,
 /// `max_chars` bounds the preview so a cell holding a megabyte cannot stall the
 /// IPC channel; `max_bytes` bounds the source instead, for copying. Exactly one
 /// of the two is ever a real limit.
-fn decode_cell(bytes: &[u8], span: (u32, u32), max_chars: usize, max_bytes: usize) -> (String, bool) {
+fn decode_cell(
+    bytes: &[u8],
+    span: (u32, u32),
+    records: Records,
+    max_chars: usize,
+    max_bytes: usize,
+) -> (String, bool) {
     let (start, end) = span;
     let raw = &bytes[start as usize..end as usize];
     let mut cut = raw.len() > max_bytes;
     let raw = &raw[..raw.len().min(max_bytes)];
 
-    let quoted = raw.first() == Some(&b'"');
+    // Only CSV puts quotes around a field. A log line that opens with one is
+    // just a line that opens with a quote, and stripping it would silently
+    // change what the file says.
+    let quoted = records != Records::Lines && raw.first() == Some(&b'"');
     let inner = if quoted {
         let tail = if !cut && raw.len() > 1 && raw.last() == Some(&b'"') {
             raw.len() - 1
@@ -603,12 +667,100 @@ fn decode_cell(bytes: &[u8], span: (u32, u32), max_chars: usize, max_bytes: usiz
 
 #[cfg(test)]
 mod tests {
+    /// A quote in a log line is a character, not a record boundary.
+    ///
+    /// This is the whole reason text is not "CSV with no delimiter": under the
+    /// RFC-4180 rule one stray `"` joins every following line into the record
+    /// that opened it, and a log full of quoted strings would collapse into a
+    /// handful of enormous rows.
+    #[test]
+    fn a_quote_does_not_hold_a_line_open() {
+        // The quote opens the record, which is the only place CSV treats it as
+        // quoting at all — so this is the input where the two rules disagree.
+        let src = "\"hello\nworld\" and left\nnext line\nthird\n";
+        let text = lines(src);
+        assert_eq!(text.stats().row_count, 4);
+        assert_eq!(text.row_text(0).expect("row"), "\"hello");
+        assert_eq!(text.row_text(1).expect("row"), "world\" and left");
+        assert_eq!(text.row_text(3).expect("row"), "third");
+        // And the quote survives into the preview: it is part of the line.
+        assert_eq!(texts(&text.page(0, 10).rows[0]), ["\"hello"]);
+
+        // Read as CSV the quote joins the first two lines into one record.
+        assert_eq!(doc(src, b',').stats().row_count, 2);
+    }
+
+    /// One line is one cell, whatever it contains.
+    #[test]
+    fn a_line_is_never_split() {
+        let doc = lines("a,b\tc;d|e\nsecond,line\n");
+        assert_eq!(doc.stats().column_count, 1);
+        assert_eq!(doc.stats().row_count, 2);
+        // The preview is one line, so a tab shows as its escape — the rule the
+        // grid already uses. `row_text` gives the bytes back as they are.
+        assert_eq!(texts(&doc.page(0, 10).rows[0]), ["a,b\\tc;d|e"]);
+        assert_eq!(doc.row_text(0).expect("row"), "a,b\tc;d|e");
+        assert_eq!(doc.cell_text(1, 0).expect("cell").0, "second,line");
+    }
+
+    /// Text has no header to promote, and asking for one changes nothing.
+    #[test]
+    fn text_has_no_header_row() {
+        let doc = lines("first\nsecond\n");
+        assert!(!doc.stats().has_header);
+        assert!(!doc.stats().header_possible);
+        assert_eq!(doc.stats().row_count, 2, "the first line is data");
+        assert_eq!(doc.header(), vec![String::new()]);
+
+        doc.set_has_header(true);
+        assert!(!doc.stats().has_header, "the request is refused");
+        assert_eq!(doc.stats().row_count, 2);
+    }
+
+    /// CRLF, a missing final newline, and empty lines in between.
+    #[test]
+    fn line_endings_and_blanks() {
+        let doc = lines("one\r\n\r\ntwo\r\nthree");
+        assert_eq!(doc.stats().row_count, 4);
+        assert_eq!(doc.row_text(0).expect("row"), "one");
+        assert_eq!(doc.row_text(1).expect("row"), "", "a blank line is a row");
+        assert_eq!(doc.row_text(2).expect("row"), "two");
+        assert_eq!(doc.row_text(3).expect("row"), "three", "no trailing newline");
+    }
+
+    /// Search reports the line a match landed on, as it does for a grid.
+    #[test]
+    fn search_finds_the_line() {
+        let doc = lines("alpha\nbeta needle\ngamma\nneedle again\n");
+        let found = doc.search("needle", false, &AtomicBool::new(false)).expect("search");
+        assert_eq!(found.hits.len(), 2);
+        assert_eq!((found.hits[0].row, found.hits[0].column), (1, 0));
+        assert_eq!((found.hits[1].row, found.hits[1].column), (3, 0));
+    }
+
+    /// The status bar says what kind of records these are.
+    #[test]
+    fn records_name_themselves() {
+        assert_eq!(Records::Lines.name(), "lines");
+        assert_eq!(Records::Delimited { delimiter: b',' }.name(), "comma");
+        assert_eq!(Records::Delimited { delimiter: b'\t' }.name(), "tab");
+    }
+
     use super::*;
 
     fn doc(src: &str, delimiter: u8) -> TableDoc {
+        built(src, Records::Delimited { delimiter })
+    }
+
+    /// The same document read as plain lines.
+    fn lines(src: &str) -> TableDoc {
+        built(src, Records::Lines)
+    }
+
+    fn built(src: &str, records: Records) -> TableDoc {
         TableDoc::build(
             Arc::new(DocBytes::from(src.as_bytes().to_vec())),
-            delimiter,
+            records,
             |_| {},
             &|| false,
         )
@@ -824,7 +976,7 @@ mod tests {
         assert_eq!(decoded.encoding.name(), "EUC-KR");
 
         let delimiter = sniff_delimiter(&decoded.bytes);
-        let doc = TableDoc::build(decoded.bytes, delimiter, |_| {}, &|| false).expect("build");
+        let doc = TableDoc::build(decoded.bytes, Records::Delimited { delimiter }, |_| {}, &|| false).expect("build");
         assert_eq!(doc.header(), vec!["id", "이름"]);
         assert_eq!(texts(&doc.page(0, 10).rows[0]), ["1", "가나다"]);
         assert_eq!(doc.cell_text(1, 1).expect("cell").0, "라마바");
@@ -843,7 +995,7 @@ mod tests {
         let delimiter = sniff_delimiter(&decoded.bytes);
         assert_eq!(delimiter, b'\t');
 
-        let doc = TableDoc::build(decoded.bytes, delimiter, |_| {}, &|| false).expect("build");
+        let doc = TableDoc::build(decoded.bytes, Records::Delimited { delimiter }, |_| {}, &|| false).expect("build");
         assert_eq!(doc.stats().row_count, 1);
         assert_eq!(doc.header(), vec!["id", "이름"]);
         assert_eq!(texts(&doc.page(0, 10).rows[0]), ["1", "가나다"]);

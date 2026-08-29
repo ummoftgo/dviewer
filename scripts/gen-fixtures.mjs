@@ -90,6 +90,67 @@ if (wantHuge) {
   console.log("  (huge.json 생략 — --huge 옵션으로 생성)");
 }
 
+
+// --- 텍스트와 로그 -----------------------------------------------------------
+
+await writeFile(
+  path.join(OUT, "sample.log"),
+  [
+    "2026-08-30T01:02:03.123Z INFO  [server] 시작됨 port=8080",
+    "2026-08-30T01:02:04.001Z WARN  [db] 연결이 느립니다 elapsed=1520ms",
+    "",
+    "2026-08-30T01:02:05.900Z ERROR [db] 연결 실패",
+    "\tat Connection.open(Connection.java:117)",
+    "\tat Pool.acquire(Pool.java:42)",
+    '2026-08-30T01:02:06.010Z INFO  [server] 요청 path="/a/b" status=200',
+    "",
+  ].join("\n"),
+);
+console.log("  sample.log");
+
+// 줄 인덱스가 견뎌야 하는 것들: 아주 긴 줄, 빈 줄, CRLF 와 LF 혼합,
+// 마지막 개행 없음, 그리고 따옴표로 시작하는 줄 (CSV 라면 다음 줄을 삼킨다).
+await writeFile(
+  path.join(OUT, "edge.log"),
+  [
+    "짧은 줄",
+    "",
+    '"따옴표로 시작하는 줄 — CSV 였다면 여기서 레코드가 이어진다',
+    "그 다음 줄",
+    "긴 줄: " + "가".repeat(20_000),
+    "탭\t가 든\t줄",
+  ].join("\r\n") + "\n마지막 줄에는 개행이 없다",
+);
+console.log("  edge.log (CRLF·빈 줄·2만자 줄·따옴표 시작)");
+
+await writeFile(
+  path.join(OUT, "cp949.log"),
+  // Node 는 CP949 를 인코딩하지 못하므로 바이트를 직접 쓴다.
+  // "2026-08-30 01:02:03 정보 한국 윈도우가 남긴 로그\n두 번째 줄\n"
+  Buffer.from(
+    "323032362d30382d33302030313a30323a303320c1a4baba20c7d1b1b520bfa9bcbfbfecb0a120b3b2b1e620b7ceb1d70ad4de20b9f8c2b02020c1d40a",
+    "hex",
+  ),
+);
+console.log("  cp949.log (참고: 바이트를 직접 씀)");
+
+if (wantHuge) {
+  // ~250MB. 줄 인덱스는 행당 4바이트라 huge.csv 와 같은 급으로 두면
+  // 성능 표에 나란히 적을 수 있다.
+  await writeStream(
+    "huge.log",
+    (function* () {
+      const levels = ["INFO ", "WARN ", "ERROR", "DEBUG"];
+      for (let i = 0; i < 2_000_000; i++) {
+        const level = levels[i % levels.length];
+        yield `2026-08-30T01:${String((i / 60) % 60 | 0).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z ${level} [worker-${i % 8}] 처리 완료 id=${i} elapsed=${i % 1000}ms path="/api/v1/items/${i}"\n`;
+      }
+    })(),
+  );
+} else {
+  console.log("  (huge.log 생략 — --huge 옵션으로 생성)");
+}
+
 const markdown = `---
 title: dviewer 샘플 문서
 author: 검증용

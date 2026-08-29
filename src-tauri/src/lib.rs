@@ -13,9 +13,12 @@ pub mod table;
 pub mod xml;
 
 mod commands;
-mod source;
-mod state;
 mod window;
+
+// Public for the same reason as the modules above: `examples/table.rs` decides
+// how to read a file exactly as the app does, and that decision lives here.
+pub mod source;
+pub mod state;
 
 use tauri::Manager;
 

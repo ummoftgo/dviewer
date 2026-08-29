@@ -2,19 +2,19 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-A desktop viewer for Markdown, JSON, YAML, TOML, XML, CSV and TSV. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
+A desktop viewer for Markdown, JSON, YAML, TOML, XML, CSV, TSV and plain text or logs. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
 
-Seven formats, but only **three** ways of reading. Build a screen per format and you maintain seven of them — six of which are always behind.
+Eight formats, but only **three** ways of reading. Build a screen per format and you maintain eight of them — seven of which are always behind.
 
 | View | Formats | What it does |
 | --- | --- | --- |
 | Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle |
 | Tree | JSON · JSONL/NDJSON · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy |
-| Table | CSV · TSV | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy |
+| Table | CSV · TSV · text/logs | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy. Text is a one-column table: one line, one row |
 
-- Handles 500MB-class JSON and CSV without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
+- Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
-- The format is decided by extension; the character encoding (UTF-8 · CP949/EUC-KR · UTF-16, …) is detected from the content. Both can be changed from the toolbar at any time.
+- The format is decided by extension (text when nothing else matches); the character encoding (UTF-8 · CP949/EUC-KR · UTF-16, …) is detected from the content. Both can be changed from the toolbar at any time.
 - Dark/light (auto by default), interface scale, separate interface and content font sizes, and content/code fonts picked from the fonts installed on the system.
 
 ## Requirements

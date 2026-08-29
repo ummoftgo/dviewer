@@ -21,12 +21,14 @@ export const zhHans: Messages = {
   "format.xml": "XML",
   "format.csv": "CSV",
   "format.tsv": "TSV",
+  "format.text": "文本",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "逗号",
   "delimiter.tab": "制表符",
   "delimiter.semicolon": "分号",
   "delimiter.pipe": "竖线",
+  "delimiter.lines": "行",
   "delimiter.other": "分隔符",
 
   // --- 앱 / app -----------------------------------------------------------

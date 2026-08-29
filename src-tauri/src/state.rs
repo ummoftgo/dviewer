@@ -25,6 +25,8 @@ pub enum DocKind {
     Xml,
     Csv,
     Tsv,
+    /// Plain text and logs: one line, one row, no header.
+    Text,
 }
 
 /// How a document is presented. Seven formats, but only three ways to read
@@ -46,7 +48,7 @@ impl DocKind {
         match self {
             DocKind::Markdown => DocView::Prose,
             DocKind::Json | DocKind::Yaml | DocKind::Toml | DocKind::Xml => DocView::Tree,
-            DocKind::Csv | DocKind::Tsv => DocView::Table,
+            DocKind::Csv | DocKind::Tsv | DocKind::Text => DocView::Table,
         }
     }
 }

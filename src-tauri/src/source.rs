@@ -10,7 +10,7 @@ use crate::state::DocKind;
 /// RAM, so we refuse rather than swap the machine to death.
 pub const MAX_URL_BYTES: u64 = 512 * 1024 * 1024;
 
-const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx", "txt"];
+const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 const JSON_EXTS: &[&str] = &["json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb"];
 const YAML_EXTS: &[&str] = &["yaml", "yml"];
 const TOML_EXTS: &[&str] = &["toml"];
@@ -20,6 +20,10 @@ const XML_EXTS: &[&str] = &[
 ];
 const CSV_EXTS: &[&str] = &["csv"];
 const TSV_EXTS: &[&str] = &["tsv", "tab"];
+/// `.txt` used to be read as markdown, which meant a plain file was rendered:
+/// its asterisks became emphasis and its hashes became headings. Text is what
+/// it says it is.
+const TEXT_EXTS: &[&str] = &["txt", "log"];
 
 /// Every format the viewer knows, paired with the extensions that name it.
 const BY_EXTENSION: &[(DocKind, &[&str])] = &[
@@ -30,6 +34,7 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Xml, XML_EXTS),
     (DocKind::Csv, CSV_EXTS),
     (DocKind::Tsv, TSV_EXTS),
+    (DocKind::Text, TEXT_EXTS),
 ];
 
 /// Decide how to read a document: extension first, then a peek at the content.
@@ -51,7 +56,10 @@ pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
             return *kind;
         }
     }
-    sniff(bytes).unwrap_or(DocKind::Markdown)
+    // Text, not markdown. A file that names no format is far more often a log
+    // or a dump than prose, and rendering it as markdown eats its punctuation.
+    // Whoever wants it rendered says so in the toolbar.
+    sniff(bytes).unwrap_or(DocKind::Text)
 }
 
 fn sniff(bytes: &[u8]) -> Option<DocKind> {
@@ -222,6 +230,8 @@ mod tests {
             ("a.svg", DocKind::Xml),
             ("a.csv", DocKind::Csv),
             ("a.tsv", DocKind::Tsv),
+            ("a.txt", DocKind::Text),
+            ("app.log", DocKind::Text),
         ];
         for (name, expected) in cases {
             assert_eq!(detect_kind(name, b""), *expected, "{name}");
@@ -241,6 +251,11 @@ mod tests {
 
     /// Guessing at these would turn ordinary prose into a broken grid.
     #[test]
+    /// A file that names no format is read as text, not as prose.
+    ///
+    /// It used to fall back to markdown, which rendered a plain file: asterisks
+    /// became emphasis and hashes became headings. Far more of these are logs
+    /// and dumps than documents, and the toolbar can still say otherwise.
     fn prose_is_never_mistaken_for_a_data_format() {
         let prose: &[&[u8]] = &[
             b"Title: a report",
@@ -250,7 +265,7 @@ mod tests {
             b"",
         ];
         for text in prose {
-            assert_eq!(detect_kind("untitled", text), DocKind::Markdown);
+            assert_eq!(detect_kind("untitled", text), DocKind::Text);
         }
     }
 

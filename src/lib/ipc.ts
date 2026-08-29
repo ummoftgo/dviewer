@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { t, type MessageKey } from "./i18n";
 
-export type DocKind = "markdown" | "json" | "yaml" | "toml" | "xml" | "csv" | "tsv";
+export type DocKind = "markdown" | "json" | "yaml" | "toml" | "xml" | "csv" | "tsv" | "text";
 
 /**
  * How a document is read. Seven formats, three views — routing on the view is
@@ -26,6 +26,7 @@ export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "xml", label: "format.xml" },
   { kind: "csv", label: "format.csv" },
   { kind: "tsv", label: "format.tsv" },
+  { kind: "text", label: "format.text" },
 ];
 
 export function viewOf(kind: DocKind): DocView {
@@ -34,6 +35,7 @@ export function viewOf(kind: DocKind): DocView {
       return "prose";
     case "csv":
     case "tsv":
+    case "text":
       return "table";
     default:
       return "tree";
@@ -58,6 +60,7 @@ const BADGES: Record<DocKind, string> = {
   xml: "< >",
   csv: "CSV",
   tsv: "TSV",
+  text: "TXT",
 };
 
 export function kindBadge(kind: DocKind): string {
@@ -230,8 +233,10 @@ export interface TableStats {
   columnCount: number;
   byteLen: number;
   indexBytes: number;
-  /** A code the `delimiter.*` messages translate, e.g. "comma". */
+  /** A code the `delimiter.*` messages translate, e.g. "comma" or "lines". */
   delimiter: string;
+  /** False for text, where there is no first row to promote to names. */
+  headerPossible: boolean;
   hasHeader: boolean;
   truncated: boolean;
 }

@@ -26,12 +26,14 @@ export const ko = {
   "format.xml": "XML",
   "format.csv": "CSV",
   "format.tsv": "TSV",
+  "format.text": "텍스트",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "쉼표",
   "delimiter.tab": "탭",
   "delimiter.semicolon": "세미콜론",
   "delimiter.pipe": "파이프",
+  "delimiter.lines": "줄",
   "delimiter.other": "구분자",
 
   // --- 앱 / app -----------------------------------------------------------

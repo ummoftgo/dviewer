@@ -21,12 +21,14 @@ export const en: Messages = {
   "format.xml": "XML",
   "format.csv": "CSV",
   "format.tsv": "TSV",
+  "format.text": "Text",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "comma",
   "delimiter.tab": "tab",
   "delimiter.semicolon": "semicolon",
   "delimiter.pipe": "pipe",
+  "delimiter.lines": "lines",
   "delimiter.other": "delimiter",
 
   // --- 앱 / app -----------------------------------------------------------
