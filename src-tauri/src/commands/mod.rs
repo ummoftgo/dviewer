@@ -40,3 +40,32 @@ pub(crate) struct DocError {
     pub doc_id: DocId,
     pub message: String,
 }
+
+/// Holds the indexing slot for a document until the job that claimed it ends.
+///
+/// A slot released only on the happy path is a slot that stays claimed when the
+/// scan fails, and the document could then never be re-read.
+pub(crate) struct IndexSlot {
+    app: tauri::AppHandle,
+    doc: crate::state::DocId,
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl IndexSlot {
+    pub(crate) fn new(
+        app: tauri::AppHandle,
+        doc: crate::state::DocId,
+        flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        Self { app, doc, flag }
+    }
+}
+
+impl Drop for IndexSlot {
+    fn drop(&mut self) {
+        use tauri::Manager;
+        self.app
+            .state::<crate::state::AppState>()
+            .finish_index_job(self.doc, &self.flag);
+    }
+}

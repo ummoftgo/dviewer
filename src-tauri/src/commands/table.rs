@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use super::{DocError, IndexProgress};
+use super::{DocError, IndexProgress, IndexSlot};
 use crate::error::{Error, Result, Subject};
 use crate::state::{AppState, DocId, DocKind, DocView};
 use crate::table::{self, TableDoc, TablePage, TableSearch, TableStats};
@@ -44,7 +44,10 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
         });
     }
 
-    let cancel = state.start_index_job(doc_id);
+    // Someone is already reading this document; they will announce it.
+    let Some(cancel) = state.start_index_job(doc_id) else {
+        return Ok(());
+    };
     let bytes = doc.bytes();
     let total = bytes.len();
     // `.tsv` names its delimiter and is taken at its word. `.csv` does not:
@@ -56,6 +59,10 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
     };
 
     std::thread::spawn(move || {
+        // Hands the slot back whichever way this thread leaves — success,
+        // error, cancellation or panic — so the document can be indexed again
+        // after a format or encoding switch.
+        let _slot = IndexSlot::new(app.clone(), doc_id, Arc::clone(&cancel));
         let started = std::time::Instant::now();
         let should_stop = || cancel.load(Ordering::Relaxed);
         let emitter = app.clone();

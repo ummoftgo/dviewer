@@ -349,13 +349,33 @@ impl AppState {
             .collect()
     }
 
-    pub fn start_index_job(&self, id: DocId) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
+    /// Claim the indexing slot for `id`, or None when a job already holds it.
+    ///
+    /// Two views asking for the same document at once used to start two scans
+    /// of it. The second cancelled the first, so nothing was corrupted, but a
+    /// 500MB file was read twice for one answer. Whoever holds the slot will
+    /// announce the result, so the loser has nothing to do.
+    pub fn start_index_job(&self, id: DocId) -> Option<Arc<AtomicBool>> {
         let mut jobs = self.jobs.write();
-        if let Some(previous) = jobs.index.insert(id, Arc::clone(&flag)) {
-            previous.store(true, Ordering::Relaxed);
+        if jobs.index.contains_key(&id) {
+            return None;
         }
-        flag
+        let flag = Arc::new(AtomicBool::new(false));
+        jobs.index.insert(id, Arc::clone(&flag));
+        Some(flag)
+    }
+
+    /// Release the slot, unless a newer job has already taken it.
+    ///
+    /// Without this the slot stayed claimed for the life of the document, and
+    /// re-indexing it — a format switch, a change of encoding — would find the
+    /// door shut. `cancel_jobs` clears it too, which is why a switch works at
+    /// all; this covers the ordinary ending.
+    pub fn finish_index_job(&self, id: DocId, flag: &Arc<AtomicBool>) {
+        let mut jobs = self.jobs.write();
+        if jobs.index.get(&id).is_some_and(|held| Arc::ptr_eq(held, flag)) {
+            jobs.index.remove(&id);
+        }
     }
 
     /// Record that `dir` has been added to the asset scope.
@@ -396,6 +416,36 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
+    /// One document is indexed once, and can be indexed again afterwards.
+    #[test]
+    fn the_index_slot_is_claimed_once_and_handed_back() {
+        let state = AppState::default();
+        let id = state.next_id();
+
+        let first = state.start_index_job(id).expect("slot is free");
+        assert!(state.start_index_job(id).is_none(), "a second job must not start");
+
+        state.finish_index_job(id, &first);
+        let second = state.start_index_job(id).expect("slot is free again");
+
+        // An older job ending must not release the slot a newer one holds.
+        state.finish_index_job(id, &first);
+        assert!(state.start_index_job(id).is_none(), "the newer job still holds it");
+        state.finish_index_job(id, &second);
+        assert!(state.start_index_job(id).is_some());
+    }
+
+    /// Cancelling frees the slot, which is what lets a format switch re-read.
+    #[test]
+    fn cancelling_frees_the_index_slot() {
+        let state = AppState::default();
+        let id = state.next_id();
+        let flag = state.start_index_job(id).expect("slot is free");
+        state.cancel_jobs(id);
+        assert!(flag.load(Ordering::Relaxed), "the running job is told to stop");
+        assert!(state.start_index_job(id).is_some(), "and the slot is free");
+    }
+
     use super::*;
 
     /// The smallest document the store will hold. Nothing here reads its
