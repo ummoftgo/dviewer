@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::bytes::DocBytes;
 use crate::error::{Error, Result};
@@ -81,6 +82,23 @@ pub struct Fetched {
     pub content_type: Option<String>,
 }
 
+/// How long one fetch may take from start to finish.
+///
+/// ureq's own timeouts are all unset by default except the 100-continue wait,
+/// so a server that accepts the connection and then dribbles holds the blocking
+/// thread for as long as it likes — and nothing here can take it back, because
+/// opening a URL has no cancel. A whole-request ceiling is the one bound that
+/// covers connect, response and body together.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Separated so the ceiling can be tested without waiting for the real one.
+fn agent_with(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .build()
+        .into()
+}
+
 pub fn fetch_url(url: &str) -> Result<Fetched> {
     let parsed = url::Url::parse(url).map_err(|_| Error::BadUrl {
         url: url.to_owned(),
@@ -89,7 +107,8 @@ pub fn fetch_url(url: &str) -> Result<Fetched> {
         return Err(Error::UnsupportedScheme);
     }
 
-    let mut response = ureq::get(parsed.as_str())
+    let mut response = agent_with(FETCH_TIMEOUT)
+        .get(parsed.as_str())
         .header("accept", "text/markdown, application/json, text/plain;q=0.9, */*;q=0.5")
         .call()
         .map_err(|e| Error::FetchFailed {
@@ -158,6 +177,35 @@ pub fn kind_from_response(title: &str, content_type: Option<&str>, bytes: &[u8])
 
 #[cfg(test)]
 mod tests {
+    /// A server that accepts and then says nothing must not hold the thread.
+    ///
+    /// Opening a URL runs on a blocking thread with no way to cancel it, and
+    /// every one of ureq's timeouts is unset by default — so without a ceiling
+    /// this call never returns and the thread is gone for the session.
+    #[test]
+    fn a_stalled_server_gives_the_thread_back() {
+        use std::net::TcpListener;
+        use std::time::Instant;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            // Accept, then hold the connection open without answering.
+            let held = listener.accept();
+            std::thread::sleep(Duration::from_secs(20));
+            drop(held);
+        });
+
+        let started = Instant::now();
+        let result = agent_with(Duration::from_millis(400))
+            .get(format!("http://{addr}/"))
+            .call();
+        let waited = started.elapsed();
+
+        assert!(result.is_err(), "a stalled request must not succeed");
+        assert!(waited < Duration::from_secs(5), "gave up after {waited:?}");
+    }
+
     use super::*;
 
     #[test]
