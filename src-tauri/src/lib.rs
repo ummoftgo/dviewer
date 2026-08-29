@@ -29,7 +29,15 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let launch = cli::parse(argv.get(1..).unwrap_or_default());
             if launch.new_window {
-                let _ = window::open(app, launch.request);
+                // Off the event-loop thread, for the same reason `open_panel`
+                // is async: building a window here would wait on the very loop
+                // this callback is running inside. The frame appears, the
+                // webview never attaches, and the second `dviewer` never gets
+                // its answer either — so it does not exit.
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = window::open(&app, launch.request);
+                });
             } else {
                 window::deliver(app, launch.request);
             }
