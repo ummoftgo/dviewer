@@ -170,10 +170,22 @@ const SCAN_CHUNK: usize = 4 * 1024 * 1024;
 
 /// Run `automaton` over `bytes` in windows, checking `cancel` between them.
 ///
-/// Windows overlap by one byte less than the pattern, so a match straddling a
-/// boundary is still whole inside the next one; matches starting at or past a
-/// window's own end are left for that next window, which is what keeps them
-/// from being reported twice. `on_match` returns false to stop early.
+/// The position is driven by hand rather than by `find_iter`, and that is the
+/// whole point: "non-overlapping" is a property of one continuous scan, so an
+/// iterator restarted at a window boundary reports matches the scan before it
+/// had already consumed. Here the leftmost match in a window is the leftmost
+/// match from `at` — anything earlier is behind it — and resuming past its end
+/// is exactly what `find_iter` does between yields.
+///
+/// A window is `chunk` bytes of new ground plus enough tail that a match
+/// starting in that ground is whole, so nothing falls between windows and the
+/// empty-window stride is safe. `on_match` returns false to stop early.
+///
+/// Two things the caller owes this function, because the argument above rests
+/// on them. The pattern must not be empty — a zero-length match advances
+/// nothing and the loop never ends. And if `automaton` ever holds more than one
+/// pattern, `pattern_len` must be the longest of them, or a match of a longer
+/// one can straddle a window edge and be lost.
 pub(crate) fn scan_chunked(
     bytes: &[u8],
     pattern_len: usize,
@@ -182,6 +194,7 @@ pub(crate) fn scan_chunked(
     mut on_match: impl FnMut(u32) -> bool,
     automaton: &AhoCorasick,
 ) -> Result<()> {
+    debug_assert!(pattern_len > 0, "an empty pattern would never advance `at`");
     // One window is `chunk` bytes of new ground plus enough tail that a match
     // starting inside it is whole — so a match never falls between windows.
     let window = chunk + pattern_len.saturating_sub(1);

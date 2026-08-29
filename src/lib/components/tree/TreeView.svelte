@@ -182,7 +182,9 @@
     if (node === null) return;
     treeRowOf(tab.id, node)
       .then((row) => {
-        if (row !== null) selectedRow = row;
+        // The reader can select something else during the round trip, and the
+        // answer to the question they have moved on from must not undo it.
+        if (row !== null && tab.selectedNode === node) selectedRow = row;
       })
       .catch(() => {});
   });
