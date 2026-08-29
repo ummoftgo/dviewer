@@ -108,9 +108,14 @@
     if (search.error) return search.error;
     if (search.running) return t("search.running", { n: n(search.hits.length) });
     if (search.summary) {
-      const position = search.current >= 0 ? `${search.current + 1} / ` : "";
-      const capped = search.summary.capped ? t("search.capped") : "";
-      return position + t("search.count", { n: n(search.summary.total) }) + capped;
+      const total = n(search.summary.total);
+      // Once a match is selected the total alone is not the interesting number;
+      // where you are in the list is.
+      const found =
+        search.current >= 0
+          ? t("search.progress", { current: n(search.current + 1), total })
+          : t("search.count", { n: total });
+      return found + (search.summary.capped ? t("search.capped") : "");
     }
     return null;
   });

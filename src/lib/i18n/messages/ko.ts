@@ -172,7 +172,7 @@ export const ko = {
   "search.placeholder.paths": "경로에서 찾기 — 예: items[3].name",
   "search.running": "찾는 중… {n}건",
   "search.count": "{n}건",
-  "search.position": "{current}/{total} ",
+  "search.progress": "{current}/{total}건",
   "search.capped": " (상한 도달)",
   "search.caseSensitive": "대소문자 구분",
   "search.prev": "이전 결과 (Shift+Enter)",
