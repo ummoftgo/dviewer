@@ -28,6 +28,7 @@
     tableSetHasHeader,
     tableSetPlain,
     tableSetExpand,
+    type TableShape,
     logFieldName,
     type LogField,
     type TableRow,
@@ -217,15 +218,35 @@
 
   // --- header row ---------------------------------------------------------
 
+  /**
+   * Take a new shape from a mode switch, and drop what it invalidated.
+   *
+   * Each of these changes what a coordinate means. Promoting the header row
+   * shifts every row number by one; folding a log to lines changes rows from
+   * records to lines; expanding pairs changes how many columns there are. A
+   * search hit is a (row, column) pair, so results kept across any of them
+   * point somewhere else — pressing Enter would jump to the wrong place.
+   *
+   * Clearing rather than re-running, which is what an encoding or format
+   * switch already does with everything derived from the old reading.
+   */
+  async function applyShape(shape: TableShape, toTop = false) {
+    tab.tableStats = shape.stats;
+    tab.header = shape.header;
+    tab.selectedCell = null;
+    tab.pendingCell = null;
+    tab.columnWidths = [];
+    tab.tableSearch.reset();
+    if (toTop && viewport) viewport.scrollTop = 0;
+    await ensureWindow(true);
+  }
+
   async function toggleHeader() {
     try {
-      const shape = await tableSetHasHeader(tab.id, !(tab.tableStats?.hasHeader ?? true));
-      tab.tableStats = shape.stats;
-      tab.header = shape.header;
-      tab.selectedCell = null;
-      tab.columnWidths = [];
-      if (viewport) viewport.scrollTop = 0;
-      await ensureWindow(true);
+      await applyShape(
+        await tableSetHasHeader(tab.id, !(tab.tableStats?.hasHeader ?? true)),
+        true,
+      );
     } catch (err) {
       tab.error = errorMessage(err);
     }
@@ -277,12 +298,7 @@
 
   async function toggleExpand() {
     try {
-      const shape = await tableSetExpand(tab.id, !(tab.tableStats?.expanded ?? false));
-      tab.tableStats = shape.stats;
-      tab.header = shape.header;
-      tab.selectedCell = null;
-      tab.columnWidths = [];
-      await ensureWindow(true);
+      await applyShape(await tableSetExpand(tab.id, !(tab.tableStats?.expanded ?? false)));
     } catch (err) {
       tab.error = errorMessage(err);
     }
@@ -290,12 +306,7 @@
 
   async function togglePlain() {
     try {
-      const shape = await tableSetPlain(tab.id, !(tab.tableStats?.plain ?? false));
-      tab.tableStats = shape.stats;
-      tab.header = shape.header;
-      tab.selectedCell = null;
-      tab.columnWidths = [];
-      await ensureWindow(true);
+      await applyShape(await tableSetPlain(tab.id, !(tab.tableStats?.plain ?? false)));
     } catch (err) {
       tab.error = errorMessage(err);
     }
