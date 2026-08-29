@@ -248,6 +248,23 @@
     return name && name.length > 0 ? name : String(column + 1);
   }
 
+  /**
+   * The tone a level cell carries, or undefined for every other cell.
+   *
+   * Only the level column is tinted. Colouring the whole row would fight the
+   * zebra stripes and make the table louder than its data — and the cell
+   * already says the word, so the colour is a second glance, never the only
+   * one.
+   */
+  function levelTone(column: number, text: string | undefined): string | undefined {
+    const layout = tab.tableStats?.logLayout;
+    if (!layout || tab.tableStats?.plain || layout[column] !== "level") return undefined;
+    const level = (text ?? "").trim().toUpperCase();
+    if (level === "ERROR" || level === "FATAL" || level === "CRITICAL") return "error";
+    if (level === "WARN" || level === "WARNING") return "warn";
+    return undefined;
+  }
+
   /// How many bracketed fields come before this one, so the second is "출처 2".
   function bracketIndex(layout: LogField[], column: number): number {
     let seen = 0;
@@ -545,6 +562,7 @@
                 class:selected={tab.selectedCell?.row === row.index &&
                   tab.selectedCell?.column === column}
                 class:hit={isHit(row.index, column)}
+                data-level={levelTone(column, cell?.text)}
                 style="width: {columnWidth(column)}px"
                 role="gridcell"
                 tabindex="-1"
@@ -760,6 +778,19 @@
 
   /* The match the search is parked on, in the same colour the tree uses for
      the same thing. */
+  /* A level worth looking at twice. Drawn from the tokens the rest of the app
+     uses, so it reads as the same warning it does elsewhere, and left off the
+     ordinary levels — tinting every row would tint nothing. */
+  .cell[data-level="error"] {
+    color: var(--danger);
+    font-weight: 600;
+  }
+
+  .cell[data-level="warn"] {
+    color: var(--warning);
+    font-weight: 600;
+  }
+
   .cell.hit {
     background: var(--match-active);
     color: #1b1300;

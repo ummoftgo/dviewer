@@ -57,6 +57,36 @@ impl LogLayout {
     pub fn column_count(&self) -> usize {
         self.fields.len()
     }
+
+    /// Whether records are found by a timestamp at the start of a line.
+    ///
+    /// Only then can a line be known to continue the one before it. logfmt has
+    /// no such anchor — every line is pairs, and none of them is a beginning.
+    pub fn has_timestamp(&self) -> bool {
+        self.fields.first() == Some(&LogField::Timestamp)
+    }
+}
+
+/// Whether the line at `at` begins a record rather than continuing one.
+///
+/// Reads only as far as a timestamp could reach. Timestamps are ASCII, so a
+/// window that cuts a multi-byte character mid-way loses nothing that could
+/// have been one.
+pub fn starts_record(bytes: &[u8], at: usize) -> bool {
+    const WINDOW: usize = 40;
+    let end = (at + WINDOW).min(bytes.len());
+    let Some(head) = bytes.get(at..end) else {
+        return true;
+    };
+    let head = match std::str::from_utf8(head) {
+        Ok(text) => text,
+        // The tail that was cut mid-character cannot be part of a timestamp.
+        Err(err) => match std::str::from_utf8(&head[..err.valid_up_to()]) {
+            Ok(text) => text,
+            Err(_) => return true,
+        },
+    };
+    timestamp_len(head).is_some()
 }
 
 /// Look at the front of a document and say how its lines are built.

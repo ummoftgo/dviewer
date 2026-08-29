@@ -262,8 +262,16 @@ impl Records {
 pub struct TableDoc {
     pub bytes: Arc<DocBytes>,
     pub records: Records,
-    /// Byte offset where each record begins, in document order.
+    /// Byte offset where each line begins, in document order.
     starts: Vec<u32>,
+    /// Where each *record* begins, when a log has lines that continue one.
+    ///
+    /// A stack trace belongs to the error above it, so a log's record is not
+    /// always a line. Both indexes come out of the same pass, which is what
+    /// keeps "show it as lines" a change of display: the line index never went
+    /// away. None when every line starts its own record — the usual case, and
+    /// one that should not pay for a second index.
+    records_at: Option<Vec<u32>>,
     column_count: u32,
     truncated: bool,
     has_header: RwLock<bool>,
@@ -301,6 +309,7 @@ impl TableDoc {
             bytes,
             records,
             starts: scan.starts,
+            records_at: scan.records_at,
             column_count,
             truncated: scan.truncated,
             // A line has no header to promote, and offering to treat the first
@@ -312,8 +321,19 @@ impl TableDoc {
         })
     }
 
+    /// The starts the current reading counts by.
+    ///
+    /// A log shown as lines counts lines; shown as itself it counts records,
+    /// which is what puts a stack trace under the error it belongs to.
+    fn index(&self) -> &[u32] {
+        match (&self.records_at, *self.plain.read()) {
+            (Some(records), false) => records,
+            _ => &self.starts,
+        }
+    }
+
     fn record_count(&self) -> u32 {
-        self.starts.len() as u32
+        self.index().len() as u32
     }
 
     fn header_offset(&self) -> u32 {
@@ -377,7 +397,9 @@ impl TableDoc {
             row_count: self.record_count().saturating_sub(self.header_offset()),
             column_count: self.columns(),
             byte_len: self.bytes.len(),
-            index_bytes: self.starts.capacity() * std::mem::size_of::<u32>(),
+            index_bytes: (self.starts.capacity()
+                + self.records_at.as_ref().map_or(0, Vec::capacity))
+                * std::mem::size_of::<u32>(),
             delimiter: self.records.name(),
             has_header: *self.has_header.read(),
             header_possible: self.header_possible(),
@@ -552,8 +574,9 @@ impl TableDoc {
     }
 
     fn record_span(&self, record: u32) -> Option<(u32, u32)> {
-        let start = *self.starts.get(record as usize)?;
-        let end = match self.starts.get(record as usize + 1) {
+        let index = self.index();
+        let start = *index.get(record as usize)?;
+        let end = match index.get(record as usize + 1) {
             // The next record starts just past the newline that ended this one.
             Some(&next) => next.saturating_sub(1),
             None => self.bytes.len() as u32,
@@ -572,10 +595,11 @@ impl TableDoc {
 
     /// Which record a byte offset falls in.
     fn record_at(&self, offset: u32) -> Option<u32> {
-        if self.starts.is_empty() {
+        let starts = self.index();
+        if starts.is_empty() {
             return None;
         }
-        let index = self.starts.partition_point(|&start| start <= offset);
+        let index = starts.partition_point(|&start| start <= offset);
         Some(index.saturating_sub(1) as u32)
     }
 
@@ -602,6 +626,7 @@ impl TableDoc {
 
 struct RecordScan {
     starts: Vec<u32>,
+    records_at: Option<Vec<u32>>,
     column_count: u32,
     truncated: bool,
 }
@@ -699,8 +724,30 @@ fn scan_records(
         }
     }
 
+    // A log's records are its lines minus the ones that continue one. Worked
+    // out here rather than in a second pass: the line starts are already in
+    // hand, and testing each is a few bytes of look-ahead.
+    let records_at = match records {
+        Records::Log(layout) if layout.has_timestamp() => {
+            let records: Vec<u32> = starts
+                .iter()
+                .copied()
+                .filter(|&at| crate::log::starts_record(bytes, at as usize))
+                .collect();
+            // Nothing continued anything, so the two indexes are the same list
+            // and only one of them is worth keeping.
+            if records.len() == starts.len() || records.is_empty() {
+                None
+            } else {
+                Some(records)
+            }
+        }
+        _ => None,
+    };
+
     Ok(RecordScan {
         starts,
+        records_at,
         column_count: column_count.max(1),
         truncated,
     })
@@ -848,18 +895,67 @@ mod tests {
 2026-08-30T01:02:04.001Z WARN  [db] 느립니다
 2026-08-30T01:02:05.900Z ERROR [db] 실패
 \tat Connection.open(Connection.java:117)
+\tat Pool.acquire(Pool.java:42)
 2026-08-30T01:02:06.010Z INFO  [server] 계속
 ";
         let doc = built(src, Records::for_kind(DocKind::Text, src.as_bytes()));
         assert_eq!(doc.stats().column_count, 4, "시각·수준·출처·메시지");
+
+        // The trace belongs to the error above it, so four records, not six.
+        assert_eq!(doc.stats().row_count, 4);
         let page = doc.page(0, 10);
-        assert_eq!(page.rows.len(), 5);
-        assert_eq!(
-            texts(&page.rows[3]),
-            ["", "", "", "\\tat Connection.open(Connection.java:117)"]
+        assert_eq!(page.rows.len(), 4);
+        assert_eq!(texts(&page.rows[2])[1], "ERROR");
+        // The preview is one line, so the continuation is escaped into it.
+        assert!(
+            texts(&page.rows[2])[3].starts_with("실패"),
+            "got {:?}",
+            texts(&page.rows[2])[3]
         );
-        assert_eq!(doc.cell_text(3, 0).expect("cell").0, "");
-        assert_eq!(doc.row_text(3).expect("row"), "\tat Connection.open(Connection.java:117)");
+        // Copying gives the record as it is written, trace and all.
+        assert!(doc.row_text(2).expect("row").contains("at Pool.acquire"));
+
+        // Folded back to lines, every line is its own row again — the line
+        // index never went away, which is what makes the switch free.
+        doc.set_plain(true);
+        assert_eq!(doc.stats().row_count, 6);
+        assert_eq!(doc.stats().column_count, 1);
+        assert_eq!(
+            doc.row_text(3).expect("row"),
+            "\tat Connection.open(Connection.java:117)"
+        );
+        doc.set_plain(false);
+        assert_eq!(doc.stats().row_count, 4);
+    }
+
+    /// A log where nothing continues anything keeps one index, not two.
+    #[test]
+    fn a_log_without_continuations_pays_for_one_index() {
+        let src = "\
+2026-08-30T01:00:00Z INFO [a] 하나
+2026-08-30T01:00:01Z INFO [a] 둘
+2026-08-30T01:00:02Z INFO [a] 셋
+";
+        let doc = built(src, Records::for_kind(DocKind::Text, src.as_bytes()));
+        assert_eq!(doc.stats().row_count, 3);
+        doc.set_plain(true);
+        assert_eq!(doc.stats().row_count, 3, "lines and records agree");
+    }
+
+    /// Search still points at the record the match is in.
+    #[test]
+    fn search_finds_the_record_a_continuation_is_part_of() {
+        let src = "\
+2026-08-30T01:00:00Z INFO [a] 하나
+2026-08-30T01:00:01Z ERROR [a] 실패
+\tat Needle.throw(Needle.java:9)
+2026-08-30T01:00:02Z INFO [a] 셋
+";
+        let doc = built(src, Records::for_kind(DocKind::Text, src.as_bytes()));
+        let found = doc.search("Needle", false, &AtomicBool::new(false)).expect("search");
+        assert_eq!(found.hits.len(), 1);
+        // Row 1 is the error, not a row of its own for the trace.
+        assert_eq!(found.hits[0].row, 1);
     }
 
     /// A quote in a log line is a character, not a record boundary.
