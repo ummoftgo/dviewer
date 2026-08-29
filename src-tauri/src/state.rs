@@ -243,6 +243,13 @@ pub struct AppState {
     panels: RwLock<HashMap<String, PanelOwner>>,
     /// Directories already added to the asset scope. See `grant_asset_dir`.
     asset_dirs: RwLock<HashSet<PathBuf>>,
+    /// Which window opened each document.
+    ///
+    /// Plain ownership is enough because documents are never shared: each
+    /// window's frontend dedupes against its own tabs, so two windows opening
+    /// the same file end up with two documents. A panel does not open any — it
+    /// reads the one its opener already has, and dies with that window.
+    owners: RwLock<HashMap<DocId, String>>,
     /// What each window should open as soon as it is ready, keyed by label.
     ///
     /// A window cannot be told what to open until its frontend exists, and a
@@ -307,8 +314,15 @@ impl AppState {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    pub fn insert(&self, doc: Document) -> Arc<Document> {
+    /// Store a document and record which window it belongs to.
+    ///
+    /// The window matters because the frontend is what normally closes a
+    /// document, and a window that is destroyed never gets to. Without an
+    /// owner recorded, killing a second window leaves its mmap and index held
+    /// until the app exits.
+    pub fn insert(&self, window: &str, doc: Document) -> Arc<Document> {
         let doc = Arc::new(doc);
+        self.owners.write().insert(doc.id, window.to_owned());
         self.docs.write().insert(doc.id, Arc::clone(&doc));
         doc
     }
@@ -320,7 +334,19 @@ impl AppState {
     /// Dropping the Arc releases the mmap and the JSON index immediately,
     /// provided no background job still holds a clone.
     pub fn remove(&self, id: DocId) {
+        self.owners.write().remove(&id);
         self.docs.write().remove(&id);
+    }
+
+    /// Every document opened by `window`, so a destroyed window can take its
+    /// own with it.
+    pub fn docs_owned_by(&self, window: &str) -> Vec<DocId> {
+        self.owners
+            .read()
+            .iter()
+            .filter(|(_, owner)| owner.as_str() == window)
+            .map(|(id, _)| *id)
+            .collect()
     }
 
     pub fn start_index_job(&self, id: DocId) -> Arc<AtomicBool> {
@@ -372,6 +398,26 @@ impl AppState {
 mod tests {
     use super::*;
 
+    /// The smallest document the store will hold. Nothing here reads its
+    /// contents; what is under test is who it belongs to.
+    fn stub(id: DocId) -> Document {
+        let bytes = Arc::new(crate::bytes::DocBytes::Owned(Vec::new()));
+        Document::new(
+            id,
+            format!("doc-{id}"),
+            DocSource::Text,
+            None,
+            DocKind::Json,
+            Arc::clone(&bytes),
+            crate::encoding::Decoded {
+                bytes,
+                encoding: encoding_rs::UTF_8,
+                source: crate::encoding::EncodingSource::Utf8,
+                warning: None,
+            },
+        )
+    }
+
     /// The rules that decide when a detached panel has outlived its reason to
     /// exist. Getting these wrong leaves a window pointing at nothing, or an
     /// app running with no way back to it — neither of which a type checker
@@ -413,6 +459,28 @@ mod tests {
 
         assert!(state.panels_showing(3).is_empty());
         assert!(state.panels_opened_by("main").is_empty());
+    }
+
+    /// A window that is destroyed takes its own documents with it, and only
+    /// its own.
+    #[test]
+    fn documents_go_with_the_window_that_opened_them() {
+        let state = AppState::default();
+        let a = state.next_id();
+        let b = state.next_id();
+        state.insert("main", stub(a));
+        state.insert("doc-1", stub(b));
+
+        assert_eq!(state.docs_owned_by("main"), [a]);
+        assert_eq!(state.docs_owned_by("doc-1"), [b]);
+
+        for id in state.docs_owned_by("doc-1") {
+            state.remove(id);
+        }
+        assert!(state.get(b).is_err());
+        assert!(state.get(a).is_ok(), "the other window keeps its own");
+        assert!(state.docs_owned_by("doc-1").is_empty());
+        assert_eq!(state.docs_owned_by("main"), [a]);
     }
 
     /// Panels do not open panels, but if one ever did, closing it should take

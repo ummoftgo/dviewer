@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, Window};
 
 use crate::bytes::DocBytes;
 use crate::cli::LaunchRequest;
@@ -15,6 +15,7 @@ use crate::state::{AppState, DocId, DocKind, DocMeta, DocSource, Document};
 #[tauri::command]
 pub async fn open_path(
     app: AppHandle,
+    window: Window,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<DocMeta> {
@@ -56,7 +57,7 @@ pub async fn open_path(
         }
     }
     Ok(state
-        .insert(Document::new(
+        .insert(window.label(), Document::new(
             state.next_id(),
             title,
             DocSource::File {
@@ -71,7 +72,11 @@ pub async fn open_path(
 }
 
 #[tauri::command]
-pub async fn open_url(state: State<'_, AppState>, url: String) -> Result<DocMeta> {
+pub async fn open_url(
+    window: Window,
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<DocMeta> {
     // Blocking HTTP on the async runtime's worker would stall other commands.
     let fetched = tauri::async_runtime::spawn_blocking({
         let url = url.clone();
@@ -89,7 +94,7 @@ pub async fn open_url(state: State<'_, AppState>, url: String) -> Result<DocMeta
     );
 
     Ok(state
-        .insert(Document::new(
+        .insert(window.label(), Document::new(
             state.next_id(),
             fetched.title,
             DocSource::Url { url },
@@ -103,6 +108,7 @@ pub async fn open_url(state: State<'_, AppState>, url: String) -> Result<DocMeta
 
 #[tauri::command]
 pub fn open_text(
+    window: Window,
     state: State<'_, AppState>,
     content: String,
     title: Option<String>,
@@ -121,7 +127,7 @@ pub fn open_text(
     let kind = kind.unwrap_or_else(|| source::detect_kind(&title, &decoded.bytes));
 
     Ok(state
-        .insert(Document::new(
+        .insert(window.label(), Document::new(
             state.next_id(),
             title,
             DocSource::Text,

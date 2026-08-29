@@ -57,6 +57,14 @@ pub fn run() {
                 let orphans = state.panels_opened_by(window.label());
                 state.forget_panel(window.label());
                 window::close_all(&window.app_handle().clone(), &orphans);
+
+                // The frontend is what normally closes a document, and a window
+                // that is gone never gets to. Its documents would otherwise
+                // hold their mmap and index until the app exits.
+                for doc in state.docs_owned_by(window.label()) {
+                    state.cancel_jobs(doc);
+                    state.remove(doc);
+                }
             }
         })
         .setup(|app| {
