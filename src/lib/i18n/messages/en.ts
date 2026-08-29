@@ -154,6 +154,8 @@ export const en: Messages = {
   "inspector.key": "Key",
   "inspector.value": "Value",
   "inspector.drill": "Go to this entry",
+  "inspector.expand": "Show the whole value",
+  "inspector.valueCut": "The value is long — only the beginning is shown.",
   "inspector.more": "Show {n} more",
   "inspector.loading": "Loading…",
   "inspector.keyWidth": "Key column width",

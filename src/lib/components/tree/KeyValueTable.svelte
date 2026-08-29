@@ -7,6 +7,10 @@
    * around it — Rust decides which, so this never has to know a node's parent
    * (see `TreeIndex::table_target`).
    *
+   * A value too wide for its cell can be opened in place rather than read
+   * through a tooltip; which values those are is decided by measuring, see
+   * `measure.ts`.
+   *
    * It knows nothing about tabs or windows. Following a nested container is
    * handed back through `onDrill`, because the two callers want opposite
    * things: the docked panel moves the tree's selection, and a detached window
@@ -17,7 +21,14 @@
   import Icon from "../Icon.svelte";
   import Splitter from "../Splitter.svelte";
   import EscapedText from "../EscapedText.svelte";
-  import { errorMessage, treeChildren, type ChildrenPage, type TreeRow } from "../../ipc";
+  import {
+    errorMessage,
+    treeChildren,
+    treeNodeText,
+    type ChildrenPage,
+    type TreeRow,
+  } from "../../ipc";
+  import { clips, horizontalPadding, measurer } from "./measure";
   import { copyMenuItems } from "./actions";
   import type { MenuItem } from "../menu";
   import { settings } from "../../state/settings.svelte";
@@ -65,6 +76,23 @@
   let requestSeq = 0;
   let menu = $state<{ x: number; y: number; row: TreeRow } | null>(null);
 
+  /** Rows opened to their full value. */
+  let opened = $state<number[]>([]);
+  /**
+   * What came back for each opened row: `null` while in flight.
+   *
+   * The full text is fetched rather than taken from the row, because the row
+   * carries at most 500 characters and carries them escaped — `a
+b` there is
+   * a real newline here, the same difference copying already makes.
+   */
+  let fullValue = $state<Record<number, FullValue | null>>({});
+
+  type FullValue = { text: string; truncated: boolean } | { error: string };
+
+  /** Enough to read. A value past this is a document, not a field. */
+  const SHOWN_CHARS = 20_000;
+
   // The same entries the tree offers, from the same code — see actions.ts.
   const menuItems = $derived.by((): MenuItem[] => (menu ? copyMenuItems(docId, menu.row) : []));
 
@@ -75,6 +103,8 @@
 
   $effect(() => {
     const node = nodeId;
+    opened = [];
+    fullValue = {};
     if (node === null) {
       page = null;
       loaded = [];
@@ -158,6 +188,81 @@
   });
 
   const keyColumnPx = $derived(Math.round(settings.inspectorKeyRatio * tableWidth));
+
+  let table = $state<HTMLTableElement>();
+
+  /** The exact string a row draws, so what is measured is what is shown. */
+  function preview(row: TreeRow): string {
+    const value = row.value ?? "";
+    const body = row.kind === "string" ? `"${value}"` : value;
+    return row.truncated ? `${body}…` : body;
+  }
+
+  /**
+   * Drawn width of every loaded value, measured once when the rows or the font
+   * change. Containers get -1: their cell holds a summary that always fits.
+   */
+  const valueWidths = $derived.by(() => {
+    const rows = loaded;
+    const el = table;
+    void settings.fontCode;
+    void settings.docFontPx;
+    void settings.uiScale;
+    if (!el || rows.length === 0) return [];
+    const width = measurer(el);
+    return rows.map((row) => (row.container ? -1 : width(preview(row))));
+  });
+
+  /** Padding of a body cell, which the value does not get to draw in. */
+  const cellPadding = $derived.by(() => {
+    const el = table;
+    void settings.uiScale;
+    void settings.docFontPx;
+    if (!el || loaded.length === 0) return 0;
+    const cell = el.querySelector("tbody td");
+    return cell ? horizontalPadding(cell) : 0;
+  });
+
+  /**
+   * Which rows are cut off. Dragging the column divider only re-runs this —
+   * a comparison per row against numbers already measured.
+   */
+  const clipped = $derived.by(() => {
+    const available = tableWidth - keyColumnPx - cellPadding;
+    if (available <= 0) return [];
+    return valueWidths.map((width) => clips(width, available));
+  });
+
+  function isOpen(row: TreeRow): boolean {
+    return opened.includes(row.id);
+  }
+
+  function toggleValue(row: TreeRow) {
+    if (isOpen(row)) {
+      opened = opened.filter((id) => id !== row.id);
+      return;
+    }
+    opened = [...opened, row.id];
+    if (fullValue[row.id] !== undefined) return;
+
+    fullValue = { ...fullValue, [row.id]: null };
+    const seq = requestSeq;
+    treeNodeText(docId, row.id)
+      .then((node) => {
+        if (seq !== requestSeq) return;
+        fullValue = { ...fullValue, [row.id]: { text: node.text, truncated: node.truncated } };
+      })
+      .catch((err) => {
+        if (seq !== requestSeq) return;
+        fullValue = { ...fullValue, [row.id]: { error: errorMessage(err) } };
+      });
+  }
+
+  function onValueKey(event: KeyboardEvent, row: TreeRow) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleValue(row);
+  }
 </script>
 
 <aside
@@ -208,14 +313,16 @@
       {:else if loaded.length === 0}
         <p class="note">{t("inspector.blank")}</p>
       {:else}
-        <table>
+        <table bind:this={table}>
           <thead>
             <tr><th scope="col">{t("inspector.key")}</th><th scope="col">{t("inspector.value")}</th></tr>
           </thead>
           <tbody>
-            {#each loaded as row (row.id)}
+            {#each loaded as row, i (row.id)}
               <tr
                 class:selected={row.id === selected}
+                class:alt={i % 2 === 1}
+                class:open={isOpen(row)}
                 oncontextmenu={(e) => openMenu(e, row)}
               >
                 <th scope="row" title={label(row)}><EscapedText text={label(row)} /></th>
@@ -226,6 +333,28 @@
                       {summary(row)}
                       <span class="children">{n(row.childCount)}</span>
                     </button>
+                  {:else if clipped[i]}
+                    <!--
+                      A span rather than a button: the cell draws its ellipsis on
+                      inline content, and a button box would take that away. It
+                      also keeps the element identical to the one that was
+                      measured, so opening a row cannot change what fits.
+                    -->
+                    <span
+                      class="value cut"
+                      data-kind={row.kind}
+                      role="button"
+                      tabindex="0"
+                      aria-expanded={isOpen(row)}
+                      aria-controls="value-{row.id}"
+                      title={t("inspector.expand")}
+                      onclick={() => toggleValue(row)}
+                      onkeydown={(e) => onValueKey(e, row)}
+                    >
+                      {#if row.kind === "string"}"<EscapedText
+                          text={row.value ?? ""}
+                        />"{:else}<EscapedText text={row.value ?? ""} />{/if}{#if row.truncated}…{/if}
+                    </span>
                   {:else}
                     <span class="value" data-kind={row.kind} title={row.value ?? ""}>
                       {#if row.kind === "string"}"<EscapedText
@@ -235,6 +364,27 @@
                   {/if}
                 </td>
               </tr>
+
+              {#if isOpen(row)}
+                {@const full = fullValue[row.id]}
+                <tr class="detail">
+                  <td colspan="2" id="value-{row.id}">
+                    <!-- The key again: the row above scrolls out of reach long
+                         before a tall value does. -->
+                    <p class="from"><EscapedText text={label(row)} /></p>
+                    {#if full === null || full === undefined}
+                      <p class="note">{t("inspector.loading")}</p>
+                    {:else if "error" in full}
+                      <p class="note error">{full.error}</p>
+                    {:else}
+                      <pre>{full.text.slice(0, SHOWN_CHARS)}</pre>
+                      {#if full.truncated || full.text.length > SHOWN_CHARS}
+                        <p class="note">{t("inspector.valueCut")}</p>
+                      {/if}
+                    {/if}
+                  </td>
+                </tr>
+              {/if}
             {/each}
           </tbody>
         </table>
@@ -419,17 +569,88 @@
   }
 
   /* Zebra striping: with two narrow columns the eye loses the row on the way
-     across, and a stripe is cheaper to follow than a rule. */
-  tbody tr:nth-child(even) {
+     across, and a stripe is cheaper to follow than a rule. Striped by row index
+     rather than :nth-child, because an opened value inserts a row and would
+     otherwise flip the parity of everything below it. */
+  tbody tr.alt {
     background: var(--bg-inset);
   }
 
-  tbody tr:hover {
+  tbody tr:not(.detail):hover {
     background: var(--bg-hover);
   }
 
-  tbody tr.selected {
+  tbody tr.selected,
+  tbody tr.selected.open > * {
     background: var(--accent-subtle);
+  }
+
+  /* Cut off, and therefore openable. The same idiom as .drill: the thing that
+     stands for what is hidden is the thing you press. Colour and cursor only —
+     anything that changed the box would change what fits in it, and the row
+     was measured as it stands. */
+  .value.cut {
+    cursor: pointer;
+  }
+
+  .value.cut:hover,
+  .value.cut:focus-visible {
+    text-decoration: underline;
+    text-decoration-color: var(--text-muted);
+    text-underline-offset: 2px;
+  }
+
+  /* The opened value, spanning both columns under its row. */
+  .detail td {
+    padding: 0.4rem 0.6rem 0.6rem;
+    /* Undoes the one-line rules the body cells carry. */
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+
+  /* A row and the value it opened are one block, not two things that happen to
+     be adjacent. The tint carries through the stripe — and is not the stripe's
+     own colour, or an open row next to a striped one would read as more of the
+     same — and a rail down the side ties the two together.
+
+     The rail is painted as a background rather than a border or a shadow: a
+     border would take 2px from the cell, and the row was measured as it stands,
+     so anything that changes the box changes what fits in it. A shadow is not
+     an option either — cells in a border-collapse table do not paint one. */
+  tbody tr.open > *,
+  tbody tr.detail > td {
+    background-color: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  }
+
+  tbody tr.open > th,
+  tbody tr.detail > td {
+    background-image: linear-gradient(to right, var(--accent) 0 2px, transparent 2px);
+    background-repeat: no-repeat;
+  }
+
+  .from {
+    margin: 0 0 0.3rem;
+    font-family: var(--font-code);
+    font-size: 0.85em;
+    color: var(--json-key);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .detail pre {
+    margin: 0;
+    max-height: 40vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--text);
+  }
+
+  .detail .note {
+    padding: 0.4rem 0 0;
+    font-size: 0.85em;
   }
 
   .drill {

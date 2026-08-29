@@ -154,6 +154,8 @@ export const ja: Messages = {
   "inspector.key": "キー",
   "inspector.value": "値",
   "inspector.drill": "この項目へ移動",
+  "inspector.expand": "値をすべて表示",
+  "inspector.valueCut": "値が長いため先頭のみ表示しています。",
   "inspector.more": "さらに {n}件を表示",
   "inspector.loading": "読み込み中…",
   "inspector.keyWidth": "キー列の幅",

@@ -159,6 +159,8 @@ export const ko = {
   "inspector.key": "키",
   "inspector.value": "값",
   "inspector.drill": "이 항목으로 이동",
+  "inspector.expand": "전체 값 보기",
+  "inspector.valueCut": "값이 길어 앞부분만 보여줍니다.",
   "inspector.more": "{n}개 더 보기",
   "inspector.loading": "불러오는 중…",
   "inspector.keyWidth": "키 열 너비",
