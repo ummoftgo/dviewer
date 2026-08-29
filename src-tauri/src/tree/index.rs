@@ -433,10 +433,22 @@ impl TreeIndex {
     /// in node order. A hit inside a key belongs to the node that key
     /// introduces, which is always the next one.
     pub fn node_at_offset(&self, offset: u32) -> Option<u32> {
-        let candidate = self
+        let Some(candidate) = self
             .nodes
             .partition_point(|n| n.val_start <= offset)
-            .checked_sub(1)? as u32;
+            .checked_sub(1)
+        else {
+            // Before every value in the document. The only thing that lives
+            // there is the first node's own key — which for XML is the root
+            // element's name, and searching for it used to find nothing at all
+            // because there is no earlier node to hang the lookup on.
+            let first = self.nodes.first()?;
+            let in_key = first.key_len > 0
+                && offset >= first.key_start
+                && offset < first.key_start + first.key_len;
+            return in_key.then_some(0);
+        };
+        let candidate = candidate as u32;
 
         if let Some(next) = self.nodes.get(candidate as usize + 1) {
             if next.key_len > 0
@@ -514,7 +526,23 @@ impl TreeIndex {
                 parts.push(format!("[{}]", node.sibling_index));
             } else {
                 let key = super::text::decode_key(bytes, node);
-                parts.push(format!(".{key}"));
+                // `$.a.b` cannot say whether that is one key called `a.b` or a
+                // `b` inside an `a`. Anything that is not a plain identifier
+                // goes in brackets, which is what JSONPath has them for.
+                if is_plain_key(&key) {
+                    parts.push(format!(".{key}"));
+                } else {
+                    let mut quoted = String::with_capacity(key.len() + 4);
+                    quoted.push_str("[\"");
+                    for c in key.chars() {
+                        if c == '"' || c == '\\' {
+                            quoted.push('\\');
+                        }
+                        quoted.push(c);
+                    }
+                    quoted.push_str("\"]");
+                    parts.push(quoted);
+                }
             }
             current = node.parent;
         }
@@ -566,7 +594,13 @@ impl TreeIndex {
     /// Walking siblings is linear, which is fine for the handful of nodes a
     /// person hovers or copies. Past `WIDE` children it is not, so the sibling
     /// position stands in: a parent that wide is a list, and a list's children
-    /// share one name, which makes the two counts identical anyway.
+    /// share one name, which makes the two counts identical.
+    ///
+    /// Identical, that is, unless the wide element also carries attributes.
+    /// Those are children too and take sibling indices of their own, so the
+    /// predicate would then be off by however many there are. It takes more
+    /// than 4096 children *and* attributes on the same element to see it, and
+    /// closing it properly means the walk this shortcut exists to avoid.
     fn same_name_position(&self, bytes: &[u8], id: u32, key: &str) -> Option<u32> {
         const WIDE: u32 = 4096;
 
@@ -602,8 +636,56 @@ impl TreeIndex {
     }
 }
 
+/// Whether a key can follow a dot without being read as a path of its own.
+///
+/// Shared with path search, which has to build the very strings this produces
+/// or a copied path would not find itself.
+pub(crate) fn is_plain_key(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+}
+
 #[cfg(test)]
 mod tests {
+    /// An XML root's element name is searchable like any other name.
+    ///
+    /// Offsets are turned into nodes by finding the value before them, and the
+    /// root's name has no value before it — so it used to resolve to nothing.
+    #[test]
+    fn the_root_element_name_is_reachable() {
+        let src = "<name>John</name>";
+        let scanned = crate::xml::scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false)
+            .expect("scan");
+        let index = TreeIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Xml);
+        // Offsets 1..5 are the `name` of the opening tag.
+        for offset in 1..5 {
+            assert_eq!(index.node_at_offset(offset), Some(0), "offset {offset}");
+        }
+        // The text after it still resolves to the same node.
+        assert_eq!(index.node_at_offset(7), Some(0));
+        // Before the name there is nothing to find.
+        assert_eq!(index.node_at_offset(0), None);
+    }
+
+    /// A key containing a dot must not read as two steps of a path.
+    #[test]
+    fn keys_that_are_not_identifiers_go_in_brackets() {
+        let index = index(r#"{"a.b": 1, "plain": 2, "with space": 3, "": 4}"#);
+        let bytes = r#"{"a.b": 1, "plain": 2, "with space": 3, "": 4}"#.as_bytes();
+        let paths: Vec<String> = (1..=4).map(|id| index.path_of(bytes, id)).collect();
+        assert_eq!(
+            paths,
+            [
+                r#"$["a.b"]"#,
+                "$.plain",
+                r#"$["with space"]"#,
+                r#"$[""]"#,
+            ]
+        );
+    }
+
     use super::super::scanner::{ScanLimits, scan};
     use super::*;
 

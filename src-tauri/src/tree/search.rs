@@ -341,9 +341,25 @@ fn search_paths(
         } else if depth == 0 {
             path.push(b'$');
         } else if node.key_len > 0 {
-            path.push(b'.');
             let key = text::decode_key(bytes, node);
-            append(&mut path, key.as_bytes(), options.case_sensitive);
+            // The same shape `path_of` produces, or a copied path would not
+            // find itself. Brackets and quotes are ASCII either way, so only
+            // the key itself goes through the case folding.
+            if super::index::is_plain_key(&key) {
+                path.push(b'.');
+                append(&mut path, key.as_bytes(), options.case_sensitive);
+            } else {
+                path.extend_from_slice(b"[\"");
+                let mut escaped = String::with_capacity(key.len());
+                for c in key.chars() {
+                    if c == '"' || c == '\\' {
+                        escaped.push('\\');
+                    }
+                    escaped.push(c);
+                }
+                append(&mut path, escaped.as_bytes(), options.case_sensitive);
+                path.extend_from_slice(b"\"]");
+            }
         } else {
             path.push(b'[');
             append(
@@ -403,6 +419,24 @@ fn append(path: &mut Vec<u8>, segment: &[u8], case_sensitive: bool) {
 
 #[cfg(test)]
 mod tests {
+    /// A copied path must find itself in a path search.
+    ///
+    /// The two are built by different code — `path_of` for the clipboard,
+    /// `search_paths` for the search box — so a key that needs brackets is
+    /// exactly where they could disagree.
+    #[test]
+    fn a_bracketed_path_finds_itself() {
+        let src = r#"{"a.b": {"c": 1}, "plain": 2}"#;
+        let index = build(src);
+        let copied = index.path_of(src.as_bytes(), 2);
+        assert_eq!(copied, r#"$["a.b"].c"#);
+        assert_eq!(paths(src, &copied, true), [copied.clone()]);
+
+        let parent = index.path_of(src.as_bytes(), 1);
+        assert_eq!(parent, r#"$["a.b"]"#);
+        assert_eq!(paths(src, &parent, true), [parent.clone(), copied]);
+    }
+
 
     /// Chunking must not change what a search finds.
     ///
