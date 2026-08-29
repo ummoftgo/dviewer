@@ -40,6 +40,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::default())
+        .on_window_event(|window, event| {
+            // A panel outlives neither its opener nor its document. Without
+            // this, closing the main window would leave the app running with
+            // only detached panels and no way back to the tree.
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let state = window.state::<AppState>();
+                let orphans = state.panels_opened_by(window.label());
+                state.forget_panel(window.label());
+                window::close_all(&window.app_handle().clone(), &orphans);
+            }
+        })
         .setup(|app| {
             // The window from tauri.conf.json is called "main"; it collects
             // this the moment its frontend mounts.
@@ -57,6 +68,8 @@ pub fn run() {
             commands::set_doc_encoding,
             commands::encoding_choices,
             commands::startup_request,
+            commands::open_panel,
+            commands::panel_info,
             commands::doc_source_text,
             commands::render_markdown,
             commands::highlight_css,

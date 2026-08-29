@@ -290,6 +290,17 @@ export const setDocEncoding = (docId: number, encodingName: string) =>
   invoke<DocMeta>("set_doc_encoding", { docId, encodingName });
 export const startupRequest = () => invoke<LaunchRequest>("startup_request");
 
+/** What a detached key/value window is looking at. */
+export interface PanelInfo {
+  title: string;
+  path: string;
+}
+
+export const openPanel = (docId: number, nodeId: number) =>
+  invoke<void>("open_panel", { docId, nodeId });
+export const panelInfo = (docId: number, nodeId: number) =>
+  invoke<PanelInfo>("panel_info", { docId, nodeId });
+
 /**
  * The encodings the picker offers, as `[name, label]`. The list lives in Rust
  * so the names it sends back are always ones the decoder knows; it never

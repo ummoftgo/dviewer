@@ -122,8 +122,11 @@ pub fn open_text(
 }
 
 #[tauri::command]
-pub fn close_doc(state: State<'_, AppState>, doc_id: DocId) {
+pub fn close_doc(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) {
     state.cancel_jobs(doc_id);
+    // A detached panel showing a document that no longer exists can only draw
+    // an error, so it goes with it.
+    crate::window::close_all(&app, &state.panels_showing(doc_id));
     state.remove(doc_id);
 }
 

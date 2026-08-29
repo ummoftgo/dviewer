@@ -14,9 +14,11 @@
     treeRows,
     treeToggle,
     kindLabel,
+    openPanel,
     type TreeRow,
   } from "../../ipc";
   import { copyMenuItems, copyValue, pathOf } from "./actions";
+  import { goBack, goForward, sideButton } from "./navigate";
   import { anchorRow, rowTop, scrollTopForRow, spacerHeight } from "../../virtual";
   import type { MenuItem } from "../menu";
   import type { DocTab } from "../../state/docs.svelte";
@@ -126,6 +128,15 @@
   // of the window never blanks the inspector.
   $effect(() => {
     if (selected) tab.selectedNode = selected.id;
+  });
+
+  // Every landing place goes on the history, wherever it came from: the tree,
+  // the key/value table, a search hit. Recording it here rather than at each of
+  // those is what keeps them from disagreeing — and `visit` ignores the node it
+  // is already on, so walking the history does not extend it.
+  $effect(() => {
+    const node = tab.selectedNode;
+    if (node !== null) untrack(() => tab.history.visit(node));
   });
 
   function guideActive(rowIndex: number, level: number): boolean {
@@ -282,9 +293,28 @@
     menu = { x: event.clientX, y: event.clientY, row };
   }
 
-  const menuItems = $derived.by((): MenuItem[] =>
-    menu ? copyMenuItems(tab.id, menu.row) : [],
-  );
+  const menuItems = $derived.by((): MenuItem[] => {
+    if (!menu) return [];
+    const row = menu.row;
+    return [
+      ...copyMenuItems(tab.id, row),
+      // Offered here as well as on the panel header: choosing which nodes to
+      // compare happens in the tree, so that is where reaching for a second
+      // window occurs to you.
+      {
+        label: t("inspector.detach"),
+        action: () => void detach(row.id),
+      },
+    ];
+  });
+
+  async function detach(nodeId: number) {
+    try {
+      await openPanel(tab.id, nodeId);
+    } catch (err) {
+      tab.error = errorMessage(err);
+    }
+  }
 
   // --- keyboard -----------------------------------------------------------
 
@@ -401,7 +431,21 @@
   );
 </script>
 
-<svelte:window onresize={() => void ensureWindow(true)} />
+<svelte:window
+  onresize={() => void ensureWindow(true)}
+  onmousedown={(event) => {
+    // Cancelled early: left alone, the webview spends the side buttons on page
+    // navigation, which in a single-page app means unloading the document.
+    if (sideButton(event)) event.preventDefault();
+  }}
+  onmouseup={(event) => {
+    const direction = sideButton(event);
+    if (!direction) return;
+    event.preventDefault();
+    if (direction === "back") goBack(tab);
+    else goForward(tab);
+  }}
+/>
 
 <div class="json">
   <TreeSearchBar {tab} bind:this={searchBar} />

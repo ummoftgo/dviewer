@@ -22,6 +22,7 @@ use crate::state::AppState;
 pub const OPEN_REQUEST: &str = "open-request";
 
 static NEXT_WINDOW: AtomicU32 = AtomicU32::new(1);
+static NEXT_PANEL: AtomicU32 = AtomicU32::new(1);
 
 /// A new window is offset from the one it came from, because two windows drawn
 /// at exactly the same place look like one window that failed to open.
@@ -84,4 +85,51 @@ fn focused(app: &AppHandle) -> Option<tauri::WebviewWindow> {
         .or_else(|| windows.get("main"))
         .or_else(|| windows.values().next())
         .cloned()
+}
+
+/// Open the key/value table for one node in a window of its own.
+///
+/// The window loads the same page with `?panel=…`, and the frontend mounts the
+/// table instead of the whole app. Nothing about the document is copied across:
+/// the windows share one `AppState`, so the panel calls `tree_children` with
+/// the same document id the tree uses.
+pub fn open_panel(
+    app: &AppHandle,
+    opener: &str,
+    doc: crate::state::DocId,
+    node: u32,
+    title: &str,
+) -> tauri::Result<()> {
+    let label = format!("panel-{}", NEXT_PANEL.fetch_add(1, Ordering::Relaxed));
+    app.state::<AppState>().register_panel(&label, opener, doc);
+
+    let url = WebviewUrl::App(format!("index.html?panel=1&doc={doc}&node={node}").into());
+    let mut builder = WebviewWindowBuilder::new(app, &label, url)
+        .title(title)
+        .inner_size(460.0, 520.0)
+        .min_inner_size(280.0, 200.0);
+
+    // Cascaded off whatever the reader was looking at, so a second panel does
+    // not land exactly on the first.
+    if let Some(source) = focused(app) {
+        if let (Ok(position), Ok(scale)) = (source.outer_position(), source.scale_factor()) {
+            let step = CASCADE * f64::from(NEXT_PANEL.load(Ordering::Relaxed).min(8));
+            builder = builder.position(
+                position.x as f64 / scale + step,
+                position.y as f64 / scale + step,
+            );
+        }
+    }
+
+    builder.build()?;
+    Ok(())
+}
+
+/// Close every window in `labels`, ignoring the ones already gone.
+pub fn close_all(app: &AppHandle, labels: &[String]) {
+    for label in labels {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.close();
+        }
+    }
 }

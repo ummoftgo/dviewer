@@ -4,7 +4,8 @@
   "description": "Every window: file picking, settings storage and opening links externally. File reads deliberately stay in Rust, so no fs permissions are granted here.",
   "windows": [
     "main",
-    "doc-*"
+    "doc-*",
+    "panel-*"
   ],
   "permissions": [
     "core:default",

@@ -14,6 +14,7 @@ import type {
   TocEntry,
 } from "../ipc";
 import { forgetDoc } from "../components/tree/actions";
+import { NodeHistory } from "./history.svelte";
 import { recents } from "./recents.svelte";
 
 export type ViewMode = "rendered" | "raw";
@@ -95,6 +96,9 @@ export class DocTab {
   treeStats = $state<TreeStats | null>(null);
   /** Selected node, kept for the inspector even while it scrolls out of view. */
   selectedNode = $state<number | null>(null);
+  /** The nodes this tab has shown, so the mouse's side buttons have somewhere
+   *  to go. Written by the tree view as the selection moves. */
+  readonly history = new NodeHistory();
   showInspector = $state(true);
   indexing = $state<{ done: number; total: number } | null>(null);
   treeScrollTop = $state(0);
@@ -145,6 +149,7 @@ export class DocTab {
     this.raw = null;
     this.treeStats = null;
     this.indexing = null;
+    this.history.reset();
     this.error = null;
     this.search.reset();
     this.tableStats = null;

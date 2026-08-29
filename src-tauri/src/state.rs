@@ -223,11 +223,24 @@ struct Jobs {
     search: HashMap<DocId, Arc<AtomicBool>>,
 }
 
+#[derive(Debug, Clone)]
+struct PanelOwner {
+    window: String,
+    doc: DocId,
+}
+
 #[derive(Default)]
 pub struct AppState {
     next_id: AtomicU32,
     docs: RwLock<HashMap<DocId, Arc<Document>>>,
     jobs: RwLock<Jobs>,
+    /// Detached key/value windows: which window opened each, and which
+    /// document it is looking at.
+    ///
+    /// Both are needed to know when one has outlived its reason to exist — a
+    /// panel pointing at a closed document shows nothing, and one whose opener
+    /// is gone would keep the app alive with no way back to it.
+    panels: RwLock<HashMap<String, PanelOwner>>,
     /// What each window should open as soon as it is ready, keyed by label.
     ///
     /// A window cannot be told what to open until its frontend exists, and a
@@ -238,6 +251,43 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn register_panel(&self, panel: &str, opener: &str, doc: DocId) {
+        self.panels.write().insert(
+            panel.to_owned(),
+            PanelOwner {
+                window: opener.to_owned(),
+                doc,
+            },
+        );
+    }
+
+    /// Panels that should close because the window that opened them did.
+    pub fn panels_opened_by(&self, window: &str) -> Vec<String> {
+        self.drain_panels(|owner| owner.window == window)
+    }
+
+    /// Panels that should close because their document did.
+    pub fn panels_showing(&self, doc: DocId) -> Vec<String> {
+        self.drain_panels(|owner| owner.doc == doc)
+    }
+
+    fn drain_panels(&self, matches: impl Fn(&PanelOwner) -> bool) -> Vec<String> {
+        let mut panels = self.panels.write();
+        let doomed: Vec<String> = panels
+            .iter()
+            .filter(|(_, owner)| matches(owner))
+            .map(|(label, _)| label.clone())
+            .collect();
+        for label in &doomed {
+            panels.remove(label);
+        }
+        doomed
+    }
+
+    pub fn forget_panel(&self, panel: &str) {
+        self.panels.write().remove(panel);
+    }
+
     /// Leave a request for `window` to collect when it mounts.
     pub fn queue(&self, window: &str, request: LaunchRequest) {
         if request.is_empty() {
@@ -303,5 +353,71 @@ impl AppState {
         {
             flag.store(true, Ordering::Relaxed);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rules that decide when a detached panel has outlived its reason to
+    /// exist. Getting these wrong leaves a window pointing at nothing, or an
+    /// app running with no way back to it — neither of which a type checker
+    /// notices.
+    #[test]
+    fn a_panel_closes_with_the_document_it_shows() {
+        let state = AppState::default();
+        state.register_panel("panel-1", "main", 7);
+        state.register_panel("panel-2", "main", 7);
+        state.register_panel("panel-3", "main", 9);
+
+        let mut doomed = state.panels_showing(7);
+        doomed.sort();
+        assert_eq!(doomed, ["panel-1", "panel-2"]);
+
+        // Taken, not copied: closing the same document twice must not try to
+        // close windows that are already gone.
+        assert!(state.panels_showing(7).is_empty());
+        assert_eq!(state.panels_showing(9), ["panel-3"]);
+    }
+
+    #[test]
+    fn a_panel_closes_with_the_window_that_opened_it() {
+        let state = AppState::default();
+        state.register_panel("panel-1", "main", 1);
+        state.register_panel("panel-2", "doc-1", 2);
+
+        assert_eq!(state.panels_opened_by("main"), ["panel-1"]);
+        assert_eq!(state.panels_opened_by("doc-1"), ["panel-2"]);
+        assert!(state.panels_opened_by("main").is_empty());
+    }
+
+    /// A panel closed by hand must not be closed again when its document goes.
+    #[test]
+    fn forgetting_a_panel_takes_it_out_of_both_answers() {
+        let state = AppState::default();
+        state.register_panel("panel-1", "main", 3);
+        state.forget_panel("panel-1");
+
+        assert!(state.panels_showing(3).is_empty());
+        assert!(state.panels_opened_by("main").is_empty());
+    }
+
+    /// Panels do not open panels, but if one ever did, closing it should take
+    /// its children rather than orphaning them.
+    #[test]
+    fn a_panel_can_be_an_opener_too() {
+        let state = AppState::default();
+        state.register_panel("panel-1", "main", 1);
+        state.register_panel("panel-2", "panel-1", 1);
+
+        assert_eq!(state.panels_opened_by("panel-1"), ["panel-2"]);
+    }
+
+    #[test]
+    fn a_window_that_opened_nothing_has_nothing_to_close() {
+        let state = AppState::default();
+        assert!(state.panels_opened_by("main").is_empty());
+        assert!(state.panels_showing(1).is_empty());
     }
 }

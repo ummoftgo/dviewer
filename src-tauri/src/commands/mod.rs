@@ -8,11 +8,13 @@
 
 mod document;
 mod markdown;
+mod panel;
 mod table;
 mod tree;
 
 pub use document::*;
 pub use markdown::*;
+pub use panel::*;
 pub use table::*;
 pub use tree::*;
 

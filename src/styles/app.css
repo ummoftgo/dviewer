@@ -151,9 +151,16 @@ textarea {
   color: var(--text-secondary);
 }
 
-.icon-btn:hover {
+.icon-btn:enabled:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+/* Without this a disabled icon button looks exactly like a live one and only
+   answers by doing nothing. */
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .field {
