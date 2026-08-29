@@ -7,7 +7,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { t, type MessageKey } from "./i18n";
+import { n, t, type MessageKey } from "./i18n";
 
 export type DocKind = "markdown" | "json" | "yaml" | "toml" | "xml" | "csv" | "tsv" | "text";
 
@@ -237,6 +237,20 @@ export interface TableStats {
   delimiter: string;
   /** False for text, where there is no first row to promote to names. */
   headerPossible: boolean;
+  /**
+   * The columns a recognised log splits into, or null when it is not one.
+   *
+   * The structural fields are labels the interface translates; a logfmt key is
+   * the file's own word. One list of strings could not tell those apart, so
+   * the layout comes through as it is.
+   */
+  logLayout: LogField[] | null;
+  /** True while a recognised log is being shown as one column instead. */
+  plain: boolean;
+  /** Whether the log has trailing `key=value` pairs worth their own columns. */
+  expandable: boolean;
+  /** True while those columns are being shown. */
+  expanded: boolean;
   hasHeader: boolean;
   truncated: boolean;
 }
@@ -244,6 +258,26 @@ export interface TableStats {
 export interface TableShape {
   stats: TableStats;
   header: string[];
+}
+
+/**
+ * One column of a recognised log. Unit variants arrive as strings, the two
+ * that carry a value as an object — serde's default for an enum.
+ */
+export type LogField =
+  | "timestamp"
+  | "level"
+  | "message"
+  | { bracketed: number }
+  | { key: string };
+
+/** What a log column is called, translated where it is a label and not data. */
+export function logFieldName(field: LogField, index: number): string {
+  if (field === "timestamp") return t("log.timestamp");
+  if (field === "level") return t("log.level");
+  if (field === "message") return t("log.message");
+  if ("key" in field) return field.key;
+  return index === 0 ? t("log.field") : t("log.field.n", { n: n(index + 1) });
 }
 
 export interface TableHit {
@@ -356,6 +390,10 @@ export const treeHitRow = (docId: number, ordinal: number) =>
 export const tableOpen = (docId: number) => invoke<void>("table_open", { docId });
 export const tableRows = (docId: number, start: number, count: number) =>
   invoke<TablePage>("table_rows", { docId, start, count });
+export const tableSetExpand = (docId: number, expand: boolean) =>
+  invoke<TableShape>("table_set_expand", { docId, expand });
+export const tableSetPlain = (docId: number, plain: boolean) =>
+  invoke<TableShape>("table_set_plain", { docId, plain });
 export const tableSetHasHeader = (docId: number, hasHeader: boolean) =>
   invoke<TableShape>("table_set_has_header", { docId, hasHeader });
 export const tableCellText = (docId: number, row: number, column: number) =>

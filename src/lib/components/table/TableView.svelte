@@ -26,6 +26,10 @@
     tableRowText,
     tableRows,
     tableSetHasHeader,
+    tableSetPlain,
+    tableSetExpand,
+    logFieldName,
+    type LogField,
     type TableRow,
   } from "../../ipc";
   import {
@@ -228,10 +232,56 @@
   }
 
   function columnName(column: number): string {
+    // A recognised log names its columns from the shape that was found. The
+    // structural ones are labels this interface owns; a logfmt key is the
+    // file's own word and passes through untranslated.
+    const layout = tab.tableStats?.logLayout;
+    if (layout && !tab.tableStats?.plain) {
+      const field = layout[column];
+      if (field !== undefined) {
+        return logFieldName(field, bracketIndex(layout, column));
+      }
+    }
     const name = tab.header[column];
     // Without a header row the columns still need labels, and their position is
     // the only name they have.
     return name && name.length > 0 ? name : String(column + 1);
+  }
+
+  /// How many bracketed fields come before this one, so the second is "출처 2".
+  function bracketIndex(layout: LogField[], column: number): number {
+    let seen = 0;
+    for (let i = 0; i < column; i++) {
+      const field = layout[i];
+      if (field !== null && typeof field === "object" && "bracketed" in field) seen++;
+    }
+    return seen;
+  }
+
+  async function toggleExpand() {
+    try {
+      const shape = await tableSetExpand(tab.id, !(tab.tableStats?.expanded ?? false));
+      tab.tableStats = shape.stats;
+      tab.header = shape.header;
+      tab.selectedCell = null;
+      tab.columnWidths = [];
+      await ensureWindow(true);
+    } catch (err) {
+      tab.error = errorMessage(err);
+    }
+  }
+
+  async function togglePlain() {
+    try {
+      const shape = await tableSetPlain(tab.id, !(tab.tableStats?.plain ?? false));
+      tab.tableStats = shape.stats;
+      tab.header = shape.header;
+      tab.selectedCell = null;
+      tab.columnWidths = [];
+      await ensureWindow(true);
+    } catch (err) {
+      tab.error = errorMessage(err);
+    }
   }
 
   // --- copying ------------------------------------------------------------
@@ -386,6 +436,39 @@
 
   {#if tab.tableStats}
     <div class="toolbar">
+      <!-- Only a log that was actually recognised can be folded back; plain
+           text has nothing to fold. -->
+      {#if tab.tableStats.logLayout}
+        <button
+          class="btn toggle"
+          class:on={tab.tableStats.plain}
+          aria-pressed={tab.tableStats.plain}
+          onclick={togglePlain}
+          title={t("table.plain.title")}
+        >
+          <Icon name="list" size={13} />
+          {t("table.plain")}
+          <span class="state">{tab.tableStats.plain ? t("state.on") : t("state.off")}</span>
+        </button>
+      {/if}
+
+      <!-- Only offered when there are pairs to pull out; a log without them
+           would gain nothing but empty columns. Hidden while folded to one
+           column, where there are no columns to widen. -->
+      {#if tab.tableStats.expandable && !tab.tableStats.plain}
+        <button
+          class="btn toggle"
+          class:on={tab.tableStats.expanded}
+          aria-pressed={tab.tableStats.expanded}
+          onclick={toggleExpand}
+          title={t("table.expand.title")}
+        >
+          <Icon name="list" size={13} />
+          {t("table.expand")}
+          <span class="state">{tab.tableStats.expanded ? t("state.on") : t("state.off")}</span>
+        </button>
+      {/if}
+
       <!-- Text has no first row to promote, so the toggle is not shown rather
            than shown and refused. -->
       {#if tab.tableStats.headerPossible}

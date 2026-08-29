@@ -29,6 +29,16 @@ export const zhHans: Messages = {
   "delimiter.semicolon": "分号",
   "delimiter.pipe": "竖线",
   "delimiter.lines": "行",
+  "log.timestamp": "时间",
+  "log.level": "级别",
+  "log.field": "来源",
+  "log.field.n": "来源 {n}",
+  "log.message": "消息",
+  "table.plain": "按行查看",
+  "table.plain.title": "折叠推断出的列，逐行原样查看。",
+  "table.expand": "展开键=值",
+  "table.expand.title": "把消息末尾的 key=value 各自拆成一列。",
+  "delimiter.log": "日志（推断）",
   "delimiter.other": "分隔符",
 
   // --- 앱 / app -----------------------------------------------------------

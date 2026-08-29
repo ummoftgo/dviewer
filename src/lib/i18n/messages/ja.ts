@@ -29,6 +29,16 @@ export const ja: Messages = {
   "delimiter.semicolon": "セミコロン",
   "delimiter.pipe": "パイプ",
   "delimiter.lines": "行",
+  "log.timestamp": "時刻",
+  "log.level": "レベル",
+  "log.field": "出力元",
+  "log.field.n": "出力元 {n}",
+  "log.message": "メッセージ",
+  "table.plain": "行で表示",
+  "table.plain.title": "推定した列をたたんで、一行ずつそのまま読みます。",
+  "table.expand": "キー=値を展開",
+  "table.expand.title": "メッセージ末尾の key=value をそれぞれ列にします。",
+  "delimiter.log": "ログ（推定）",
   "delimiter.other": "区切り文字",
 
   // --- 앱 / app -----------------------------------------------------------

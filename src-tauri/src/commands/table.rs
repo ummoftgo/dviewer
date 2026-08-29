@@ -134,6 +134,41 @@ pub struct TableShape {
     pub header: Vec<String>,
 }
 
+/// Show a log's trailing `key=value` pairs as columns, or fold them back.
+///
+/// A display switch like `table_set_plain`: same records, wider split.
+#[tauri::command]
+pub fn table_set_expand(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    expand: bool,
+) -> Result<TableShape> {
+    let table = table_doc(&state, doc_id)?;
+    table.set_expand(expand);
+    Ok(TableShape {
+        stats: table.stats(),
+        header: table.header(),
+    })
+}
+
+/// Show a recognised log as one column, or as its fields again.
+///
+/// A display switch, not a re-read: the record index is the same either way,
+/// so this returns the new shape immediately rather than re-indexing.
+#[tauri::command]
+pub fn table_set_plain(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    plain: bool,
+) -> Result<TableShape> {
+    let table = table_doc(&state, doc_id)?;
+    table.set_plain(plain);
+    Ok(TableShape {
+        stats: table.stats(),
+        header: table.header(),
+    })
+}
+
 /// Treat the first record as column names, or as data. Cheap either way: the
 /// record index does not change, only where the rows start.
 #[tauri::command]

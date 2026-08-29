@@ -29,6 +29,16 @@ export const en: Messages = {
   "delimiter.semicolon": "semicolon",
   "delimiter.pipe": "pipe",
   "delimiter.lines": "lines",
+  "log.timestamp": "Time",
+  "log.level": "Level",
+  "log.field": "Source",
+  "log.field.n": "Source {n}",
+  "log.message": "Message",
+  "table.plain": "As lines",
+  "table.plain.title": "Fold the inferred columns away and read one line at a time.",
+  "table.expand": "Expand pairs",
+  "table.expand.title": "Give each key=value pair at the end of the message its own column.",
+  "delimiter.log": "log (inferred)",
   "delimiter.other": "delimiter",
 
   // --- 앱 / app -----------------------------------------------------------

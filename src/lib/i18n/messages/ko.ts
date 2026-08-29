@@ -34,6 +34,16 @@ export const ko = {
   "delimiter.semicolon": "세미콜론",
   "delimiter.pipe": "파이프",
   "delimiter.lines": "줄",
+  "log.timestamp": "시각",
+  "log.level": "수준",
+  "log.field": "출처",
+  "log.field.n": "출처 {n}",
+  "log.message": "메시지",
+  "table.plain": "줄로 보기",
+  "table.plain.title": "추론한 열을 접고 한 줄씩 그대로 봅니다.",
+  "table.expand": "키=값 펼치기",
+  "table.expand.title": "메시지 끝의 key=value 쌍을 각각 열로 폅니다.",
+  "delimiter.log": "로그(추론)",
   "delimiter.other": "구분자",
 
   // --- 앱 / app -----------------------------------------------------------

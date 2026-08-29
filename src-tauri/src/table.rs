@@ -17,6 +17,7 @@ use parking_lot::RwLock;
 use serde::Serialize;
 
 use crate::bytes::DocBytes;
+use crate::log::LogLayout;
 use crate::state::DocKind;
 use crate::error::{Error, Result};
 use crate::tree::text::push_display;
@@ -131,6 +132,18 @@ pub struct TableStats {
     pub has_header: bool,
     /// False for text, where there is no first row to promote.
     pub header_possible: bool,
+    /// The columns a recognised log splits into, or None when it was not one.
+    ///
+    /// Sent as the layout rather than as names because the structural columns
+    /// are labels the interface translates, while a logfmt key is data. One
+    /// list of strings could not tell the two apart.
+    pub log_layout: Option<Vec<crate::log::LogField>>,
+    /// Set while a recognised log is being shown as one column instead.
+    pub plain: bool,
+    /// Whether this log has trailing `key=value` pairs worth their own columns.
+    pub expandable: bool,
+    /// Set while those columns are being shown.
+    pub expanded: bool,
     /// True when the scan stopped at `MAX_RECORDS`.
     pub truncated: bool,
 }
@@ -179,15 +192,38 @@ pub struct TableSearch {
 /// open across a newline. In CSV it can, and must; in a log a stray `"` that
 /// swallowed the next twenty lines would be a bug the reader cannot explain.
 /// Naming that here keeps the two readings of the same bytes side by side.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Records {
     /// RFC 4180: a newline inside quotes continues the record.
     Delimited { delimiter: u8 },
     /// One line, one record, one cell. Quotes are ordinary characters.
     Lines,
+    /// A log whose leading fields were recognised. The record boundary is the
+    /// newline exactly as for `Lines` — only the split differs, which is what
+    /// lets the reader turn it off without the file being read again.
+    Log(Arc<LogLayout>),
 }
 
 impl Records {
+    /// Whether a quote can hold a record open across a newline.
+    fn quotes_span_records(&self) -> bool {
+        matches!(self, Records::Delimited { .. })
+    }
+
+    /// Whether the first record can be read as column names. Only a delimited
+    /// file has one — a log's first line is a log line.
+    fn header_possible(&self) -> bool {
+        matches!(self, Records::Delimited { .. })
+    }
+
+    fn column_count(&self) -> Option<u32> {
+        match self {
+            Records::Delimited { .. } => None,
+            Records::Lines => Some(1),
+            Records::Log(layout) => Some(layout.column_count() as u32),
+        }
+    }
+
     /// How a document of `kind` should be read.
     ///
     /// Both the app and the measuring example ask here, so what the benchmarks
@@ -195,8 +231,13 @@ impl Records {
     /// enough — the example had drifted into sniffing a delimiter for logs.
     pub fn for_kind(kind: DocKind, bytes: &[u8]) -> Self {
         match kind {
-            // A log names nothing to split on, so nothing is sniffed.
-            DocKind::Text => Records::Lines,
+            // A log names nothing to split on, so nothing is sniffed. Its
+            // shape is guessed instead, and only taken when the guess is
+            // confident — see `log::detect`.
+            DocKind::Text => match crate::log::detect(bytes) {
+                Some(layout) => Records::Log(Arc::new(layout)),
+                None => Records::Lines,
+            },
             // `.tsv` names its delimiter and is taken at its word. `.csv` does
             // not: the extension is used loosely, and a European spreadsheet's
             // semicolons would otherwise show up as a single column and look
@@ -209,10 +250,11 @@ impl Records {
     }
 
     /// The code the frontend translates for the status bar.
-    pub fn name(self) -> &'static str {
+    pub fn name(&self) -> &'static str {
         match self {
-            Records::Delimited { delimiter } => delimiter_name(delimiter),
+            Records::Delimited { delimiter } => delimiter_name(*delimiter),
             Records::Lines => "lines",
+            Records::Log(_) => "log",
         }
     }
 }
@@ -225,6 +267,13 @@ pub struct TableDoc {
     column_count: u32,
     truncated: bool,
     has_header: RwLock<bool>,
+    /// Set when the reader asked for the log back as one column.
+    plain: RwLock<bool>,
+    /// The same log with its trailing `key=value` pairs as columns, derived
+    /// once when first asked for. None means there was nothing to pull out.
+    expanded: RwLock<Option<Option<Arc<LogLayout>>>>,
+    /// Set while that wider reading is the one being shown.
+    expand: RwLock<bool>,
 }
 
 impl TableDoc {
@@ -241,18 +290,25 @@ impl TableDoc {
             });
         }
 
-        let scan = scan_records(&bytes, records, &mut progress, should_stop)?;
+        let scan = scan_records(&bytes, &records, &mut progress, should_stop)?;
         progress(bytes.len());
+        // A log's column count comes from its layout, not from counting
+        // delimiters; a plain line always has exactly one.
+        let column_count = records.column_count().unwrap_or(scan.column_count);
+        let has_header = records.header_possible();
 
         Ok(Self {
             bytes,
             records,
             starts: scan.starts,
-            column_count: scan.column_count,
+            column_count,
             truncated: scan.truncated,
             // A line has no header to promote, and offering to treat the first
             // line of a log as column names would only lose it.
-            has_header: RwLock::new(records != Records::Lines),
+            has_header: RwLock::new(has_header),
+            plain: RwLock::new(false),
+            expanded: RwLock::new(None),
+            expand: RwLock::new(false),
         })
     }
 
@@ -266,18 +322,72 @@ impl TableDoc {
 
     /// Whether the first record can be read as column names.
     fn header_possible(&self) -> bool {
-        self.records != Records::Lines
+        self.reading().header_possible()
+    }
+
+    /// How this document is being read right now.
+    ///
+    /// A log the reader has switched back to one column reads as `Lines`. The
+    /// record index is the same either way, which is what makes the switch a
+    /// change of display rather than a re-read.
+    fn reading(&self) -> Records {
+        if *self.plain.read() {
+            return Records::Lines;
+        }
+        if *self.expand.read() {
+            if let Some(layout) = self.expanded_layout() {
+                return Records::Log(layout);
+            }
+        }
+        self.records.clone()
+    }
+
+    /// The wider layout, worked out once.
+    ///
+    /// Deriving it needs another look at the sample, which is cheap but not
+    /// free, and the reader may never ask — so it waits until they do.
+    fn expanded_layout(&self) -> Option<Arc<LogLayout>> {
+        if let Some(cached) = self.expanded.read().as_ref() {
+            return cached.clone();
+        }
+        let Records::Log(layout) = &self.records else {
+            return None;
+        };
+        let derived = crate::log::expanded(&self.bytes, layout).map(Arc::new);
+        *self.expanded.write() = Some(derived.clone());
+        derived
+    }
+
+    /// Whether this log has trailing pairs worth their own columns.
+    pub fn expandable(&self) -> bool {
+        self.expanded_layout().is_some()
+    }
+
+    /// Show the trailing `key=value` pairs as columns, or fold them back into
+    /// the message. A display switch, like `set_plain`.
+    pub fn set_expand(&self, on: bool) {
+        if !self.expandable() {
+            return;
+        }
+        *self.expand.write() = on;
     }
 
     pub fn stats(&self) -> TableStats {
         TableStats {
             row_count: self.record_count().saturating_sub(self.header_offset()),
-            column_count: self.column_count,
+            column_count: self.columns(),
             byte_len: self.bytes.len(),
             index_bytes: self.starts.capacity() * std::mem::size_of::<u32>(),
             delimiter: self.records.name(),
             has_header: *self.has_header.read(),
             header_possible: self.header_possible(),
+            log_layout: match &self.records {
+                Records::Log(layout) => Some(layout.fields.clone()),
+                _ => None,
+            },
+            plain: *self.plain.read(),
+            expandable: self.expandable(),
+            expanded: *self.expand.read(),
             truncated: self.truncated,
         }
     }
@@ -291,9 +401,25 @@ impl TableDoc {
         *self.has_header.write() = on;
     }
 
+    /// Show a recognised log as one column, or as its fields again.
+    ///
+    /// Nothing is re-scanned: the record index does not depend on the split,
+    /// which is the whole reason the two readings share one document.
+    pub fn set_plain(&self, on: bool) {
+        if !matches!(self.records, Records::Log(_)) {
+            return;
+        }
+        *self.plain.write() = on;
+    }
+
+    /// How many columns the current reading shows.
+    pub fn columns(&self) -> u32 {
+        self.reading().column_count().unwrap_or(self.column_count)
+    }
+
     /// Column names, or empty strings when the file has no header row.
     pub fn header(&self) -> Vec<String> {
-        let mut names = vec![String::new(); self.column_count as usize];
+        let mut names = vec![String::new(); self.columns() as usize];
         if !*self.has_header.read() {
             return names;
         }
@@ -327,13 +453,13 @@ impl TableDoc {
     pub fn cell_text(&self, row: u32, column: u32) -> Option<(String, bool)> {
         let record = row.checked_add(self.header_offset())?;
         let (start, end) = self.record_span(record)?;
-        let span = record_fields(&self.bytes, start, end, self.records)
+        let span = record_fields(&self.bytes, start, end, &self.reading())
             .into_iter()
             .nth(column as usize)?;
         Some(decode_cell(
             &self.bytes,
             span,
-            self.records,
+            &self.reading(),
             usize::MAX,
             MAX_CELL_TEXT_BYTES,
         ))
@@ -397,7 +523,7 @@ impl TableDoc {
                         let Some((start, end)) = self.record_span(record) else {
                             return true;
                         };
-                        let fields = record_fields(&self.bytes, start, end, self.records);
+                        let fields = record_fields(&self.bytes, start, end, &self.reading());
                         cached = Some((record, fields));
                         &cached.as_ref().expect("just set").1
                     }
@@ -457,16 +583,16 @@ impl TableDoc {
         let Some((start, end)) = self.record_span(record) else {
             return Vec::new();
         };
-        let mut cells: Vec<TableCell> = record_fields(&self.bytes, start, end, self.records)
+        let mut cells: Vec<TableCell> = record_fields(&self.bytes, start, end, &self.reading())
             .into_iter()
             .map(|span| {
                 let (text, truncated) =
-                    decode_cell(&self.bytes, span, self.records, CELL_PREVIEW_CHARS, usize::MAX);
+                    decode_cell(&self.bytes, span, &self.reading(), CELL_PREVIEW_CHARS, usize::MAX);
                 TableCell { text, truncated }
             })
             .collect();
         // A ragged record still has to line up with the columns beside it.
-        cells.resize_with(self.column_count as usize, || TableCell {
+        cells.resize_with(self.columns() as usize, || TableCell {
             text: String::new(),
             truncated: false,
         });
@@ -486,15 +612,15 @@ struct RecordScan {
 /// quoted field is part of the value, not the end of the row.
 fn scan_records(
     bytes: &[u8],
-    records: Records,
+    records: &Records,
     progress: &mut impl FnMut(usize),
     should_stop: &dyn Fn() -> bool,
 ) -> Result<RecordScan> {
     // Text is the same walk with the quote rule taken out: a newline always
     // ends the record, and every record is one cell.
     let delimiter = match records {
-        Records::Delimited { delimiter } => Some(delimiter),
-        Records::Lines => None,
+        Records::Delimited { delimiter } => Some(*delimiter),
+        _ => None,
     };
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let bom = (bytes.len() - body.len()) as u32;
@@ -581,11 +707,33 @@ fn scan_records(
 }
 
 /// Byte spans of each field in one record, quotes included.
-fn record_fields(bytes: &[u8], start: u32, end: u32, records: Records) -> Vec<(u32, u32)> {
-    // One line, one cell — there is nothing in a log line to split on that the
-    // reader would thank us for guessing at.
-    let Records::Delimited { delimiter } = records else {
-        return vec![(start, end)];
+/// Where each of a log line's fields sits, as byte ranges into the document.
+///
+/// `log::split` answers in offsets within the line, which is what makes a
+/// field the line does not carry expressible: an empty range rather than an
+/// empty string with no position.
+fn log_fields(bytes: &[u8], start: u32, end: u32, layout: &LogLayout) -> Vec<(u32, u32)> {
+    let raw = &bytes[start as usize..end as usize];
+    let Ok(line) = std::str::from_utf8(raw) else {
+        // Bytes that are not text after decoding are not a line anyone can
+        // split; the message column takes them whole.
+        let mut spans = vec![(start, start); layout.column_count()];
+        spans[layout.column_count() - 1] = (start, end);
+        return spans;
+    };
+    crate::log::split(line, layout)
+        .into_iter()
+        .map(|(from, to)| (start + from as u32, start + to as u32))
+        .collect()
+}
+
+fn record_fields(bytes: &[u8], start: u32, end: u32, records: &Records) -> Vec<(u32, u32)> {
+    let delimiter = match records {
+        Records::Delimited { delimiter } => *delimiter,
+        // One line, one cell — there is nothing in a plain line to split on
+        // that the reader would thank us for guessing at.
+        Records::Lines => return vec![(start, end)],
+        Records::Log(layout) => return log_fields(bytes, start, end, layout),
     };
     let mut spans = Vec::new();
     let mut field_start = start;
@@ -631,7 +779,7 @@ fn record_fields(bytes: &[u8], start: u32, end: u32, records: Records) -> Vec<(u
 fn decode_cell(
     bytes: &[u8],
     span: (u32, u32),
-    records: Records,
+    records: &Records,
     max_chars: usize,
     max_bytes: usize,
 ) -> (String, bool) {
@@ -643,7 +791,7 @@ fn decode_cell(
     // Only CSV puts quotes around a field. A log line that opens with one is
     // just a line that opens with a quote, and stripping it would silently
     // change what the file says.
-    let quoted = records != Records::Lines && raw.first() == Some(&b'"');
+    let quoted = records.quotes_span_records() && raw.first() == Some(&b'"');
     let inner = if quoted {
         let tail = if !cut && raw.len() > 1 && raw.last() == Some(&b'"') {
             raw.len() - 1
@@ -688,6 +836,32 @@ fn decode_cell(
 
 #[cfg(test)]
 mod tests {
+    /// Paging a log whose lines do not all match must not fall over.
+    ///
+    /// A stack trace leaves the timestamp, level and source cells empty, and
+    /// those are exactly the cells whose spans have to be produced from
+    /// nothing.
+    #[test]
+    fn a_log_with_unmatched_lines_pages() {
+        let src = "\
+2026-08-30T01:02:03.123Z INFO  [server] 시작됨
+2026-08-30T01:02:04.001Z WARN  [db] 느립니다
+2026-08-30T01:02:05.900Z ERROR [db] 실패
+\tat Connection.open(Connection.java:117)
+2026-08-30T01:02:06.010Z INFO  [server] 계속
+";
+        let doc = built(src, Records::for_kind(DocKind::Text, src.as_bytes()));
+        assert_eq!(doc.stats().column_count, 4, "시각·수준·출처·메시지");
+        let page = doc.page(0, 10);
+        assert_eq!(page.rows.len(), 5);
+        assert_eq!(
+            texts(&page.rows[3]),
+            ["", "", "", "\\tat Connection.open(Connection.java:117)"]
+        );
+        assert_eq!(doc.cell_text(3, 0).expect("cell").0, "");
+        assert_eq!(doc.row_text(3).expect("row"), "\tat Connection.open(Connection.java:117)");
+    }
+
     /// A quote in a log line is a character, not a record boundary.
     ///
     /// This is the whole reason text is not "CSV with no delimiter": under the
