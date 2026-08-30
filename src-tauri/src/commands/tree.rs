@@ -100,7 +100,7 @@ pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
                     "tree:error",
                     DocError {
                         doc_id,
-                        message: err.to_string(),
+                        error: err,
                     },
                 );
             }
@@ -120,6 +120,7 @@ pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
 fn tree_bytes(kind: DocKind, source: &Arc<DocBytes>) -> Result<(Arc<DocBytes>, Syntax)> {
     match kind {
         DocKind::Json => Ok((Arc::clone(source), Syntax::Json)),
+        DocKind::Jsonc => Ok((Arc::clone(source), Syntax::Jsonc)),
         DocKind::Xml => Ok((Arc::clone(source), Syntax::Xml)),
         DocKind::Yaml => Ok((
             Arc::new(DocBytes::from(convert::yaml_to_json(source)?.into_bytes())),
@@ -327,7 +328,7 @@ pub fn tree_search(
                     "tree:search-error",
                     DocError {
                         doc_id,
-                        message: err.to_string(),
+                        error: err,
                     },
                 );
             }

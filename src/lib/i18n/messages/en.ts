@@ -16,6 +16,7 @@ export const en: Messages = {
   // --- 형식 / formats ------------------------------------------------------
   "format.markdown": "Markdown",
   "format.json": "JSON",
+  "format.jsonc": "JSONC",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -263,6 +264,7 @@ export const en: Messages = {
   "syntax.expectedKey": "an object key was expected",
   "syntax.expectedColon": "a ':' was expected after the key",
   "syntax.unterminatedString": "a string is not closed",
+  "syntax.unterminatedComment": "a comment was never closed",
   "syntax.unreadableValue": "the value cannot be read",
   "syntax.tooDeep": "the nesting is too deep",
 
@@ -296,6 +298,7 @@ export const en: Messages = {
   "error.notUtf8": "The {subject} document is not UTF-8.",
   "error.jsonEmpty": "The content is empty.",
   "error.jsonSyntax": "line {line}, column {column}: {reason}",
+  "error.jsonSyntax.jsonc": "— If the file has comments or trailing commas, switch the format to JSONC in the toolbar.",
   "error.parseFailed": "Could not read the {subject}: {detail}",
   "error.xmlSyntax": "Could not read the XML (near byte {offset}): {detail}",
   "error.emptyQuery": "Enter something to search for.",

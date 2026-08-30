@@ -28,7 +28,7 @@ use serde::Serialize;
 use crate::bytes::DocBytes;
 use crate::error::Result;
 use index::{DEFAULT_EXPAND_DEPTH, TreeIndex, Syntax, Visibility};
-use scanner::{ScanLimits, scan};
+use scanner::{Dialect, ScanLimits, scan, scan_as};
 use search::{SearchOptions, SearchResult};
 
 /// Ceiling on the raw text handed back for "copy value". Anything larger is a
@@ -105,6 +105,9 @@ impl TreeDoc {
     ) -> Result<Self> {
         let scanned = match syntax {
             Syntax::Json => scan(&bytes, limits, progress, should_stop)?,
+            Syntax::Jsonc => {
+                scan_as(&bytes, Dialect::Jsonc, limits, progress, should_stop)?
+            }
             Syntax::Xml => crate::xml::scan(&bytes, limits, progress, should_stop)?,
         };
         let index = Arc::new(TreeIndex::new(scanned.nodes, scanned.synthetic_root, syntax));
@@ -590,5 +593,35 @@ mod converted_tests {
             .expect("server");
         assert!(server.container, "a converted table must be a container");
         assert_eq!(server.child_count, 2);
+    }
+
+    /// Skipping a comment is not losing it.
+    ///
+    /// A tree document has no raw view — that is the markdown toggle — so the
+    /// only way back to what was written is a node's own text. It is cut from
+    /// the document's bytes, so the comments inside a container come back with
+    /// it. The claim is here rather than in a comment because a comment cannot
+    /// notice when it stops being true.
+    #[test]
+    fn a_copied_container_still_has_its_comments() {
+        let src = "{\n  // 어느 포트로 열지\n  \"port\": 8080,\n  \"host\": \"a\", // 뒤에\n}";
+        let doc = TreeDoc::build(
+            Arc::new(DocBytes::from(src.as_bytes().to_vec())),
+            Syntax::Jsonc,
+            &ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("build");
+
+        let (root, truncated) = doc.node_text(0).expect("root text");
+        assert!(!truncated);
+        assert!(root.contains("// 어느 포트로 열지"), "got {root:?}");
+        assert!(root.contains("// 뒤에"), "got {root:?}");
+        assert!(root.ends_with('}'));
+
+        // And a scalar's text is still just the scalar.
+        let (port, _) = doc.node_text(1).expect("port text");
+        assert_eq!(port, "8080");
     }
 }

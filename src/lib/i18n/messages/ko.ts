@@ -21,6 +21,7 @@ export const ko = {
   // --- 형식 / formats ------------------------------------------------------
   "format.markdown": "마크다운",
   "format.json": "JSON",
+  "format.jsonc": "JSONC",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -268,6 +269,7 @@ export const ko = {
   "syntax.expectedKey": "객체 키가 필요합니다",
   "syntax.expectedColon": "키 뒤에 ':' 가 필요합니다",
   "syntax.unterminatedString": "문자열이 닫히지 않았습니다",
+  "syntax.unterminatedComment": "주석이 닫히지 않았습니다",
   "syntax.unreadableValue": "값을 해석할 수 없습니다",
   "syntax.tooDeep": "중첩이 너무 깊습니다",
 
@@ -301,6 +303,7 @@ export const ko = {
   "error.notUtf8": "{subject} 문서가 UTF-8이 아닙니다.",
   "error.jsonEmpty": "내용이 비어 있습니다.",
   "error.jsonSyntax": "{line}행 {column}열: {reason}",
+  "error.jsonSyntax.jsonc": "— 주석이나 후행 쉼표가 있는 파일이라면, 도구 모음의 형식을 JSONC 로 바꿔 보세요.",
   "error.parseFailed": "{subject} — 읽지 못했습니다: {detail}",
   "error.xmlSyntax": "XML을 읽지 못했습니다 ({offset}바이트 부근): {detail}",
   "error.emptyQuery": "검색어를 입력해 주세요.",

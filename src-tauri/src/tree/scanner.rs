@@ -22,6 +22,35 @@ const PROGRESS_STEP: usize = 8 * 1024 * 1024;
 
 pub const NO_PARENT: u32 = u32::MAX;
 
+/// Which of the two readings this scanner is doing.
+///
+/// Named apart from `Syntax`, which decides *which* scanner runs and how a path
+/// is written. Both readings here are the same scanner and the same paths.
+///
+/// One scanner, not two. The difference is small enough — what may sit between
+/// values, and whether a comma may be the last thing in a container — that a
+/// second scanner would be the first one copied, and the copy would be the one
+/// that fell behind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dialect {
+    /// JSON as the grammar defines it. A comment is a syntax error, and so is a
+    /// comma with nothing after it.
+    Json,
+    /// JSONC: `//` and `/* */` between values, and a trailing comma before a
+    /// closing brace or bracket.
+    ///
+    /// Comments are skipped, not kept. In XML a comment is a node, but an XML
+    /// path counts elements of the same name, so a comment cannot disturb it.
+    /// A JSON array path *is* the child ordinal — a comment among the children
+    /// would move `$.items[3]` off the element every other JSON tool calls
+    /// `$.items[3]`.
+    ///
+    /// Skipped is not lost. A node's text is cut from the document's own bytes,
+    /// so copying a container hands back the comments inside it exactly as they
+    /// were written.
+    Jsonc,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[repr(u8)]
@@ -130,6 +159,17 @@ pub struct Scan {
 pub fn scan(
     bytes: &[u8],
     limits: &ScanLimits,
+    progress: impl FnMut(usize),
+    should_stop: &dyn Fn() -> bool,
+) -> Result<Scan> {
+    scan_as(bytes, Dialect::Json, limits, progress, should_stop)
+}
+
+/// Scan `bytes` under `dialect`. See `scan`.
+pub fn scan_as(
+    bytes: &[u8],
+    dialect: Dialect,
+    limits: &ScanLimits,
     mut progress: impl FnMut(usize),
     should_stop: &dyn Fn() -> bool,
 ) -> Result<Scan> {
@@ -145,6 +185,7 @@ pub fn scan(
 
     let mut scanner = Scanner {
         b: body,
+        dialect,
         p: 0,
         nodes: Vec::new(),
         stack: Vec::new(),
@@ -183,6 +224,7 @@ pub fn scan(
 
 struct Scanner<'a, 'l> {
     b: &'a [u8],
+    dialect: Dialect,
     p: usize,
     nodes: Vec<Node>,
     /// Open containers: (node id, children seen so far).
@@ -206,7 +248,7 @@ impl Scanner<'_, '_> {
         progress: &mut impl FnMut(usize),
         should_stop: &dyn Fn() -> bool,
     ) -> Result<u32> {
-        self.skip_ws();
+        self.skip_gap()?;
         if self.p >= self.b.len() {
             return Err(Error::JsonEmpty);
         }
@@ -235,7 +277,7 @@ impl Scanner<'_, '_> {
             }
         }
 
-        self.skip_ws();
+        self.skip_gap()?;
         if self.p < self.b.len() {
             return Err(self.err_at(SyntaxReason::TrailingContent));
         }
@@ -247,14 +289,14 @@ impl Scanner<'_, '_> {
     /// Close finished containers. Returns true when the document is complete.
     fn ascend(&mut self) -> Result<bool> {
         loop {
-            self.skip_ws();
+            self.skip_gap()?;
             let Some(&(open_id, _)) = self.stack.last() else {
                 // Top level. Another value may follow — NDJSON and concatenated
                 // JSON streams are common enough in logs to be worth reading.
                 let before = self.p;
                 if self.p < self.b.len() && self.b[self.p] == b',' {
                     self.p += 1;
-                    self.skip_ws();
+                    self.skip_gap()?;
                 }
                 if self.p >= self.b.len() {
                     return Ok(true);
@@ -270,9 +312,20 @@ impl Scanner<'_, '_> {
             }
 
             let is_object = self.nodes[open_id as usize].kind == Kind::Object;
+            let close = if is_object { b'}' } else { b']' };
             match self.b[self.p] {
                 b',' => {
                     self.p += 1;
+                    // A trailing comma is a comma with the closer behind it.
+                    // Looking rather than assuming is what keeps the strict
+                    // reading strict: there, this is simply not checked.
+                    if self.dialect == Dialect::Jsonc {
+                        self.skip_gap()?;
+                        if self.b.get(self.p) == Some(&close) {
+                            self.close_container();
+                            continue;
+                        }
+                    }
                     if is_object {
                         self.read_key()?;
                     }
@@ -298,7 +351,7 @@ impl Scanner<'_, '_> {
     /// Parse the value at `self.p` and push its node. Either steps into the
     /// container (setting `descended`) or leaves `self.p` just past the scalar.
     fn begin_value(&mut self, key: Option<(u32, u32)>) -> Result<()> {
-        self.skip_ws();
+        self.skip_gap()?;
         if self.p >= self.b.len() {
             return Err(self.err_at(SyntaxReason::ExpectedValue));
         }
@@ -357,7 +410,7 @@ impl Scanner<'_, '_> {
         if kind.is_container() {
             self.p += 1;
             self.stack.push((id, 0));
-            self.skip_ws();
+            self.skip_gap()?;
             let close = if kind == Kind::Object { b'}' } else { b']' };
             if self.p < self.b.len() && self.b[self.p] == close {
                 self.close_container();
@@ -380,14 +433,14 @@ impl Scanner<'_, '_> {
     }
 
     fn read_key(&mut self) -> Result<()> {
-        self.skip_ws();
+        self.skip_gap()?;
         if self.p >= self.b.len() || self.b[self.p] != b'"' {
             return Err(self.err_at(SyntaxReason::ExpectedKey));
         }
         let start = self.p;
         let end = self.scan_string(start)?;
         self.p = end;
-        self.skip_ws();
+        self.skip_gap()?;
         if self.p >= self.b.len() || self.b[self.p] != b':' {
             return Err(self.err_at(SyntaxReason::ExpectedColon));
         }
@@ -417,9 +470,17 @@ impl Scanner<'_, '_> {
     }
 
     fn scan_literal(&self, start: usize, kind: Kind) -> Result<usize> {
+        // `/` ends a literal only under JSONC, where `1//note` is the number 1
+        // and a comment. Under the strict reading it stays part of the literal,
+        // so `1/2` still fails as the unreadable value it is rather than as a
+        // stray character after a good one.
+        let lenient = self.dialect == Dialect::Jsonc;
         let end = self.b[start..]
             .iter()
-            .position(|b| matches!(b, b',' | b']' | b'}' | b' ' | b'\t' | b'\n' | b'\r'))
+            .position(|b| {
+                matches!(b, b',' | b']' | b'}' | b' ' | b'\t' | b'\n' | b'\r')
+                    || (lenient && *b == b'/')
+            })
             .map_or(self.b.len(), |offset| start + offset);
 
         let text = &self.b[start..end];
@@ -435,9 +496,46 @@ impl Scanner<'_, '_> {
         Ok(end)
     }
 
-    fn skip_ws(&mut self) {
-        while self.p < self.b.len() && matches!(self.b[self.p], b' ' | b'\t' | b'\n' | b'\r') {
-            self.p += 1;
+    /// Move past everything between one piece of the document and the next.
+    ///
+    /// Whitespace always; comments too when the syntax allows them. Named for
+    /// what it does rather than for whitespace, because under JSONC whitespace
+    /// is only half of it.
+    fn skip_gap(&mut self) -> Result<()> {
+        loop {
+            while self.p < self.b.len() && matches!(self.b[self.p], b' ' | b'\t' | b'\n' | b'\r') {
+                self.p += 1;
+            }
+            if self.dialect == Dialect::Json || self.p + 1 >= self.b.len() {
+                return Ok(());
+            }
+            match (self.b[self.p], self.b[self.p + 1]) {
+                (b'/', b'/') => {
+                    // To the end of the line, or to the end of the file when
+                    // the last line has no newline of its own.
+                    self.p = match memchr::memchr(b'\n', &self.b[self.p..]) {
+                        Some(offset) => self.p + offset + 1,
+                        None => self.b.len(),
+                    };
+                }
+                (b'/', b'*') => {
+                    let start = self.p;
+                    let mut at = self.p + 2;
+                    loop {
+                        let Some(offset) = memchr::memchr(b'*', &self.b[at..]) else {
+                            return Err(
+                                self.err_at_pos(start, SyntaxReason::UnterminatedComment)
+                            );
+                        };
+                        at += offset + 1;
+                        if self.b.get(at) == Some(&b'/') {
+                            self.p = at + 1;
+                            break;
+                        }
+                    }
+                }
+                _ => return Ok(()),
+            }
         }
     }
 
@@ -451,6 +549,24 @@ impl Scanner<'_, '_> {
             line: line as u32,
             column: column as u32,
             reason,
+            jsonc: self.dialect == Dialect::Json && self.jsonc_would_read(pos),
+        }
+    }
+
+    /// Whether the strict reading stopped at something JSONC allows.
+    ///
+    /// Two shapes cover what a JSONC file in `.json` clothing actually looks
+    /// like: a comment starting, and a closer with a spare comma behind it.
+    /// Both are "this is where the other reading would have kept going".
+    fn jsonc_would_read(&self, pos: usize) -> bool {
+        match self.b.get(pos) {
+            Some(b'/') => true,
+            Some(b'}' | b']') => self.b[..pos]
+                .iter()
+                .rev()
+                .find(|byte| !byte.is_ascii_whitespace())
+                .is_some_and(|byte| *byte == b','),
+            _ => false,
         }
     }
 }
@@ -843,5 +959,232 @@ mod tests {
         let scan = scan_ok(src);
         assert_consistent(&scan, src);
         assert_eq!(scan.nodes.len(), 5);
+    }
+
+    // --- JSONC --------------------------------------------------------------
+
+    fn jsonc_ok(src: &str) -> Scan {
+        scan_as(src.as_bytes(), Dialect::Jsonc, &ScanLimits::default(), |_| {}, &|| false)
+            .unwrap_or_else(|e| panic!("jsonc scan failed for {src:?}: {e}"))
+    }
+
+    fn jsonc_err(src: &str) -> Error {
+        scan_as(src.as_bytes(), Dialect::Jsonc, &ScanLimits::default(), |_| {}, &|| false)
+            .err()
+            .unwrap_or_else(|| panic!("expected {src:?} to fail"))
+    }
+
+    /// What the tree holds is the data, with the comments gone — and the same
+    /// document read strictly is still an error, which is the whole point of
+    /// keeping the two readings apart.
+    #[test]
+    fn comments_are_skipped_and_leave_the_data_alone() {
+        let src = "{\n  // 어느 포트로 열지\n  \"port\": 8080, /* 안쪽 */ \"host\": \"a\"\n}";
+        let scan = jsonc_ok(src);
+        assert_consistent(&scan, src);
+
+        assert_eq!(scan.nodes[0].kind, Kind::Object);
+        assert_eq!(scan.nodes[0].child_count, 2, "a comment is not a child");
+        let keys: Vec<&str> = scan.nodes[1..]
+            .iter()
+            .map(|node| {
+                std::str::from_utf8(
+                    &src.as_bytes()
+                        [node.key_start as usize..(node.key_start + node.key_len) as usize],
+                )
+                .expect("utf8")
+            })
+            .collect();
+        assert_eq!(keys, ["port", "host"]);
+
+        assert!(matches!(err_of(src), Error::JsonSyntax { .. }), "strict must refuse");
+    }
+
+    /// An array index is a child ordinal, so a comment among the children must
+    /// not move one. This is the reason comments are not nodes.
+    #[test]
+    fn a_comment_does_not_move_an_array_index() {
+        let src = "[1, /* 둘 */ 2, // 셋\n 3]";
+        let scan = jsonc_ok(src);
+        assert_consistent(&scan, src);
+
+        let array = &scan.nodes[0];
+        assert_eq!(array.kind, Kind::Array);
+        assert_eq!(array.child_count, 3);
+        for (index, node) in scan.nodes[1..].iter().enumerate() {
+            assert_eq!(node.sibling_index, index as u32);
+        }
+        // The third element is the third element, not the fifth thing written.
+        let third = &scan.nodes[3];
+        let text = &src.as_bytes()
+            [third.val_start as usize..(third.val_start + third.val_len) as usize];
+        assert_eq!(text, b"3");
+    }
+
+    /// A comma with the closer behind it is a comma too many, and JSONC lets it
+    /// stand. Objects and arrays both, nested and empty-ish.
+    #[test]
+    fn a_trailing_comma_may_be_the_last_thing() {
+        for src in [
+            "[1, 2, ]",
+            "{\"a\": 1, }",
+            "{\"a\": [1, 2,], \"b\": {\"c\": 3,},}",
+            "[1, /* 주석 뒤에 닫아도 */ ]",
+            "[1, // 줄 주석 뒤에 닫아도\n]",
+        ] {
+            let scan = jsonc_ok(src);
+            assert_consistent(&scan, src);
+            assert!(matches!(err_of(src), Error::JsonSyntax { .. }), "strict must refuse {src:?}");
+        }
+
+        let scan = jsonc_ok("[1, 2, ]");
+        assert_eq!(scan.nodes[0].child_count, 2, "the comma adds no element");
+    }
+
+    /// A comment ends a number as surely as a comma does.
+    #[test]
+    fn a_literal_may_end_at_a_comment() {
+        let scan = jsonc_ok("[1//하나\n,2/* 둘 */]");
+        assert_eq!(scan.nodes[0].child_count, 2);
+        assert_eq!(scan.nodes[1].val_len, 1);
+        assert_eq!(scan.nodes[2].val_len, 1);
+
+        // Strict keeps reading the literal, so the same text is unreadable
+        // rather than a number followed by something unexpected.
+        assert!(matches!(
+            err_of("[1/2]"),
+            Error::JsonSyntax {
+                reason: SyntaxReason::UnreadableValue,
+                ..
+            }
+        ));
+    }
+
+    /// A comment marker inside a string is text. The string is read first, so
+    /// this holds by construction — and a test is what keeps it holding.
+    #[test]
+    fn a_comment_marker_inside_a_string_is_text() {
+        let src = "{\"url\": \"https://example.com/a\", \"note\": \"/* not a comment */\"}";
+        let scan = jsonc_ok(src);
+        assert_eq!(scan.nodes[0].child_count, 2);
+
+        let url = &scan.nodes[1];
+        let text = &src.as_bytes()[url.val_start as usize..(url.val_start + url.val_len) as usize];
+        assert_eq!(text, b"\"https://example.com/a\"");
+
+        // And the strict reading agrees, because nothing about strings changed.
+        assert_eq!(scan_ok(src).nodes.len(), 3);
+    }
+
+    /// A block comment nobody closed swallows the rest of the file. Saying so
+    /// where it opened beats reporting whatever went missing at the end.
+    #[test]
+    fn an_unclosed_block_comment_is_reported_where_it_opened() {
+        let err = jsonc_err("{\n  \"a\": 1\n  /* 여기서 열고 안 닫음\n}");
+        match err {
+            Error::JsonSyntax {
+                line,
+                column,
+                reason,
+                ..
+            } => {
+                assert_eq!(reason, SyntaxReason::UnterminatedComment);
+                assert_eq!(line, 3);
+                assert_eq!(column, 3);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        // A `*` that never meets its `/` is the same failure.
+        assert!(matches!(
+            jsonc_err("[1] /* * * *"),
+            Error::JsonSyntax {
+                reason: SyntaxReason::UnterminatedComment,
+                ..
+            }
+        ));
+    }
+
+    /// Comments may sit anywhere whitespace may: before the document, after it,
+    /// between a key and its value, and around the colon.
+    #[test]
+    fn comments_go_wherever_whitespace_goes() {
+        for src in [
+            "// 머리말\n{\"a\": 1}",
+            "{\"a\": 1} // 꼬리말",
+            "{\"a\" /* 키 뒤 */ : /* 콜론 뒤 */ 1}",
+            "{/* 첫 키 앞 */ \"a\": 1}",
+            "[1, 2] /* 끝 */ // 그리고 더",
+        ] {
+            let scan = jsonc_ok(src);
+            assert_consistent(&scan, src);
+        }
+    }
+
+    /// A file with nothing but comments has no data in it, and that is the same
+    /// answer an empty file gets.
+    #[test]
+    fn a_file_of_only_comments_is_empty() {
+        assert!(matches!(jsonc_err("// 아무것도 없음\n/* 정말로 */"), Error::JsonEmpty));
+    }
+
+    /// A `.json` file that is really JSONC fails, and says where to go.
+    ///
+    /// The two shapes a reader actually meets: a comment, and a comma with
+    /// nothing after it. Both stop the strict reading at a spot the other
+    /// reading would have walked through.
+    #[test]
+    fn a_strict_failure_points_at_the_other_reading() {
+        for src in [
+            "{\n  // 설명\n  \"a\": 1\n}",
+            "{\"a\": 1 /* 뒤에 */ }",
+            "{\"a\": 1,}",
+            "[1, 2,]",
+            "{\"a\": [1,],}",
+        ] {
+            match err_of(src) {
+                Error::JsonSyntax { jsonc, .. } => {
+                    assert!(jsonc, "no way out offered for {src:?}");
+                }
+                other => panic!("unexpected error for {src:?}: {other:?}"),
+            }
+            // And the offer is true: JSONC really does read them.
+            jsonc_ok(src);
+        }
+    }
+
+    /// A file that is broken in a way JSONC does not fix must not be told to
+    /// try JSONC. An offer that leads nowhere is worse than none.
+    #[test]
+    fn a_failure_jsonc_would_not_fix_offers_nothing() {
+        for src in [
+            "{\"a\": tru}",
+            "{\"a\" 1}",
+            "[1, 2",
+            "{\"a\": 1} 뒤에 뭔가",
+            "[1.2.3]",
+        ] {
+            match err_of(src) {
+                Error::JsonSyntax { jsonc, .. } => {
+                    assert!(!jsonc, "offered a way out that is not one for {src:?}");
+                }
+                other => panic!("unexpected error for {src:?}: {other:?}"),
+            }
+            assert!(
+                scan_as(src.as_bytes(), Dialect::Jsonc, &ScanLimits::default(), |_| {}, &|| false)
+                    .is_err(),
+                "JSONC must not read {src:?} either"
+            );
+        }
+    }
+
+    /// The offer is only ever made to the strict reading. A JSONC document that
+    /// fails is broken on its own terms.
+    #[test]
+    fn the_lenient_reading_offers_nothing() {
+        match jsonc_err("{\"a\": 1 /* 안 닫음") {
+            Error::JsonSyntax { jsonc, .. } => assert!(!jsonc),
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

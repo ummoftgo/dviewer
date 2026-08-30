@@ -12,6 +12,7 @@ import { n, t, type MessageKey } from "./i18n";
 export type DocKind =
   | "markdown"
   | "json"
+  | "jsonc"
   | "yaml"
   | "toml"
   | "xml"
@@ -21,7 +22,7 @@ export type DocKind =
   | "sqlite";
 
 /**
- * How a document is read. Eight formats, four views — routing on the view is
+ * How a document is read. Nine formats, four views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
 export type DocView = "prose" | "tree" | "table" | "database";
@@ -36,6 +37,7 @@ export type DocView = "prose" | "tree" | "table" | "database";
 export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "markdown", label: "format.markdown" },
   { kind: "json", label: "format.json" },
+  { kind: "jsonc", label: "format.jsonc" },
   { kind: "yaml", label: "format.yaml" },
   { kind: "toml", label: "format.toml" },
   { kind: "xml", label: "format.xml" },
@@ -73,6 +75,7 @@ export function kindLabel(kind: DocKind): string {
 const BADGES: Record<DocKind, string> = {
   markdown: "M↓",
   json: "{ }",
+  jsonc: "{/}",
   yaml: "Y",
   toml: "T",
   xml: "< >",
@@ -477,7 +480,8 @@ export interface IndexReady {
 
 export interface DocErrorEvent {
   docId: number;
-  message: string;
+  /** The failure as `BackendError`, for `errorMessage` to put into words. */
+  error: unknown;
 }
 
 export interface SearchBatch {
@@ -551,7 +555,12 @@ function readable(params: Record<string, unknown> | undefined): Record<string, s
 }
 
 export function errorMessage(err: unknown): string {
-  if (isBackendError(err)) return t(`error.${err.code}` as MessageKey, readable(err.params));
+  if (isBackendError(err)) {
+    const message = t(`error.${err.code}` as MessageKey, readable(err.params));
+    // A strict reading that stopped where JSONC would have carried on. The
+    // reading does not budge; the message just stops being a dead end.
+    return err.params?.jsonc === true ? `${message} ${t("error.jsonSyntax.jsonc")}` : message;
+  }
   // A plain Error is ours — a bridge failure, or something thrown in a view.
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;

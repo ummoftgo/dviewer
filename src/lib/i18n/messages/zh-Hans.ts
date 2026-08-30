@@ -16,6 +16,7 @@ export const zhHans: Messages = {
   // --- 형식 / formats ------------------------------------------------------
   "format.markdown": "Markdown",
   "format.json": "JSON",
+  "format.jsonc": "JSONC",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -263,6 +264,7 @@ export const zhHans: Messages = {
   "syntax.expectedKey": "需要对象键",
   "syntax.expectedColon": "键之后需要 ':'",
   "syntax.unterminatedString": "字符串未闭合",
+  "syntax.unterminatedComment": "注释未闭合",
   "syntax.unreadableValue": "无法解析该值",
   "syntax.tooDeep": "嵌套过深",
 
@@ -296,6 +298,7 @@ export const zhHans: Messages = {
   "error.notUtf8": "{subject} 文档不是 UTF-8。",
   "error.jsonEmpty": "内容为空。",
   "error.jsonSyntax": "第 {line} 行第 {column} 列：{reason}",
+  "error.jsonSyntax.jsonc": "— 如果文件中有注释或尾随逗号，请在工具栏中把格式切换为 JSONC。",
   "error.parseFailed": "无法读取 {subject}：{detail}",
   "error.xmlSyntax": "无法读取 XML（约在第 {offset} 字节）：{detail}",
   "error.emptyQuery": "请输入搜索内容。",

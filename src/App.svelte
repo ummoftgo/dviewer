@@ -71,10 +71,10 @@
         tab.indexing = null;
         tab.error = null;
       }),
-      ipc.on("tree:error", ({ docId, message }) => {
+      ipc.on("tree:error", ({ docId, error }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
-        tab.error = message;
+        tab.error = ipc.errorMessage(error);
         tab.indexing = null;
       }),
       // Batches from a search the reader has already replaced are dropped
@@ -90,11 +90,11 @@
         tab.search.running = false;
         tab.search.summary = summary;
       }),
-      ipc.on("tree:search-error", ({ docId, message }) => {
+      ipc.on("tree:search-error", ({ docId, error }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
         tab.search.running = false;
-        tab.search.error = message;
+        tab.search.error = ipc.errorMessage(error);
       }),
       ipc.on("table:progress", ({ docId, bytesDone, bytesTotal }) => {
         const tab = workspace.tab(docId);
@@ -108,10 +108,10 @@
         tab.indexing = null;
         tab.error = null;
       }),
-      ipc.on("table:error", ({ docId, message }) => {
+      ipc.on("table:error", ({ docId, error }) => {
         const tab = workspace.tab(docId);
         if (!tab) return;
-        tab.error = message;
+        tab.error = ipc.errorMessage(error);
         tab.indexing = null;
       }),
       // A second `dviewer` handed its arguments to this window.

@@ -467,6 +467,50 @@ console.log("  sample.tsv");
   console.log("  sample.sqlite");
 }
 
+// A JSONC file with every shape the lenient reading has to walk past, and a
+// strict twin that differs only in having none of them — open the two side by
+// side and the tree should be identical.
+const jsoncBody = `{
+  // 어느 포트로 열지
+  "port": 8080,
+
+  /* 여러 줄 주석도
+     당연히 지나간다 */
+  "hosts": [
+    "a.example.com", // 뒤에 붙는 주석
+    "b.example.com",  // 그리고 다음 줄에 후행 쉼표
+  ],
+
+  "nested": { "deep": { "value": 1, }, },
+  "url": "https://example.com/not/a/comment",
+  "text": "/* 이건 문자열 안이라 주석이 아니다 */",
+  "number": 1, // 주석이 값의 끝이기도 하다
+}`;
+await writeFile(path.join(OUT, "sample.jsonc"), jsoncBody + "\n");
+console.log("  sample.jsonc");
+
+await writeFile(
+  path.join(OUT, "strict.json"),
+  JSON.stringify(
+    {
+      port: 8080,
+      hosts: ["a.example.com", "b.example.com"],
+      nested: { deep: { value: 1 } },
+      url: "https://example.com/not/a/comment",
+      text: "/* 이건 문자열 안이라 주석이 아니다 */",
+      number: 1,
+    },
+    null,
+    2,
+  ) + "\n",
+);
+console.log("  strict.json");
+
+// The one that has to fail with an offer rather than a dead end: a .json name
+// over JSONC content, which is what every editor settings file looks like.
+await writeFile(path.join(OUT, "settings.json"), jsoncBody + "\n");
+console.log("  settings.json");
+
 if (wantHuge) {
   // Same shape as a real export: wide enough that columns matter, long enough
   // that nothing but a windowed grid can show it.

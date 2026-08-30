@@ -16,6 +16,7 @@ export const ja: Messages = {
   // --- 형식 / formats ------------------------------------------------------
   "format.markdown": "Markdown",
   "format.json": "JSON",
+  "format.jsonc": "JSONC",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -263,6 +264,7 @@ export const ja: Messages = {
   "syntax.expectedKey": "オブジェクトのキーが必要です",
   "syntax.expectedColon": "キーの後に ':' が必要です",
   "syntax.unterminatedString": "文字列が閉じられていません",
+  "syntax.unterminatedComment": "コメントが閉じられていません",
   "syntax.unreadableValue": "値を解釈できません",
   "syntax.tooDeep": "ネストが深すぎます",
 
@@ -296,6 +298,7 @@ export const ja: Messages = {
   "error.notUtf8": "{subject} 文書が UTF-8 ではありません。",
   "error.jsonEmpty": "内容が空です。",
   "error.jsonSyntax": "{line}行{column}列: {reason}",
+  "error.jsonSyntax.jsonc": "— コメントや末尾のカンマがあるファイルなら、ツールバーの形式を JSONC に変えてみてください。",
   "error.parseFailed": "{subject} を読み込めませんでした: {detail}",
   "error.xmlSyntax": "XML を読み込めませんでした ({offset} バイト付近): {detail}",
   "error.emptyQuery": "検索語を入力してください。",

@@ -48,6 +48,10 @@ pub enum SyntaxReason {
     ExpectedKey,
     ExpectedColon,
     UnterminatedString,
+    /// A `/*` with no `/*`-closing partner. Its own reason because the
+    /// alternative — swallowing the rest of the file and reporting whatever
+    /// went missing at the end — points at the wrong place entirely.
+    UnterminatedComment,
     UnreadableValue,
     TooDeep,
 }
@@ -120,6 +124,14 @@ pub enum Error {
         line: u32,
         column: u32,
         reason: SyntaxReason,
+        /// The strict reading failed somewhere JSONC would have carried on.
+        ///
+        /// Sent so the message can say which switch to reach for. A `.json`
+        /// file full of comments is common enough — `tsconfig.json` and every
+        /// editor setting file — that leaving the reader at a dead end is a
+        /// choice, and this is the other one. The reading itself does not
+        /// budge: nothing here relaxes what `.json` may contain.
+        jsonc: bool,
     },
     ParseFailed { subject: Subject, detail: String },
     XmlSyntax { offset: u64, detail: String },
@@ -219,6 +231,7 @@ impl std::fmt::Display for Error {
                 line,
                 column,
                 reason,
+                ..
             } => write!(f, ": {line}:{column} {reason:?}"),
             Error::ParseFailed { subject, detail } => write!(f, ": {subject:?} {detail}"),
             Error::XmlSyntax { offset, detail } => write!(f, ": at {offset} {detail}"),
@@ -267,10 +280,16 @@ mod tests {
                 line: 3,
                 column: 12,
                 reason: SyntaxReason::UnterminatedString,
+                jsonc: false,
             }),
             serde_json::json!({
                 "code": "jsonSyntax",
-                "params": { "line": 3, "column": 12, "reason": "unterminatedString" }
+                "params": {
+                    "line": 3,
+                    "column": 12,
+                    "reason": "unterminatedString",
+                    "jsonc": false
+                }
             })
         );
     }
@@ -304,7 +323,12 @@ mod tests {
             Error::NoSuchRow,
             Error::NotUtf8 { subject: Subject::Toml },
             Error::JsonEmpty,
-            Error::JsonSyntax { line: 1, column: 1, reason: SyntaxReason::ExpectedValue },
+            Error::JsonSyntax {
+                line: 1,
+                column: 1,
+                reason: SyntaxReason::ExpectedValue,
+                jsonc: false,
+            },
             Error::ParseFailed { subject: Subject::Xml, detail: "x".into() },
             Error::XmlSyntax { offset: 1, detail: "x".into() },
             Error::EmptyQuery,

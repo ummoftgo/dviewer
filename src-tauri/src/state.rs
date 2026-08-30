@@ -20,6 +20,11 @@ pub type DocId = u32;
 pub enum DocKind {
     Markdown,
     Json,
+    /// JSON with comments and trailing commas. A separate kind rather than a
+    /// flag on `Json`, so that `.json` keeps refusing what `.json` may not
+    /// contain — a viewer that quietly accepts a malformed file teaches its
+    /// reader that the file was fine.
+    Jsonc,
     Yaml,
     Toml,
     Xml,
@@ -56,7 +61,9 @@ impl DocKind {
     pub fn view(self) -> DocView {
         match self {
             DocKind::Markdown => DocView::Prose,
-            DocKind::Json | DocKind::Yaml | DocKind::Toml | DocKind::Xml => DocView::Tree,
+            DocKind::Json | DocKind::Jsonc | DocKind::Yaml | DocKind::Toml | DocKind::Xml => {
+                DocView::Tree
+            }
             DocKind::Csv | DocKind::Tsv | DocKind::Text => DocView::Table,
             DocKind::Sqlite => DocView::Database,
         }

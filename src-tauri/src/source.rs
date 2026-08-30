@@ -14,7 +14,11 @@ use crate::state::DocKind;
 pub const MAX_URL_BYTES: u64 = 512 * 1024 * 1024;
 
 const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
-const JSON_EXTS: &[&str] = &["json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb"];
+const JSON_EXTS: &[&str] = &["json", "jsonl", "ndjson", "geojson", "har", "ipynb"];
+/// Only the extension that says so. `.json` stays strict however common the
+/// comments in the wild are — the toolbar switch is one click, and a viewer
+/// that reads a malformed file without a word teaches its reader it was fine.
+const JSONC_EXTS: &[&str] = &["jsonc"];
 const YAML_EXTS: &[&str] = &["yaml", "yml"];
 const TOML_EXTS: &[&str] = &["toml"];
 const XML_EXTS: &[&str] = &[
@@ -38,6 +42,7 @@ const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
 /// Every format the viewer knows, paired with the extensions that name it.
 const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Json, JSON_EXTS),
+    (DocKind::Jsonc, JSONC_EXTS),
     (DocKind::Markdown, MARKDOWN_EXTS),
     (DocKind::Yaml, YAML_EXTS),
     (DocKind::Toml, TOML_EXTS),

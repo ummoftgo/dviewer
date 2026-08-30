@@ -34,11 +34,16 @@ pub(crate) struct IndexProgress {
 
 /// A failure that belongs to one document rather than to the call that
 /// triggered it — it arrives as an event, long after the command returned.
+///
+/// Carries the error itself, the same shape a command's `Err` crosses with.
+/// It used to carry `err.to_string()`, which put a Rust `Debug` line in front
+/// of the reader — untranslated, and with the parameters welded into it. A
+/// failure that arrives by a different road is still the same failure.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DocError {
     pub doc_id: DocId,
-    pub message: String,
+    pub error: crate::error::Error,
 }
 
 /// Holds the indexing slot for a document until the job that claimed it ends.

@@ -396,6 +396,9 @@ impl Visibility {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Syntax {
     Json,
+    /// The same nodes and the same paths as `Json`; only what the scanner will
+    /// walk past on the way to them differs.
+    Jsonc,
     Xml,
 }
 
@@ -508,7 +511,7 @@ impl TreeIndex {
     /// Dotted path of a node, e.g. `root.items[3].name`.
     pub fn path_of(&self, bytes: &[u8], id: u32) -> String {
         match self.syntax {
-            Syntax::Json => self.json_path_of(bytes, id),
+            Syntax::Json | Syntax::Jsonc => self.json_path_of(bytes, id),
             Syntax::Xml => self.xml_path_of(bytes, id),
         }
     }

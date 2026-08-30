@@ -98,7 +98,7 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
                     "table:error",
                     DocError {
                         doc_id,
-                        message: err.to_string(),
+                        error: err,
                     },
                 );
             }
