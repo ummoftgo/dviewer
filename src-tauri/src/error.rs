@@ -145,6 +145,10 @@ pub enum Error {
     // --- searching ------------------------------------------------------------
     EmptyQuery,
     BadQuery { detail: String },
+    /// The path expression cannot be read, or uses a part of the syntax this
+    /// does not do. Both are said out loud: a filter expression that quietly
+    /// selected everything would be a wrong answer wearing an answer's clothes.
+    BadPath { detail: String },
     /// The regular expression does not compile. `detail` is the crate's own
     /// message, which names the position and the reason — worth more to the
     /// person fixing it than anything this app could say instead.
@@ -204,6 +208,7 @@ impl Error {
             Error::XmlSyntax { .. } => "xmlSyntax",
             Error::EmptyQuery => "emptyQuery",
             Error::BadQuery { .. } => "badQuery",
+            Error::BadPath { .. } => "badPath",
             Error::BadRegex { .. } => "badRegex",
             Error::FontsFailed { .. } => "fontsFailed",
         }
@@ -347,6 +352,7 @@ mod tests {
             Error::XmlSyntax { offset: 1, detail: "x".into() },
             Error::EmptyQuery,
             Error::BadQuery { detail: "x".into() },
+            Error::BadPath { detail: "x".into() },
             Error::BadRegex { detail: "x".into() },
             Error::FontsFailed { detail: "x".into() },
         ];

@@ -19,6 +19,7 @@ Thirteen formats, but only **four** ways of reading. Build a screen per format a
 - **Logs become columns.** The leading time, level and `[source]` are recognised and everything else stays in one message column. A line that does not start with a timestamp — a stack trace — joins the record above it. `key=value` pairs can be expanded from the toolbar, and the whole thing folds back to one line at any time. ERROR and WARN are tinted, in the level cell only. When the guess is not confident, nothing is split.
 - **JSONL is a table.** One line, one row; the keys are the columns. They are read from a sample of the front, and a key a record does not have leaves the cell empty — lines that are not objects are not split at all. It folds back to the original lines at any time, and switching the format to JSON opens the same file as a tree.
 - **JSON with comments is read as JSONC.** `.jsonc` walks past `//` and `/* */` comments and trailing commas. `.json` stays strict — but when the strict reading stops somewhere JSONC would have carried on, the error says which switch to reach for.
+- **Select nodes by JSONPath** (tree view). Written as `$.items[0].name` or `$..title` — picking a place rather than finding text, which is why it takes 0.07 seconds over a 38-million-node file. The substring path search is still there.
 - **Search by regular expression.** Turn on `.*` in the search box and the query is read as a pattern — matched inside one key or value in the tree, one cell in a grid, so `^\d+$` does what it says. Turn it off and the search is the literal one it has always been.
 - **Opening a Parquet file does not follow its size.** Only the index at the end is read, and only the row groups the screen reaches are decoded: 0.19ms at 52MB, 0.61ms at 311MB — what grows is the number of row groups, not the bytes. That is why it has none of the ceilings the other formats carry.
 - **Excel workbooks open.** Pick a sheet and read it as a table. Columns are named `A`, `B`, `AA` and row 1 is row 1, so the coordinates match the spreadsheet you are checking against. Dates are ISO 8601, and a toggle shows the formulas instead of the values. It is converted rather than mapped, so there is a 64MB ceiling.
@@ -95,7 +96,8 @@ The technical documentation lives in `doc/` (Korean).
 - JSON files up to 4GB (offsets are `u32`).
 - A regular expression is matched **inside one value** — one key or value in the tree, one cell in a grid. There is no match spanning nodes or cells; that is what makes `^` and `$` mean anything.
 - Pattern search is slower than literal search, because it looks at values one at a time: about 1.5 seconds over a 300MB CSV, against 0.05 for a literal. It can be interrupted.
-- JSONPath expressions are not there yet — path search is a substring match against path strings like `$.items[3].name`.
+- JSONPath is a subset — `$`, `.key`, `["key"]`, `[n]`, `[*]` and `..`. Filter expressions (`?()`), slices (`[1:3]`) and unions (`[0,2]`) are not there, and using one is an error that names what is missing.
+- JSONPath is not offered for XML. An XML path is XPath-shaped, so an expression would mean something else there.
 - Literal search folds case in the ASCII range only. The regular-expression side follows Unicode, as the crate does.
 - Markdown rendering up to 16MB. Larger files do not open.
 - The expand-depth presets go up to 9, which is also the default. Deeper levels are opened node by node.

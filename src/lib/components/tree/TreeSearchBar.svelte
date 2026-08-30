@@ -40,7 +40,11 @@
   ];
 
   const placeholder = $derived(
-    tab.search.scope === "paths" ? t("search.placeholder.paths") : t("search.placeholder"),
+    tab.search.how === "jsonPath"
+      ? t("search.placeholder.expression")
+      : tab.search.scope === "paths"
+        ? t("search.placeholder.paths")
+        : t("search.placeholder"),
   );
 
   export function focus() {
@@ -184,16 +188,34 @@
     {/each}
   </div>
 
+  <!-- Two ways to ask about a path, and they are different questions: one is
+       "which paths contain this text", the other "which nodes are at this
+       place". An expression forces the scope, because there is nothing else it
+       could apply to. XML is left out — its paths are XPath, and an expression
+       written for one would quietly mean something else in the other. -->
   <div class="segmented apart">
     <button
       type="button"
       title={t("search.scope.paths.title")}
-      aria-pressed={tab.search.scope === "paths"}
+      aria-pressed={tab.search.scope === "paths" && tab.search.how !== "jsonPath"}
       onclick={() => {
         tab.search.scope = "paths";
+        if (tab.search.how === "jsonPath") tab.search.how = "literal";
         void run();
       }}>{t("search.scope.paths")}</button
     >
+    {#if tab.kind !== "xml"}
+      <button
+        type="button"
+        title={t("search.jsonPath.title")}
+        aria-pressed={tab.search.how === "jsonPath"}
+        onclick={() => {
+          tab.search.how = tab.search.how === "jsonPath" ? "literal" : "jsonPath";
+          tab.search.scope = "paths";
+          void run();
+        }}>{t("search.jsonPath")}</button
+      >
+    {/if}
   </div>
 
   <!-- Beside the case toggle, because the two answer the same question in

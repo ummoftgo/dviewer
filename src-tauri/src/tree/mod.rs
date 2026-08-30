@@ -15,6 +15,7 @@
 //! `index::Syntax` selects.
 
 pub mod index;
+pub mod jsonpath;
 pub mod scanner;
 pub mod search;
 pub mod text;

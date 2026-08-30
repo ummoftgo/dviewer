@@ -143,6 +143,13 @@ fn main() {
             "정규식 검색",
         );
         timed_search(&doc, "items[999]", SearchScope::Paths, "경로 검색");
+        timed_search_as(
+            &doc,
+            "$..notes",
+            SearchScope::Paths,
+            Interpretation::JsonPath,
+            "JSONPath",
+        );
     }
 }
 

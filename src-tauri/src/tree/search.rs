@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use super::index::{TreeIndex, Syntax};
 use super::scanner::Kind;
+use super::jsonpath;
 use super::text;
 use crate::error::{Error, Result};
 pub use crate::query::Interpretation;
@@ -114,6 +115,11 @@ pub fn search(
         return Err(Error::EmptyQuery);
     }
 
+    // An expression selects nodes rather than matching text, so it is neither
+    // a scan nor a walk that compares — it is an evaluation.
+    if options.how == Interpretation::JsonPath {
+        return select_by_path(bytes, index, options, on_batch);
+    }
     // Paths are synthesised, so they need a tree walk rather than a byte scan.
     if options.scope == SearchScope::Paths {
         return search_paths(bytes, index, options, cancel, on_batch);
@@ -262,6 +268,49 @@ fn room(
         *batch_start = hits.len();
     }
     true
+}
+
+/// Evaluate a JSONPath expression and report what it selected.
+///
+/// No cancel flag is consulted, and it needs none: an expression narrows at
+/// every step, so the work is bounded by what it selects rather than by the
+/// size of the file. The one step that widens — `..` — takes a subtree as a
+/// range, because a subtree is contiguous in this index.
+fn select_by_path(
+    bytes: &[u8],
+    index: &Arc<TreeIndex>,
+    options: &SearchOptions,
+    mut on_batch: impl FnMut(&[SearchHit], usize),
+) -> Result<SearchResult> {
+    if index.syntax == Syntax::Xml {
+        return Err(Error::BadPath {
+            detail: options.query.clone(),
+        });
+    }
+    let steps = jsonpath::parse(&options.query)?;
+    let selected = jsonpath::select(index, bytes, &steps);
+
+    let capped = selected.len() > MAX_HITS;
+    let hits: Vec<SearchHit> = selected
+        .into_iter()
+        .take(MAX_HITS)
+        .map(|node| SearchHit {
+            node,
+            // Where the node starts. A path match belongs to neither the key
+            // nor the value, which is what `Path` has always meant.
+            offset: index.node(node).map_or(0, |n| n.val_start),
+            field: SearchField::Path,
+        })
+        .collect();
+
+    for batch in hits.chunks(BATCH) {
+        on_batch(batch, hits.len());
+    }
+    let summary = SearchSummary {
+        total: hits.len(),
+        capped,
+    };
+    Ok(SearchResult { hits, summary })
 }
 
 const BATCH: usize = 512;
@@ -952,5 +1001,125 @@ mod tests {
             run_regex(src, "^123$", SearchScope::Values)[0].node,
             "and they find different nodes, which is the point"
         );
+    }
+
+    // --- path expressions ---------------------------------------------------
+
+    fn run_path(src: &str, query: &str) -> Vec<SearchHit> {
+        let index = build(src);
+        let options = SearchOptions {
+            query: query.to_owned(),
+            case_sensitive: false,
+            how: Interpretation::JsonPath,
+            scope: SearchScope::Paths,
+            seq: 0,
+        };
+        search(src.as_bytes(), &index, &options, &AtomicBool::new(false), |_, _| {})
+            .expect("search")
+            .hits
+    }
+
+    /// What an expression selects is nodes, and the paths it walks are the
+    /// document's own.
+    const DOC: &str = r#"{
+        "store": {
+            "book": [
+                {"title": "가", "price": 8},
+                {"title": "나", "price": 12}
+            ],
+            "bicycle": {"title": "다", "price": 19}
+        }
+    }"#;
+
+    #[test]
+    fn an_expression_selects_the_nodes_it_names() {
+        let value = |hit: &SearchHit| {
+            let index = build(DOC);
+            let node = index.node(hit.node).expect("node");
+            text::decode_scalar(DOC.as_bytes(), node).0
+        };
+
+        let hits = run_path(DOC, "$.store.book[0].title");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(value(&hits[0]), "가");
+
+        // Every child of an array.
+        assert_eq!(run_path(DOC, "$.store.book[*].price").len(), 2);
+
+        // Recursive descent reaches both the array's items and the bicycle.
+        let titles = run_path(DOC, "$..title");
+        assert_eq!(titles.len(), 3);
+        assert_eq!(
+            titles.iter().map(value).collect::<Vec<_>>(),
+            ["가", "나", "다"],
+            "and in document order"
+        );
+
+        // A bracketed name is the same as a dotted one.
+        assert_eq!(run_path(DOC, "$[\"store\"][\"bicycle\"][\"price\"]").len(), 1);
+
+        // A name nothing has selects nothing, which is an answer.
+        assert!(run_path(DOC, "$.store.missing").is_empty());
+        // And so does an index past the end.
+        assert!(run_path(DOC, "$.store.book[9]").is_empty());
+    }
+
+    /// `$` on its own is the document, and `..` on its own is everything.
+    #[test]
+    fn the_ends_of_the_syntax_mean_what_they_say() {
+        let whole = run_path(DOC, "$");
+        assert_eq!(whole.len(), 1);
+        assert_eq!(whole[0].node, 0);
+
+        let index = build(DOC);
+        assert_eq!(run_path(DOC, "$..").len(), index.nodes.len());
+    }
+
+    /// A hit from an expression belongs to the path, the same as one from a
+    /// path search — the view scrolls to a node either way.
+    #[test]
+    fn a_selected_node_is_a_path_hit() {
+        let hits = run_path(DOC, "$..price");
+        assert_eq!(hits.len(), 3);
+        for hit in &hits {
+            assert_eq!(hit.field, SearchField::Path);
+        }
+    }
+
+    /// An expression that cannot be read stops before anything is searched, and
+    /// says which part of the syntax is missing rather than answering shorter.
+    #[test]
+    fn an_expression_this_does_not_do_is_refused() {
+        let index = build(DOC);
+        for (query, expected) in [
+            ("$[?(@.price<10)]", "filter"),
+            ("$.store.book[0:1]", "slice"),
+            ("items", "start at `$`"),
+        ] {
+            let options = SearchOptions {
+                query: query.to_owned(),
+                case_sensitive: false,
+                how: Interpretation::JsonPath,
+                scope: SearchScope::Paths,
+                seq: 0,
+            };
+            match search(DOC.as_bytes(), &index, &options, &AtomicBool::new(false), |_, _| {}) {
+                Err(Error::BadPath { detail }) => {
+                    assert!(detail.contains(expected), "{query} said {detail}")
+                }
+                Err(other) => panic!("{query} gave {other:?}"),
+                Ok(_) => panic!("{query} must not be searched"),
+            }
+        }
+    }
+
+    /// The substring path search is untouched. An expression is a second
+    /// reading of the box, not a replacement for the first.
+    #[test]
+    fn the_substring_path_search_still_answers_as_it_did() {
+        // `title` as a substring finds every path that contains it.
+        assert_eq!(run(DOC, "title", SearchScope::Paths, false).len(), 3);
+        // And `$.store.book` finds the two items' paths plus the array itself.
+        assert!(run(DOC, "$.store.book", SearchScope::Paths, false).len() >= 3);
     }
 }

@@ -968,6 +968,12 @@ impl crate::grid::Grid for TableDoc {
             crate::query::Interpretation::Literal => {
                 TableDoc::search(self, query, case_sensitive, cancel)
             }
+            // A grid has cells, not paths. The control is not offered here, and
+            // a query that arrived anyway is refused rather than read as
+            // something it does not say.
+            crate::query::Interpretation::JsonPath => Err(Error::BadPath {
+                detail: query.to_owned(),
+            }),
             crate::query::Interpretation::Regex => {
                 if query.is_empty() {
                     return Ok(TableSearch {

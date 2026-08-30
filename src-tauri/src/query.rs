@@ -40,6 +40,12 @@ pub enum Interpretation {
     /// bytes. The two answer differently for `\n`, and each is right about its
     /// own question.
     Regex,
+    /// A JSONPath expression, which selects nodes rather than matching text.
+    ///
+    /// Only the tree has one — a grid has cells, not paths — and only over a
+    /// JSON-shaped document, because an XML path is XPath and an expression
+    /// written for one would mean something else in the other.
+    JsonPath,
 }
 
 /// The question a search asks of one cell.
@@ -65,6 +71,15 @@ impl Matcher {
                     })?,
             ),
             Interpretation::Regex => Matcher::Pattern(compile(query, case_sensitive)?),
+            // A grid has no paths to select, and the frontend does not offer
+            // the control there. Refusing rather than falling back to a
+            // literal, so a query that cannot mean what it says never quietly
+            // means something else.
+            Interpretation::JsonPath => {
+                return Err(crate::error::Error::BadPath {
+                    detail: query.to_owned(),
+                })
+            }
         })
     }
 

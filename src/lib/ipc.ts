@@ -246,7 +246,7 @@ export type SearchScope = "all" | "keys" | "values" | "paths";
  * The scope says which part of a node to look at; this says how to read what is
  * being looked for. `literal` is what the box has always done.
  */
-export type Interpretation = "literal" | "regex";
+export type Interpretation = "literal" | "regex" | "jsonPath";
 /** Which part of a node a hit landed in. Path hits belong to neither key nor value. */
 export type SearchField = "key" | "value" | "path";
 
