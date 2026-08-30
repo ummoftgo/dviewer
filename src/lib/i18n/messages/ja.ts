@@ -197,6 +197,8 @@ export const ja: Messages = {
   "search.progress": "{current}/{total}件",
   "search.capped": " (上限に達しました)",
   "search.caseSensitive": "大文字と小文字を区別",
+  "search.regex": "正規表現",
+  "search.regex.title": "正規表現で探す — キーひとつ、値ひとつの中で照合します",
   "search.prev": "前の結果 (Shift+Enter)",
   "search.prevLabel": "前の結果",
   "search.next": "次の結果 (Enter)",
@@ -313,6 +315,7 @@ export const ja: Messages = {
   "error.xmlSyntax": "XML を読み込めませんでした ({offset} バイト付近): {detail}",
   "error.emptyQuery": "検索語を入力してください。",
   "error.badQuery": "検索語を処理できません: {detail}",
+  "error.badRegex": "正規表現を読み取れません: {detail}",
   "error.fontsFailed": "フォント一覧を読み込めませんでした: {detail}",
   "error.unknown": "不明なエラーです: {detail}",
 };

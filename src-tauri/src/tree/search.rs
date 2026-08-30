@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use aho_corasick::{AhoCorasick, MatchKind};
+use regex::{Regex, RegexBuilder};
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +42,8 @@ pub struct SearchOptions {
     pub query: String,
     #[serde(default)]
     pub case_sensitive: bool,
+    #[serde(default)]
+    pub how: Interpretation,
     #[serde(default = "default_scope")]
     pub scope: SearchScope,
     /// Which search this is, counted by the frontend.
@@ -54,6 +57,32 @@ pub struct SearchOptions {
 
 fn default_scope() -> SearchScope {
     SearchScope::All
+}
+
+/// What language the query is written in.
+///
+/// A second axis, not a fourth scope: the scope says which part of a node to
+/// look at, and this says how to read what is being looked for. The default is
+/// what the box has always done, so nothing changes for anyone who does not
+/// reach for the control.
+///
+/// Deliberately not inferred from the query's shape. `$.items` is a perfectly
+/// good literal search today, and a box that quietly switched engines when a
+/// query started looking like an expression would answer differently tomorrow
+/// with no way to see why.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Interpretation {
+    #[default]
+    Literal,
+    /// A regular expression, matched **inside one key, value or path** rather
+    /// than across the document.
+    ///
+    /// That is not a shortcut around the chunked scan — it is the only reading
+    /// under which the expression means what it says. `^` and `$` in a byte
+    /// stream anchor to any newline in the file, which for a JSON document is
+    /// nothing at all, so `^\d+$` would answer a question nobody asked.
+    Regex,
 }
 
 /// Which part of a node a hit landed in. A plain `in_key` flag could not
@@ -114,6 +143,10 @@ pub fn search(
     if options.scope == SearchScope::Paths {
         return search_paths(bytes, index, options, cancel, on_batch);
     }
+    // So does an expression, for a different reason — see `Interpretation`.
+    if options.how == Interpretation::Regex {
+        return search_nodes(bytes, index, options, cancel, on_batch);
+    }
 
     let automaton = AhoCorasick::builder()
         .match_kind(MatchKind::LeftmostFirst)
@@ -156,6 +189,118 @@ pub fn search(
         capped,
     };
     Ok(SearchResult { hits, summary })
+}
+
+/// Build the expression, with the case toggle folded in.
+///
+/// The toggle is not redundant with `(?i)` — it is the control that was already
+/// there, and a reader who set it once should not have to remember to also
+/// write it into every pattern. A pattern that says `(?i)` itself still wins
+/// inside its own group, which is what that syntax is for.
+fn compile(options: &SearchOptions) -> Result<Regex> {
+    RegexBuilder::new(&options.query)
+        .case_insensitive(!options.case_sensitive)
+        .build()
+        .map_err(|error| Error::BadRegex {
+            detail: error.to_string(),
+        })
+}
+
+/// Match an expression against each node's key and value.
+///
+/// A walk rather than a scan, for the reason in `Interpretation::Regex`: the
+/// unit a pattern is matched against has to be a thing the reader can point at.
+/// The path search has walked the same nodes since before this existed.
+///
+/// What is matched is the value's **characters** — a string's escapes resolved,
+/// its quotes off — because that is what a regular expression is written in.
+/// The literal search matches bytes, which is what a literal is; the two answer
+/// differently for `\n` and both are right about their own question.
+fn search_nodes(
+    bytes: &[u8],
+    index: &Arc<TreeIndex>,
+    options: &SearchOptions,
+    cancel: &AtomicBool,
+    mut on_batch: impl FnMut(&[SearchHit], usize),
+) -> Result<SearchResult> {
+    let pattern = compile(options)?;
+
+    let mut hits: Vec<SearchHit> = Vec::new();
+    let mut batch_start = 0usize;
+    let mut capped = false;
+
+    for (id, node) in index.nodes.iter().enumerate() {
+        if id % 4096 == 0 && cancel.load(Ordering::Relaxed) {
+            return Err(Error::Cancelled);
+        }
+
+        let id = id as u32;
+        if node.key_len > 0 && scope_allows(options.scope, SearchField::Key) {
+            let key = text::decode_key(bytes, node);
+            if pattern.is_match(&key) {
+                hits.push(SearchHit {
+                    node: id,
+                    // The key's own start: a match inside it has an offset of
+                    // its own, but nothing downstream uses more than the node
+                    // and the field, and a character offset into decoded text
+                    // is not a byte offset into the file.
+                    offset: node.key_start,
+                    field: SearchField::Key,
+                });
+                if !room(&mut hits, &mut capped, &mut batch_start, &mut on_batch) {
+                    break;
+                }
+            }
+        }
+
+        if !node.kind.is_container() && scope_allows(options.scope, SearchField::Value) {
+            let (value, _) = text::decode_full(bytes, node, MAX_MATCHED_BYTES);
+            if pattern.is_match(&value) {
+                hits.push(SearchHit {
+                    node: id,
+                    offset: node.val_start,
+                    field: SearchField::Value,
+                });
+                if !room(&mut hits, &mut capped, &mut batch_start, &mut on_batch) {
+                    break;
+                }
+            }
+        }
+    }
+
+    if batch_start < hits.len() {
+        on_batch(&hits[batch_start..], hits.len());
+    }
+    let summary = SearchSummary {
+        total: hits.len(),
+        capped,
+    };
+    Ok(SearchResult { hits, summary })
+}
+
+/// How much of one value is matched against.
+///
+/// A value can be a 10MB base64 blob, and running a pattern over every byte of
+/// several of those is time spent on something nobody is reading. The same
+/// ceiling copying uses, for the same reason.
+const MAX_MATCHED_BYTES: usize = 1024 * 1024;
+
+/// Send a batch if one has filled, and say whether there is room for more.
+fn room(
+    hits: &mut Vec<SearchHit>,
+    capped: &mut bool,
+    batch_start: &mut usize,
+    on_batch: &mut impl FnMut(&[SearchHit], usize),
+) -> bool {
+    if hits.len() >= MAX_HITS {
+        *capped = true;
+        return false;
+    }
+    if hits.len() - *batch_start >= BATCH {
+        on_batch(&hits[*batch_start..], hits.len());
+        *batch_start = hits.len();
+    }
+    true
 }
 
 const BATCH: usize = 512;
@@ -532,6 +677,7 @@ mod tests {
         let options = SearchOptions {
             query: query.to_owned(),
             case_sensitive,
+            how: Interpretation::Literal,
             scope,
             seq: 0,
         };
@@ -682,6 +828,7 @@ mod tests {
     fn cancellation_is_not_a_result() {
         let index = build(SRC);
         let options = SearchOptions {
+            how: Interpretation::Literal,
             query: "name".to_owned(),
             case_sensitive: false,
             scope: SearchScope::All,
@@ -692,6 +839,7 @@ mod tests {
         assert!(matches!(result, Err(Error::Cancelled)));
 
         let paths = SearchOptions {
+            how: Interpretation::Literal,
             query: "$.name".to_owned(),
             case_sensitive: false,
             scope: SearchScope::Paths,
@@ -707,6 +855,7 @@ mod tests {
         let src = format!("[{}]", items.join(","));
         let index = build(&src);
         let options = SearchOptions {
+            how: Interpretation::Literal,
             query: "needle".to_owned(),
             case_sensitive: false,
             scope: SearchScope::All,
@@ -721,5 +870,126 @@ mod tests {
         .unwrap();
         assert_eq!(result.hits.len(), 2000);
         assert!(batches > 1, "expected streaming batches, got {batches}");
+    }
+
+    // --- regular expressions ------------------------------------------------
+
+    fn run_regex(src: &str, query: &str, scope: SearchScope) -> Vec<SearchHit> {
+        let index = build(src);
+        let options = SearchOptions {
+            query: query.to_owned(),
+            case_sensitive: false,
+            how: Interpretation::Regex,
+            scope,
+            seq: 0,
+        };
+        search(src.as_bytes(), &index, &options, &AtomicBool::new(false), |_, _| {})
+            .expect("search")
+            .hits
+    }
+
+    /// The reason the match unit is a value and not the file: an anchor has to
+    /// anchor to something a reader can point at.
+    #[test]
+    fn an_anchor_holds_to_the_value_it_is_in() {
+        let src = "{\"a\": \"123\", \"b\": \"x123\", \"c\": \"123x\", \"d\": 123}";
+        let hits = run_regex(src, "^123$", SearchScope::Values);
+        assert_eq!(hits.len(), 2, "the string 123 and the number 123");
+
+        // Over the file's bytes, `^` would find the start of a line and `$` its
+        // end, and this pattern would match nothing at all — which is the
+        // answer a byte scan would have given.
+        assert!(run_regex(src, "^x", SearchScope::Values).len() == 1);
+        assert_eq!(run_regex(src, "x$", SearchScope::Values).len(), 1);
+    }
+
+    /// A pattern reads characters, so it sees the value's characters — escapes
+    /// resolved and quotes off. The literal search reads bytes and sees the
+    /// bytes. Both are right about their own question.
+    #[test]
+    fn a_pattern_sees_characters_where_a_literal_sees_bytes() {
+        let src = "{\"a\": \"line\\nbreak\", \"b\": \"back\\\\slash\"}";
+
+        // A real newline, which the file does not contain as a byte.
+        assert_eq!(run_regex(src, "line\\nbreak", SearchScope::Values).len(), 1);
+        // And the two characters a literal would have to look for.
+        assert!(run(src, "line\\nbreak", SearchScope::Values, false).len() == 1);
+
+        // A quote is not part of the value under either reading.
+        assert!(run_regex(src, "^\"", SearchScope::Values).is_empty());
+    }
+
+    /// Keys and values are separate scopes here too, and a hit says which.
+    #[test]
+    fn the_scope_still_decides_where_to_look() {
+        let src = "{\"name\": \"name\", \"other\": \"value\"}";
+        let keys = run_regex(src, "^name$", SearchScope::Keys);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].field, SearchField::Key);
+
+        let values = run_regex(src, "^name$", SearchScope::Values);
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].field, SearchField::Value);
+
+        assert_eq!(run_regex(src, "^name$", SearchScope::All).len(), 2);
+    }
+
+    /// The case toggle keeps working, and a pattern that sets its own wins
+    /// inside its own group.
+    #[test]
+    fn the_case_toggle_reaches_the_pattern() {
+        let src = "{\"a\": \"HELLO\", \"b\": \"hello\"}";
+        let index = build(src);
+        let sensitive = SearchOptions {
+            query: "hello".into(),
+            case_sensitive: true,
+            how: Interpretation::Regex,
+            scope: SearchScope::Values,
+            seq: 0,
+        };
+        let found = search(src.as_bytes(), &index, &sensitive, &AtomicBool::new(false), |_, _| {})
+            .expect("search");
+        assert_eq!(found.hits.len(), 1);
+
+        assert_eq!(run_regex(src, "hello", SearchScope::Values).len(), 2);
+    }
+
+    /// A pattern that does not compile is an error with the crate's own words,
+    /// not an empty result that looks like "nothing found".
+    #[test]
+    fn a_broken_pattern_says_what_is_wrong() {
+        let index = build("{\"a\": 1}");
+        let options = SearchOptions {
+            query: "(unclosed".into(),
+            case_sensitive: false,
+            how: Interpretation::Regex,
+            scope: SearchScope::All,
+            seq: 0,
+        };
+        match search(b"{\"a\": 1}", &index, &options, &AtomicBool::new(false), |_, _| {}) {
+            Err(Error::BadRegex { detail }) => {
+                assert!(detail.contains("unclosed"), "got {detail}");
+            }
+            Err(other) => panic!("unexpected error: {other:?}"),
+            Ok(_) => panic!("a pattern that does not compile must not succeed"),
+        }
+    }
+
+    /// Nothing about the literal reading moved. This is the assertion that the
+    /// new axis is an addition rather than a change.
+    #[test]
+    fn the_literal_reading_is_untouched() {
+        let src = "{\"a\": \"^123$\", \"b\": \"123\"}";
+        // As a literal, the metacharacters are characters.
+        let hits = run(src, "^123$", SearchScope::Values, false);
+        assert_eq!(hits.len(), 1);
+        // As a pattern, they are anchors.
+        let hits = run_regex(src, "^123$", SearchScope::Values);
+        assert_eq!(hits.len(), 1);
+        assert_ne!(
+            run(src, "^123$", SearchScope::Values, false)[0].node,
+            run_regex(src, "^123$", SearchScope::Values)[0].node,
+            "and they find different nodes, which is the point"
+        );
     }
 }

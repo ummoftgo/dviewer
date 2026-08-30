@@ -59,6 +59,7 @@
       await treeSearch(tab.id, {
         query: search.query,
         caseSensitive: search.caseSensitive,
+        how: search.how,
         scope: search.scope,
         seq,
       });
@@ -194,6 +195,22 @@
       }}>{t("search.scope.paths")}</button
     >
   </div>
+
+  <!-- Beside the case toggle, because the two answer the same question in
+       sequence: how should the box read what I typed. -->
+  <button
+    type="button"
+    class="icon-btn regex"
+    title={t("search.regex.title")}
+    aria-label={t("search.regex")}
+    aria-pressed={tab.search.how === "regex"}
+    onclick={() => {
+      tab.search.how = tab.search.how === "regex" ? "literal" : "regex";
+      void run();
+    }}
+  >
+    <span class="aa">.*</span>
+  </button>
 
   <button
     type="button"

@@ -523,6 +523,7 @@ mod xml_tests {
     fn searching_paths_matches_element_names() {
         let doc = xml_doc(CATALOG);
         let options = search::SearchOptions {
+            how: search::Interpretation::Literal,
             query: "/catalog/book/@id".into(),
             case_sensitive: false,
             scope: search::SearchScope::Paths,

@@ -145,6 +145,10 @@ pub enum Error {
     // --- searching ------------------------------------------------------------
     EmptyQuery,
     BadQuery { detail: String },
+    /// The regular expression does not compile. `detail` is the crate's own
+    /// message, which names the position and the reason — worth more to the
+    /// person fixing it than anything this app could say instead.
+    BadRegex { detail: String },
 
     // --- settings -------------------------------------------------------------
     FontsFailed { detail: String },
@@ -200,6 +204,7 @@ impl Error {
             Error::XmlSyntax { .. } => "xmlSyntax",
             Error::EmptyQuery => "emptyQuery",
             Error::BadQuery { .. } => "badQuery",
+            Error::BadRegex { .. } => "badRegex",
             Error::FontsFailed { .. } => "fontsFailed",
         }
     }
@@ -342,6 +347,7 @@ mod tests {
             Error::XmlSyntax { offset: 1, detail: "x".into() },
             Error::EmptyQuery,
             Error::BadQuery { detail: "x".into() },
+            Error::BadRegex { detail: "x".into() },
             Error::FontsFailed { detail: "x".into() },
         ];
 

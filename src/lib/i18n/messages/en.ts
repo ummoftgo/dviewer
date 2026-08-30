@@ -197,6 +197,8 @@ export const en: Messages = {
   "search.progress": "{current} of {total}",
   "search.capped": " (limit reached)",
   "search.caseSensitive": "Match case",
+  "search.regex": "Regex",
+  "search.regex.title": "Search by regular expression — matched inside one key or one value",
   "search.prev": "Previous match (Shift+Enter)",
   "search.prevLabel": "Previous match",
   "search.next": "Next match (Enter)",
@@ -313,6 +315,7 @@ export const en: Messages = {
   "error.xmlSyntax": "Could not read the XML (near byte {offset}): {detail}",
   "error.emptyQuery": "Enter something to search for.",
   "error.badQuery": "Could not use that search term: {detail}",
+  "error.badRegex": "The regular expression could not be read: {detail}",
   "error.fontsFailed": "Could not read the font list: {detail}",
   "error.unknown": "Unknown error: {detail}",
 };

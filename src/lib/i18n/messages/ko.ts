@@ -202,6 +202,8 @@ export const ko = {
   "search.progress": "{current}/{total}건",
   "search.capped": " (상한 도달)",
   "search.caseSensitive": "대소문자 구분",
+  "search.regex": "정규식",
+  "search.regex.title": "정규식으로 찾기 — 값 하나, 키 하나 안에서 맞춰 봅니다",
   "search.prev": "이전 결과 (Shift+Enter)",
   "search.prevLabel": "이전 결과",
   "search.next": "다음 결과 (Enter)",
@@ -318,6 +320,7 @@ export const ko = {
   "error.xmlSyntax": "XML을 읽지 못했습니다 ({offset}바이트 부근): {detail}",
   "error.emptyQuery": "검색어를 입력해 주세요.",
   "error.badQuery": "검색어를 처리할 수 없습니다: {detail}",
+  "error.badRegex": "정규식을 읽을 수 없습니다: {detail}",
   "error.fontsFailed": "글꼴 목록을 읽지 못했습니다: {detail}",
   "error.unknown": "알 수 없는 오류입니다: {detail}",
 } as const;

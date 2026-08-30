@@ -19,6 +19,7 @@ Thirteen formats, but only **four** ways of reading. Build a screen per format a
 - **Logs become columns.** The leading time, level and `[source]` are recognised and everything else stays in one message column. A line that does not start with a timestamp — a stack trace — joins the record above it. `key=value` pairs can be expanded from the toolbar, and the whole thing folds back to one line at any time. ERROR and WARN are tinted, in the level cell only. When the guess is not confident, nothing is split.
 - **JSONL is a table.** One line, one row; the keys are the columns. They are read from a sample of the front, and a key a record does not have leaves the cell empty — lines that are not objects are not split at all. It folds back to the original lines at any time, and switching the format to JSON opens the same file as a tree.
 - **JSON with comments is read as JSONC.** `.jsonc` walks past `//` and `/* */` comments and trailing commas. `.json` stays strict — but when the strict reading stops somewhere JSONC would have carried on, the error says which switch to reach for.
+- **Search by regular expression** (tree view). Turn on `.*` in the search box and the query is read as a pattern — matched inside one key or one value, so `^\d+$` does what it says. Turn it off and the search is the literal one it has always been.
 - **Opening a Parquet file does not follow its size.** Only the index at the end is read, and only the row groups the screen reaches are decoded: 0.19ms at 52MB, 0.61ms at 311MB — what grows is the number of row groups, not the bytes. That is why it has none of the ceilings the other formats carry.
 - **Excel workbooks open.** Pick a sheet and read it as a table. Columns are named `A`, `B`, `AA` and row 1 is row 1, so the coordinates match the spreadsheet you are checking against. Dates are ISO 8601, and a toggle shows the formulas instead of the values. It is converted rather than mapped, so there is a 64MB ceiling.
 - **SQLite is read by querying.** The first format that is not a run of bytes. The file is opened read-only, its tables and views are listed, and the chosen one is drawn in the **same grid** the CSVs use. A position is written down every 1,024 rows, so the three-millionth row is one seek away.
@@ -92,7 +93,8 @@ The technical documentation lives in `doc/` (Korean).
 ## Known limits
 
 - JSON files up to 4GB (offsets are `u32`).
-- Search is literal; case-insensitivity works in the ASCII range only. No regular expressions or JSONPath expressions yet — path search is a substring match against path strings like `$.items[3].name`.
+- A regular expression in the tree is matched **inside one key or one value**. There is no match spanning nodes — that is what makes `^` and `$` mean anything. Regular expressions in the table and grid views, and JSONPath expressions, are not there yet (path search is a substring match against path strings like `$.items[3].name`).
+- Literal search folds case in the ASCII range only. The regular-expression side follows Unicode, as the crate does.
 - Markdown rendering up to 16MB. Larger files do not open.
 - The expand-depth presets go up to 9, which is also the default. Deeper levels are opened node by node.
 - Files are mmap-ed, so a file changed externally while open needs to be reopened. Edited content only mixes old and new bytes, but **truncating the file kills the process outright on Linux and macOS** (SIGBUS). Windows is unaffected: the OS refuses to shrink a file that has a mapping open.

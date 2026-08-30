@@ -15,15 +15,26 @@ use dviewer_lib::source;
 use dviewer_lib::tree::TreeDoc;
 use dviewer_lib::tree::index::Syntax;
 use dviewer_lib::tree::scanner::ScanLimits;
-use dviewer_lib::tree::search::{SearchOptions, SearchScope};
+use dviewer_lib::tree::search::{Interpretation, SearchOptions, SearchScope};
 
 fn timed_search(doc: &TreeDoc, query: &str, scope: SearchScope, label: &str) {
+    timed_search_as(doc, query, scope, Interpretation::Literal, label)
+}
+
+fn timed_search_as(
+    doc: &TreeDoc,
+    query: &str,
+    scope: SearchScope,
+    how: Interpretation,
+    label: &str,
+) {
     let started = Instant::now();
     let summary = doc
         .run_search(
             &SearchOptions {
                 query: query.to_owned(),
                 case_sensitive: false,
+                how,
                 scope,
                 seq: 0,
             },
@@ -124,6 +135,13 @@ fn main() {
     if let Some(query) = needle {
         timed_search(&doc, &query, SearchScope::All, "본문 검색");
         timed_search(&doc, &query, SearchScope::Paths, "경로 검색");
+        timed_search_as(
+            &doc,
+            "^needle: .{0,40}$",
+            SearchScope::Values,
+            Interpretation::Regex,
+            "정규식 검색",
+        );
         timed_search(&doc, "items[999]", SearchScope::Paths, "경로 검색");
     }
 }

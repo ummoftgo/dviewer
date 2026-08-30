@@ -4,6 +4,7 @@ import { t } from "../i18n";
 import type {
   Collection,
   GridStats,
+  Interpretation,
   DocKind,
   DocMeta,
   DocView,
@@ -33,6 +34,7 @@ class SearchState {
   seq = $state(0);
   query = $state("");
   caseSensitive = $state(false);
+  how = $state<Interpretation>("literal");
   scope = $state<SearchScope>("all");
   running = $state(false);
   hits = $state<SearchHit[]>([]);

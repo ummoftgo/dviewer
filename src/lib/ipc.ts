@@ -240,6 +240,13 @@ export interface NodeText {
 }
 
 export type SearchScope = "all" | "keys" | "values" | "paths";
+
+/**
+ * What language a query is written in — a second axis, not a fourth scope.
+ * The scope says which part of a node to look at; this says how to read what is
+ * being looked for. `literal` is what the box has always done.
+ */
+export type Interpretation = "literal" | "regex";
 /** Which part of a node a hit landed in. Path hits belong to neither key nor value. */
 export type SearchField = "key" | "value" | "path";
 
@@ -247,6 +254,7 @@ export interface SearchOptions {
   query: string;
   caseSensitive: boolean;
   scope: SearchScope;
+  how: Interpretation;
   /** Which search this is; echoed on every event it produces. */
   seq: number;
 }

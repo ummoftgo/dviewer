@@ -197,6 +197,8 @@ export const zhHans: Messages = {
   "search.progress": "{current}/{total} 项",
   "search.capped": "（已达上限）",
   "search.caseSensitive": "区分大小写",
+  "search.regex": "正则",
+  "search.regex.title": "以正则表达式查找 — 在单个键或单个值内匹配",
   "search.prev": "上一个结果 (Shift+Enter)",
   "search.prevLabel": "上一个结果",
   "search.next": "下一个结果 (Enter)",
@@ -313,6 +315,7 @@ export const zhHans: Messages = {
   "error.xmlSyntax": "无法读取 XML（约在第 {offset} 字节）：{detail}",
   "error.emptyQuery": "请输入搜索内容。",
   "error.badQuery": "无法处理该搜索词：{detail}",
+  "error.badRegex": "无法解析该正则表达式：{detail}",
   "error.fontsFailed": "无法读取字体列表：{detail}",
   "error.unknown": "未知错误：{detail}",
 };
