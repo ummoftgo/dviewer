@@ -176,12 +176,9 @@
           }
           return;
         case "f":
-          // The tree and the grid have a search box; prose has the browser's
-          // own find, which this must not shadow, and the database view has no
-          // box to focus yet. Named rather than negated: an unlisted view would
-          // otherwise reach for a binding left behind by the last one that had
-          // it.
-          if (active?.view === "tree" || active?.view === "table") {
+          // Every view but prose has a search box of its own; prose has the
+          // browser's own find, which this must not shadow.
+          if (active && active.view !== "prose") {
             event.preventDefault();
             searchBarFocus?.();
           }
@@ -259,7 +256,7 @@
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "database"}
-          <DatabaseView tab={active} />
+          <DatabaseView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "table"}
           <TableView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.mode === "raw"}

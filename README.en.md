@@ -2,20 +2,22 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-A desktop viewer for Markdown, JSON, YAML, TOML, XML, CSV, TSV and plain text or logs. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
+A desktop viewer for Markdown, JSON, YAML, TOML, XML, CSV, TSV, plain text or logs, and SQLite. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
 
-Eight formats, but only **three** ways of reading. Build a screen per format and you maintain eight of them — seven of which are always behind.
+Nine formats, but only **four** ways of reading. Build a screen per format and you maintain nine of them — eight of which are always behind.
 
 | View | Formats | What it does |
 | --- | --- | --- |
 | Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle |
 | Tree | JSON · JSONL/NDJSON · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy |
 | Table | CSV · TSV · text/logs | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy. **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
+| Database | SQLite | Pick a table or a view and read it in the same grid. Read-only connection, the statement that created it, search over values. NULL is drawn as the different thing it is |
 
 - Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
 - The format is decided by extension (text when nothing else matches); the character encoding (UTF-8 · CP949/EUC-KR · UTF-16, …) is detected from the content. Both can be changed from the toolbar at any time.
 - **Logs become columns.** The leading time, level and `[source]` are recognised and everything else stays in one message column. A line that does not start with a timestamp — a stack trace — joins the record above it. `key=value` pairs can be expanded from the toolbar, and the whole thing folds back to one line at any time. ERROR and WARN are tinted, in the level cell only. When the guess is not confident, nothing is split.
+- **SQLite is read by querying.** The first format that is not a run of bytes. The file is opened read-only, its tables and views are listed, and the chosen one is drawn in the **same grid** the CSVs use. A position is written down every 1,024 rows, so the three-millionth row is one seek away.
 - **gzip files just open.** `access.log.gz` is decompressed and read under its inner name (`access.log`). The raw view shows the decompressed content.
 - Dark/light (auto by default), interface scale, separate interface and content font sizes, and content/code fonts picked from the fonts installed on the system.
 
@@ -91,5 +93,8 @@ The technical documentation lives in `doc/` (Korean).
 - The expand-depth presets go up to 9, which is also the default. Deeper levels are opened node by node.
 - Files are mmap-ed, so a file changed externally while open needs to be reopened. Edited content only mixes old and new bytes, but **truncating the file kills the process outright on Linux and macOS** (SIGBUS). Windows is unaffected: the OS refuses to shrink a file that has a mapping open.
 - Remote images in markdown are allowed. `img-src` includes `https:`, so badges and the like render as they would on the web — at the cost of telling the server that hosts them that the document was opened. A deliberate choice in favour of showing documents as they are written.
+- SQLite views and WITHOUT ROWID tables have no rowid, so their row positions cannot be written down in advance. The beginning is as fast as anywhere else; the further in you scroll, the longer a screenful takes. Ordinary tables are constant whatever their size.
+- Scanning a SQLite database stops at five million rows. A larger table shows its first five million, and the status bar says so.
+- SQLite cannot be opened from a URL. A database is read by querying a file, so it has to be downloaded and then opened.
 - SQLite is opened read-only. A database left with a rollback journal (`-journal`) by an interrupted transaction cannot have that journal replayed read-only, so the first query fails. The program that wrote it has to open it once and settle it first.
 - No editing or saving. This is a read-only viewer.

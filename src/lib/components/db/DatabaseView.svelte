@@ -11,7 +11,8 @@
    * and in nothing the reader does with them, so the difference stops at the
    * Rust boundary and both draw through `DataGrid`.
    */
-  import DataGrid from "../table/DataGrid.svelte";
+  import DataGrid from "../grid/DataGrid.svelte";
+  import SearchBar from "../grid/SearchBar.svelte";
   import CollectionPicker from "./CollectionPicker.svelte";
   import Icon from "../Icon.svelte";
   import { formatBytes } from "../../format";
@@ -19,9 +20,23 @@
   import { n, t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
 
-  let { tab }: { tab: DocTab } = $props();
+  interface Props {
+    tab: DocTab;
+    /** Exposed upward so the global Ctrl+F shortcut can reach the search box. */
+    focusSearch?: (() => void) | null;
+  }
+
+  let { tab, focusSearch = $bindable(null) }: Props = $props();
 
   let grid = $state<ReturnType<typeof DataGrid>>();
+  let searchBar = $state<ReturnType<typeof SearchBar>>();
+
+  $effect(() => {
+    focusSearch = searchBar ? () => searchBar?.focus() : null;
+    return () => {
+      focusSearch = null;
+    };
+  });
   let loading = $state(false);
   let showSchema = $state(false);
 
@@ -66,6 +81,7 @@
     tab.pendingCell = null;
     tab.columnWidths = [];
     tab.tableScrollTop = 0;
+    tab.tableSearch.reset();
     loading = true;
     try {
       tab.gridStats = await sqliteSelect(tab.id, name);
@@ -89,6 +105,8 @@
 </script>
 
 <div class="database">
+  <SearchBar {tab} bind:this={searchBar} />
+
   <div class="toolbar">
     <CollectionPicker
       label={t("table.collection")}

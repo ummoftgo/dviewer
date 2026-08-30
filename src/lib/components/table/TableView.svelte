@@ -10,8 +10,8 @@
   import { formatBytes } from "../../format";
   import Icon from "../Icon.svelte";
   import { n, t, type MessageKey } from "../../i18n";
-  import DataGrid from "./DataGrid.svelte";
-  import TableSearchBar from "./TableSearchBar.svelte";
+  import DataGrid from "../grid/DataGrid.svelte";
+  import SearchBar from "../grid/SearchBar.svelte";
   import {
     errorMessage,
     tableOpen,
@@ -32,7 +32,7 @@
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
 
-  let searchBar = $state<ReturnType<typeof TableSearchBar>>();
+  let searchBar = $state<ReturnType<typeof SearchBar>>();
   let grid = $state<ReturnType<typeof DataGrid>>();
 
   $effect(() => {
@@ -159,7 +159,7 @@
 </script>
 
 <div class="table-view">
-  <TableSearchBar {tab} bind:this={searchBar} />
+  <SearchBar {tab} bind:this={searchBar} />
 
   {#if tab.error}
     <p class="banner error" role="alert">

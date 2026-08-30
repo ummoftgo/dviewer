@@ -2,11 +2,14 @@
 //!
 //!   cargo run --release --example sqlite -- ../fixtures/huge.sqlite events
 //!
-//! Reports what opening a collection costs and what reaching a row deep in it
-//! costs, because those are the two numbers the design claims to have bought.
+//! Reports what opening a collection costs, what reaching a row deep in it
+//! costs — the two numbers the checkpoint index claims to have bought — and
+//! what a search over the whole thing costs.
 
 use std::sync::Arc;
 use std::time::Instant;
+
+use std::sync::atomic::AtomicBool;
 
 use dviewer_lib::grid::Grid;
 use dviewer_lib::sqlite::{SqliteDoc, SqliteGrid};
@@ -50,6 +53,18 @@ fn main() {
             "page at {row:>9}  {:>8.0?}   first cell {:?}",
             started.elapsed(),
             page.rows.first().map(|r| r.cells[0].text.as_str())
+        );
+    }
+
+    for query in ["event number 2999999", "ERROR"] {
+        let idle = AtomicBool::new(false);
+        let started = Instant::now();
+        let found = grid.search(query, false, &idle).expect("search");
+        println!(
+            "search {query:?}  {:>8.0?}   {} hits{}",
+            started.elapsed(),
+            found.hits.len(),
+            if found.capped { " (capped)" } else { "" }
         );
     }
 }

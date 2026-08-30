@@ -3,7 +3,7 @@
 ← [README](../README.md)
 
 ```bash
-cd src-tauri && cargo test          # 235개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 표시/복사, 정화
+cd src-tauri && cargo test          # 241개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 표시/복사, 정화
 ```
 
 성능은 창 없이 직접 잽니다:

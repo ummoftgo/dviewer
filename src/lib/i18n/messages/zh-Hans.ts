@@ -288,6 +288,7 @@ export const zhHans: Messages = {
   "error.tooDeep": "{subject} 嵌套过深（上限 {limit}）。",
   "error.notReady": "仍在读取{subject}。",
   "error.wrongView": "此格式无法以{subject}形式显示。",
+  "error.needsFile": "数据库通过查询文件来读取。请先下载，再打开该文件。",
   "error.notInterchangeable": "数据库与其他格式无法互相解读。",
   "error.noSuchNode": "找不到该项目。",
   "error.noSuchCell": "找不到该单元格。",

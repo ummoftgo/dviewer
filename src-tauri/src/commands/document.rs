@@ -107,6 +107,12 @@ pub async fn open_url(
         fetched.content_type.as_deref(),
         &decoded.bytes,
     );
+    // See `Error::NeedsFile`. Writing the download to a temporary file would
+    // make this work, and would leave the reader with a copy of a database they
+    // did not ask to keep, in a place they did not choose.
+    if kind == DocKind::Sqlite {
+        return Err(Error::NeedsFile);
+    }
 
     Ok(state
         .insert(window.label(), Document::new(

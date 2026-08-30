@@ -96,6 +96,12 @@ pub enum Error {
     NotReady { subject: Subject },
     /// This format cannot be read that way at all.
     WrongView { subject: Subject },
+    /// A database was fetched rather than opened from disk.
+    ///
+    /// Not a refusal of the format — it is one this app reads. It is a refusal
+    /// of the buffer: a database is read by querying a file, and a downloaded
+    /// one has no file to query.
+    NeedsFile,
     /// A database and a text format are not two readings of the same bytes.
     ///
     /// Every other format switch is a reinterpretation of one run of bytes, so
@@ -163,6 +169,7 @@ impl Error {
             Error::TooDeep { .. } => "tooDeep",
             Error::NotReady { .. } => "notReady",
             Error::WrongView { .. } => "wrongView",
+            Error::NeedsFile => "needsFile",
             Error::NotInterchangeable => "notInterchangeable",
             Error::NoSuchNode => "noSuchNode",
             Error::NoSuchCell => "noSuchCell",
@@ -290,6 +297,7 @@ mod tests {
             Error::TooDeep { subject: Subject::Yaml, limit: 1 },
             Error::NotReady { subject: Subject::Tree },
             Error::WrongView { subject: Subject::Table },
+            Error::NeedsFile,
             Error::NotInterchangeable,
             Error::NoSuchNode,
             Error::NoSuchCell,

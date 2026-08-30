@@ -11,7 +11,10 @@
 //! from changes.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+use aho_corasick::{AhoCorasick, MatchKind};
 
 use parking_lot::{Mutex, MutexGuard};
 use rusqlite::{Connection, OpenFlags};
@@ -19,7 +22,10 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 use crate::grid::Grid;
-use crate::table::{CellText, TableCell, TablePage, TableRow, CELL_PREVIEW_CHARS};
+use crate::table::{
+    CellText, TableCell, TableHit, TablePage, TableRow, TableSearch, CELL_PREVIEW_CHARS,
+    MAX_CELL_TEXT_BYTES, MAX_SEARCH_HITS,
+};
 
 /// A table or view in the database, as the collection picker shows it.
 #[derive(Debug, Clone, Serialize)]
@@ -35,8 +41,16 @@ pub struct Collection {
 ///
 /// The connection is behind a lock because a SQLite connection cannot be used
 /// from two threads at once — and because the state every window shares has to
-/// be `Sync`. Nothing is lost: a viewer asks one question at a time.
+/// be `Sync`.
+///
+/// One shared connection answers the quick questions, and anything that takes
+/// real time opens its own (`connect`). Holding the lock for the length of a
+/// scan would make the viewport wait on a search, which is the one thing a
+/// reader must always be able to do.
 pub struct SqliteDoc {
+    /// Kept so a second connection can be opened to the same database on the
+    /// same terms. See `SqliteDoc::open` for what the terms mean.
+    uri: String,
     connection: Mutex<Connection>,
     collections: Vec<Collection>,
 }
@@ -58,9 +72,21 @@ impl SqliteDoc {
         let connection = Connection::open_with_flags(&uri, flags).map_err(open_failed)?;
         let collections = list_collections(&connection)?;
         Ok(Self {
+            uri,
             connection: Mutex::new(connection),
             collections,
         })
+    }
+
+    /// Another connection to the same database, for work that takes long
+    /// enough that the shared one must stay free.
+    ///
+    /// Read-only and cheap — SQLite opens a connection without reading the
+    /// file beyond its header — and independent, so a scan on one does not
+    /// block a viewport query on the other.
+    pub fn connect(&self) -> Result<Connection> {
+        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
+        Connection::open_with_flags(&self.uri, flags).map_err(open_failed)
     }
 
     pub fn collections(&self) -> &[Collection] {
@@ -134,20 +160,23 @@ impl SqliteGrid {
     /// Separated so the ceiling can be tested without writing five million rows.
     fn open_to(database: Arc<SqliteDoc>, name: &str, ceiling: u32) -> Result<Self> {
         let quoted = quote_identifier(name);
-        let columns = column_names(&database.connection(), &quoted)?;
+        // On its own connection: the scan below reads one integer per row, and
+        // over millions of them that is long enough that nothing else should
+        // have to wait behind it.
+        let scanning = database.connect()?;
+        let columns = column_names(&scanning, &quoted)?;
 
         // A view and a WITHOUT ROWID table have no rowid to seek by. Asking is
         // the only reliable way to find out — the catalogue does not say, and a
         // WITHOUT ROWID table is a table like any other in it.
-        let seekable = database
-            .connection()
+        let seekable = scanning
             .prepare(&format!("SELECT rowid FROM {quoted} LIMIT 1"))
             .is_ok();
 
         let (row_count, truncated, checkpoints) = if seekable {
-            scan_rowids(&database.connection(), &quoted, ceiling)?
+            scan_rowids(&scanning, &quoted, ceiling)?
         } else {
-            let (count, truncated) = count_rows(&database.connection(), &quoted, ceiling)?;
+            let (count, truncated) = count_rows(&scanning, &quoted, ceiling)?;
             (count, truncated, Vec::new())
         };
 
@@ -216,6 +245,111 @@ impl SqliteGrid {
             .ok_or(Error::NoSuchRow)?;
         read(found)
     }
+
+    /// Find every cell containing `query`.
+    ///
+    /// A whole pass over the collection, testing values in Rust rather than
+    /// asking SQL to do it. `LIKE` would be faster at the filtering and would
+    /// hand back matching rows — but a row is not what the grid needs. It needs
+    /// which cell, at which row *number*, and a rowid says nothing about how
+    /// many rows come before it. Counting them is the pass this already is.
+    ///
+    /// On its own connection, so the viewport stays answerable while it runs.
+    pub fn search(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+        cancel: &AtomicBool,
+    ) -> Result<TableSearch> {
+        if query.is_empty() {
+            return Ok(TableSearch {
+                hits: Vec::new(),
+                capped: false,
+            });
+        }
+        let finder = AhoCorasick::builder()
+            .match_kind(MatchKind::LeftmostFirst)
+            .ascii_case_insensitive(!case_sensitive)
+            .build([query.as_bytes()])
+            .map_err(|error| Error::BadQuery {
+                detail: error.to_string(),
+            })?;
+
+        let searching = self.database.connect()?;
+        let mut statement = searching
+            .prepare(&format!("SELECT * FROM {} {}", self.quoted, self.order()))
+            .map_err(query_failed)?;
+        let mut answered = statement.query([]).map_err(query_failed)?;
+
+        let mut hits = Vec::new();
+        let mut capped = false;
+        let mut index: u32 = 0;
+
+        while let Some(row) = answered.next().map_err(query_failed)? {
+            // Checked once per row rather than once per cell: a row is small
+            // enough that finishing one costs nothing, and an atomic read per
+            // cell would be the most expensive thing in the loop.
+            if cancel.load(Ordering::Relaxed) {
+                return Err(Error::Cancelled);
+            }
+            if hits.len() >= MAX_SEARCH_HITS {
+                capped = true;
+                break;
+            }
+            // Past the ceiling there are no row numbers, because the scan that
+            // would have counted them stopped. A hit the grid cannot scroll to
+            // is worse than no hit.
+            if index >= self.row_count {
+                break;
+            }
+
+            for column in 0..self.columns.len() {
+                if matches(row, column, &finder)? {
+                    hits.push(TableHit {
+                        row: index,
+                        column: column as u32,
+                    });
+                }
+            }
+            index += 1;
+        }
+
+        Ok(TableSearch { hits, capped })
+    }
+
+    /// How the rows are ordered when the whole collection is read.
+    ///
+    /// By rowid where there is one, so a search and the grid agree on which row
+    /// is the thousandth. Without one there is nothing to order by, and both
+    /// take whatever order the collection yields — the same order twice, which
+    /// is all they have to agree on.
+    fn order(&self) -> &'static str {
+        if self.checkpoints.is_empty() {
+            ""
+        } else {
+            "ORDER BY rowid"
+        }
+    }
+}
+
+/// Whether one value contains what is being looked for.
+///
+/// Text is tested as its own bytes rather than as the escaped line the grid
+/// draws: the reader is looking for what is in the data. The other classes are
+/// short enough that rendering them costs nothing, and a reader who searches
+/// for `42` expects to find the number 42.
+fn matches(row: &rusqlite::Row<'_>, column: usize, finder: &AhoCorasick) -> Result<bool> {
+    use rusqlite::types::ValueRef;
+    Ok(match row.get_ref(column).map_err(query_failed)? {
+        ValueRef::Null => false,
+        ValueRef::Text(bytes) => finder.find(bytes).is_some(),
+        ValueRef::Integer(number) => finder.find(number.to_string().as_bytes()).is_some(),
+        ValueRef::Real(number) => finder.find(format_real(number).as_bytes()).is_some(),
+        // Not searched. A BLOB's bytes are not text, and the hex the grid shows
+        // is this app's rendering rather than anything the file says — matching
+        // against it would find cells whose data does not contain the query.
+        ValueRef::Blob(_) => false,
+    })
 }
 
 impl Grid for SqliteGrid {
@@ -257,6 +391,15 @@ impl Grid for SqliteGrid {
             text: cell.text,
             truncated: cell.truncated,
         })
+    }
+
+    fn search(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+        cancel: &AtomicBool,
+    ) -> Result<TableSearch> {
+        SqliteGrid::search(self, query, case_sensitive, cancel)
     }
 
     fn row_text(&self, row: u32) -> Result<CellText> {
@@ -377,8 +520,10 @@ fn cell_of(row: &rusqlite::Row<'_>, column: usize, max_chars: usize) -> Result<T
             }
         }
         ValueRef::Blob(bytes) => {
+            // Copying takes the whole thing, up to the ceiling every other
+            // value has; the grid takes a glance and says how big the rest is.
             let shown = if max_chars == usize::MAX {
-                bytes.len()
+                bytes.len().min(MAX_CELL_TEXT_BYTES / 2)
             } else {
                 bytes.len().min(BLOB_PREVIEW_BYTES)
             };
@@ -388,6 +533,11 @@ fn cell_of(row: &rusqlite::Row<'_>, column: usize, max_chars: usize) -> Result<T
                 text.push_str(&format!("{byte:02X}"));
             }
             text.push('\'');
+            if shown < bytes.len() && max_chars != usize::MAX {
+                // The size is the useful fact about a value nobody can read.
+                // Only where it was cut: a short one says everything already.
+                text.push_str(&format!(" ({} B)", bytes.len()));
+            }
             TableCell {
                 text,
                 truncated: shown < bytes.len(),
@@ -811,5 +961,133 @@ lines', 'tab\there', -7, 0.5, x'');",
         let capped = SqliteGrid::open_to(database, "t", 50).expect("grid");
         assert_eq!(capped.row_count(), 50);
         assert!(capped.truncated(), "a count that stopped early must say so");
+    }
+
+    // --- searching ----------------------------------------------------------
+
+    fn found(grid: &SqliteGrid, query: &str, case_sensitive: bool) -> Vec<(u32, u32)> {
+        let idle = AtomicBool::new(false);
+        grid.search(query, case_sensitive, &idle)
+            .expect("search")
+            .hits
+            .into_iter()
+            .map(|hit| (hit.row, hit.column))
+            .collect()
+    }
+
+    /// Hits are cells, at the row number the grid shows — which is the point of
+    /// walking the rows rather than asking SQL which ones match.
+    #[test]
+    fn a_hit_names_the_cell_and_the_row_number() {
+        let dir = temp_dir("search-hits");
+        let grid = grid_over(
+            &dir,
+            "CREATE TABLE t (a TEXT, b TEXT, c INTEGER);
+             INSERT INTO t VALUES ('빨강', 'nothing', 1);
+             INSERT INTO t VALUES ('파랑', '빨강 or so', 42);
+             INSERT INTO t VALUES ('초록', 'green', 420);",
+            "t",
+        );
+
+        assert_eq!(found(&grid, "빨강", false), [(0, 0), (1, 1)]);
+        // A number is searched as the number it is, not as bytes nobody sees.
+        assert_eq!(found(&grid, "42", false), [(1, 2), (2, 2)]);
+        assert_eq!(found(&grid, "없는 말", false), []);
+    }
+
+    /// Case folding is ASCII-only, the same rule the rest of the app follows.
+    #[test]
+    fn case_folding_matches_the_rest_of_the_app() {
+        let dir = temp_dir("search-case");
+        let grid = grid_over(
+            &dir,
+            "CREATE TABLE t (a TEXT);
+             INSERT INTO t VALUES ('ERROR at start');
+             INSERT INTO t VALUES ('error at start');",
+            "t",
+        );
+        assert_eq!(found(&grid, "error", true), [(1, 0)]);
+        assert_eq!(found(&grid, "error", false), [(0, 0), (1, 0)]);
+    }
+
+    /// NULL matches nothing, and a BLOB is not searched as the hex the grid
+    /// happens to draw — that rendering is this app's, not the file's.
+    #[test]
+    fn nothing_and_bytes_are_not_text_to_search() {
+        let dir = temp_dir("search-null");
+        let grid = grid_over(
+            &dir,
+            "CREATE TABLE t (a, b);
+             INSERT INTO t VALUES (NULL, x'AB1234');
+             INSERT INTO t VALUES ('AB1234', NULL);",
+            "t",
+        );
+        assert_eq!(found(&grid, "AB1234", false), [(1, 0)]);
+        assert_eq!(found(&grid, "NULL", false), []);
+    }
+
+    /// A cancelled search ends as cancelled rather than as an empty answer,
+    /// which would look like "nothing found" to whoever asked.
+    #[test]
+    fn a_cancelled_search_says_so() {
+        let dir = temp_dir("search-cancel");
+        let grid = grid_over(
+            &dir,
+            "CREATE TABLE t (a TEXT);
+             INSERT INTO t
+               WITH RECURSIVE counter(i) AS (
+                 SELECT 1 UNION ALL SELECT i + 1 FROM counter WHERE i < 5000
+               )
+               SELECT 'row ' || i FROM counter;",
+            "t",
+        );
+        let cancelled = AtomicBool::new(true);
+        assert!(matches!(
+            grid.search("row", false, &cancelled),
+            Err(Error::Cancelled)
+        ));
+    }
+
+    /// An empty query is not a search that found everything.
+    #[test]
+    fn an_empty_query_finds_nothing() {
+        let dir = temp_dir("search-empty");
+        let grid = grid_over(
+            &dir,
+            "CREATE TABLE t (a TEXT); INSERT INTO t VALUES ('x');",
+            "t",
+        );
+        let idle = AtomicBool::new(false);
+        let result = grid.search("", false, &idle).expect("search");
+        assert!(result.hits.is_empty());
+        assert!(!result.capped);
+    }
+
+    /// A BLOB says how big it is where the grid had to cut it, and copying it
+    /// takes the whole thing.
+    #[test]
+    fn a_blob_shows_its_size_and_copies_whole() {
+        let dir = temp_dir("blob");
+        let grid = grid_over(
+            &dir,
+            "CREATE TABLE t (a BLOB, b BLOB);
+             INSERT INTO t VALUES (x'0102', randomblob(100));",
+            "t",
+        );
+        let cells = &grid.page(0, 1).expect("page").rows[0].cells;
+        assert_eq!(cells[0].text, "x'0102'", "a short one needs no size");
+        assert!(!cells[0].truncated);
+
+        assert!(cells[1].text.ends_with(" (100 B)"), "got {:?}", cells[1].text);
+        assert!(cells[1].truncated);
+        assert_eq!(
+            cells[1].text.matches(|c: char| c.is_ascii_hexdigit()).count(),
+            BLOB_PREVIEW_BYTES * 2 + 4,
+            "16 bytes of hex, plus the digits of the size"
+        );
+
+        let copied = grid.cell_text(0, 1).expect("cell text");
+        assert_eq!(copied.text.len(), 100 * 2 + 3, "every byte, and no size");
+        assert!(!copied.truncated);
     }
 }

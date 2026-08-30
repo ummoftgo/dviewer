@@ -12,7 +12,7 @@
    */
   import Icon from "../Icon.svelte";
   import { n, t } from "../../i18n";
-  import { errorMessage, tableSearch } from "../../ipc";
+  import { errorMessage, gridSearch } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
 
   interface Props {
@@ -42,7 +42,7 @@
     const seq = search.begin();
     const mine = () => seq === search.seq;
     try {
-      const result = await tableSearch(tab.id, query, search.caseSensitive);
+      const result = await gridSearch(tab.id, query, search.caseSensitive);
       if (!mine()) return;
       search.hits = result.hits;
       search.capped = result.capped;

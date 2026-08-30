@@ -293,6 +293,7 @@ export const ko = {
   "error.tooDeep": "{subject} — 중첩이 너무 깊습니다 (최대 {limit}단계).",
   "error.notReady": "{subject} — 아직 읽는 중입니다.",
   "error.wrongView": "이 형식은 {subject} 형태로 볼 수 없습니다.",
+  "error.needsFile": "데이터베이스는 파일을 질의해서 읽습니다. 내려받은 다음 그 파일을 열어 주세요.",
   "error.notInterchangeable": "데이터베이스와 다른 형식은 서로 바꿔 읽을 수 없습니다.",
   "error.noSuchNode": "해당 항목을 찾을 수 없습니다.",
   "error.noSuchCell": "해당 칸을 찾을 수 없습니다.",

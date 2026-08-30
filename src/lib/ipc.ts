@@ -458,8 +458,8 @@ export const sqliteSchema = (docId: number, name: string) =>
   invoke<string | null>("sqlite_schema", { docId, name });
 export const sqliteSelect = (docId: number, name: string) =>
   invoke<GridStats>("sqlite_select", { docId, name });
-export const tableSearch = (docId: number, query: string, caseSensitive: boolean) =>
-  invoke<TableSearchResult>("table_search", { docId, query, caseSensitive });
+export const gridSearch = (docId: number, query: string, caseSensitive: boolean) =>
+  invoke<TableSearchResult>("grid_search", { docId, query, caseSensitive });
 
 // --- events ---------------------------------------------------------------
 

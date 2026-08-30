@@ -288,6 +288,7 @@ export const en: Messages = {
   "error.tooDeep": "Nested too deeply: {subject}, limit {limit}.",
   "error.notReady": "Still reading the {subject}.",
   "error.wrongView": "This format cannot be shown as a {subject}.",
+  "error.needsFile": "A database is read by querying a file. Download it first, then open that file.",
   "error.notInterchangeable": "A database and other formats cannot be read as each other.",
   "error.noSuchNode": "No such entry.",
   "error.noSuchCell": "No such cell.",

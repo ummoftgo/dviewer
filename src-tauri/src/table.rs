@@ -866,6 +866,15 @@ impl crate::grid::Grid for TableDoc {
             truncated: false,
         })
     }
+
+    fn search(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+        cancel: &AtomicBool,
+    ) -> Result<TableSearch> {
+        TableDoc::search(self, query, case_sensitive, cancel)
+    }
 }
 
 /// One field's text: surrounding quotes removed and doubled quotes collapsed.

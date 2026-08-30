@@ -123,7 +123,7 @@ pub fn run() {
             commands::sqlite_schema,
             commands::grid_cell_text,
             commands::grid_row_text,
-            commands::table_search,
+            commands::grid_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

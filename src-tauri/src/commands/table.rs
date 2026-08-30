@@ -334,15 +334,15 @@ pub fn table_set_has_header(
 /// the hit list is capped low enough to cross the IPC boundary whole, and a
 /// grid has nowhere to show partial results anyway.
 #[tauri::command]
-pub async fn table_search(
+pub async fn grid_search(
     state: State<'_, AppState>,
     doc_id: DocId,
     query: String,
     case_sensitive: bool,
 ) -> Result<TableSearch> {
-    let table = table_doc(&state, doc_id)?;
+    let grid = grid_of(&state, doc_id)?;
     let cancel = state.start_search_job(doc_id);
-    tauri::async_runtime::spawn_blocking(move || table.search(&query, case_sensitive, &cancel))
+    tauri::async_runtime::spawn_blocking(move || grid.search(&query, case_sensitive, &cancel))
         .await
         .map_err(Error::internal)?
 }
