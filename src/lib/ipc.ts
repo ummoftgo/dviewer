@@ -26,7 +26,7 @@ export type DocKind =
  * How a document is read. Ten formats, four views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
-export type DocView = "prose" | "tree" | "table" | "database";
+export type DocView = "prose" | "tree" | "table" | "collection";
 
 /**
  * Menu order for the format switcher. `label` is a message key, not text.
@@ -58,7 +58,7 @@ export function viewOf(kind: DocKind): DocView {
     case "jsonl":
       return "table";
     case "sqlite":
-      return "database";
+      return "collection";
     default:
       return "tree";
   }

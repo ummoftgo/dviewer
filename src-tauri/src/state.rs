@@ -53,13 +53,17 @@ pub enum DocView {
     Tree,
     /// The row-and-column grid, read out of the document's own bytes.
     Table,
-    /// The same grid, read out of a connection.
+    /// The same grid, over one of the several collections a file holds.
     ///
     /// A view of its own and not a kind of `Table`, because the two share only
     /// their appearance: nothing that makes a table — the record index, the
-    /// byte search, the original text — exists for a database, and a command
-    /// that accepted both would have to say so in every line of its body.
-    Database,
+    /// byte search, the original text — exists here, and a command that
+    /// accepted both would have to say so in every line of its body.
+    ///
+    /// Named for what the reader does rather than for what the file is: pick a
+    /// collection, read it in the grid. A database's tables and a workbook's
+    /// sheets are the same choice.
+    Collection,
 }
 
 impl DocKind {
@@ -70,7 +74,7 @@ impl DocKind {
                 DocView::Tree
             }
             DocKind::Csv | DocKind::Tsv | DocKind::Text | DocKind::Jsonl => DocView::Table,
-            DocKind::Sqlite => DocView::Database,
+            DocKind::Sqlite => DocView::Collection,
         }
     }
 }

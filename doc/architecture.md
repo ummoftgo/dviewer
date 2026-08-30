@@ -11,7 +11,7 @@ src/                     Svelte 5 프론트엔드
   lib/components/table/  CSV·TSV·로그·JSONL 뷰 — 색인 진행률, 모드 전환, 로그 열 이름
   lib/components/grid/   격자 자체 — 가상 스크롤, 열 너비, 칸 선택·복사, 검색창
                          (표와 데이터베이스가 함께 씁니다)
-  lib/components/db/     데이터베이스 뷰, 컬렉션 선택기 (형식 중립)
+  lib/components/collection/  컬렉션 뷰와 선택기 — 한 파일에 여럿이 든 형식 (형식 중립)
   lib/virtual.ts         가상 스크롤 기하 (두 뷰가 공유)
   lib/i18n/              번역 — 사전 넷과 t(), Rust 오류 코드까지 여기서 문장이 됩니다
   lib/components/markdown/  렌더 뷰, 원문 뷰, 목차, 브라우저 후처리
@@ -69,7 +69,7 @@ scripts/gen-fixtures.mjs 검증용 문서 생성 (fixtures/ 는 저장소에 없
 
 ### 열한 형식, 네 개의 읽는 방식
 
-형식마다 뷰를 만들면 열한 벌이 되고 열 벌은 늘 뒤처집니다. 그래서 형식은 **어떻게 읽히는가**로 묶습니다. 프론트엔드는 `DocKind` 가 아니라 `DocView`(`prose` / `tree` / `table` / `database`)로 분기합니다.
+형식마다 뷰를 만들면 열한 벌이 되고 열 벌은 늘 뒤처집니다. 그래서 형식은 **어떻게 읽히는가**로 묶습니다. 프론트엔드는 `DocKind` 가 아니라 `DocView`(`prose` / `tree` / `table` / `collection`)로 분기합니다.
 
 트리로 가는 네 형식은 각자 다른 방식으로 도착합니다. 모듈 이름이 `tree` 인 것도 그래서입니다 — 한때 `json` 이었지만 넷을 담당하게 된 뒤로는 형식이 아니라 **읽는 방식**을 가리켜야 맞습니다.
 

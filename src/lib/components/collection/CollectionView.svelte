@@ -1,15 +1,16 @@
 <script lang="ts">
   /**
-   * Reading a SQLite file.
+   * One file, several collections, one grid.
    *
-   * The first format that is not a run of bytes. There is no index to build and
-   * no original text to show — the file is opened as a connection, and every
-   * row here came back from a query.
+   * A database's tables and a workbook's sheets are the same choice from the
+   * reader's side: pick one, read it. So this is named for that rather than for
+   * either format, and what differs between them lives in the toolbar's tail.
    *
-   * The grid is the table view's, unchanged. That is the whole point of the
-   * split: a database's rows and a CSV's rows differ in where they come from
-   * and in nothing the reader does with them, so the difference stops at the
-   * Rust boundary and both draw through `DataGrid`.
+   * Nothing here is a run of bytes. There is no index to build and no original
+   * text to show — every row came back from a query or out of a converted
+   * sheet. The grid is the table view's, unchanged: rows differ in where they
+   * come from and in nothing the reader does with them, so the difference stops
+   * at the Rust boundary and both draw through `DataGrid`.
    */
   import DataGrid from "../grid/DataGrid.svelte";
   import SearchBar from "../grid/SearchBar.svelte";
@@ -104,7 +105,7 @@
   }
 </script>
 
-<div class="database">
+<div class="collection">
   <SearchBar {tab} bind:this={searchBar} />
 
   <div class="toolbar">
@@ -193,7 +194,7 @@
 </div>
 
 <style>
-  .database {
+  .collection {
     display: flex;
     flex-direction: column;
     height: 100%;
