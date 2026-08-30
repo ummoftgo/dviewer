@@ -404,6 +404,9 @@ pub enum Syntax {
 
 pub struct TreeIndex {
     pub nodes: Vec<Node>,
+    /// Comments, each attached to the node it explains. Empty for every format
+    /// but JSONC — see `scanner::Annotation` for why it is not a node field.
+    pub comments: Vec<crate::tree::scanner::Annotation>,
     pub synthetic_root: bool,
     /// Computed once at build time. Deriving it per call would put a full scan
     /// of every node behind every collapse — 26ms on a 38M-node document.
@@ -413,9 +416,19 @@ pub struct TreeIndex {
 
 impl TreeIndex {
     pub fn new(nodes: Vec<Node>, synthetic_root: bool, syntax: Syntax) -> Self {
+        Self::annotated(nodes, Vec::new(), synthetic_root, syntax)
+    }
+
+    pub fn annotated(
+        nodes: Vec<Node>,
+        comments: Vec<crate::tree::scanner::Annotation>,
+        synthetic_root: bool,
+        syntax: Syntax,
+    ) -> Self {
         let max_depth = nodes.iter().map(|n| n.depth).max().unwrap_or(0);
         Self {
             nodes,
+            comments,
             synthetic_root,
             max_depth,
             syntax,
@@ -426,6 +439,7 @@ impl TreeIndex {
     /// a huge document costs.
     pub fn heap_bytes(&self) -> usize {
         self.nodes.len() * std::mem::size_of::<Node>()
+            + self.comments.len() * std::mem::size_of::<crate::tree::scanner::Annotation>()
     }
 
     pub fn node(&self, id: u32) -> Option<&Node> {
@@ -497,6 +511,20 @@ impl TreeIndex {
     ///
     /// Selecting a scalar means "I am looking at this level", so the table
     /// shows its siblings — the parent's children — rather than nothing.
+    /// The comment written above `id`, if there was one.
+    ///
+    /// A binary search over a table that is in node order because the scanner
+    /// filled it in node order — an annotated document has one entry per
+    /// commented value, not one per node.
+    pub fn comment_of(&self, id: u32) -> Option<(u32, u32)> {
+        let at = self
+            .comments
+            .binary_search_by_key(&id, |comment| comment.node)
+            .ok()?;
+        let found = self.comments[at];
+        Some((found.start, found.len))
+    }
+
     pub fn table_target(&self, id: u32) -> Option<u32> {
         let node = self.node(id)?;
         if node.kind.is_container() {

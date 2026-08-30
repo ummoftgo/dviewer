@@ -171,6 +171,7 @@ export const en: Messages = {
   "inspector.blank": "Empty.",
   "inspector.key": "Key",
   "inspector.value": "Value",
+  "inspector.comment": "Note",
   "inspector.drill": "Go to this entry",
   "inspector.expand": "Show the whole value",
   "inspector.valueCut": "The value is long — only the beginning is shown.",

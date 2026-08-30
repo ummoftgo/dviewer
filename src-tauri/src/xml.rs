@@ -154,6 +154,9 @@ pub fn scan(
 
     Ok(Scan {
         nodes,
+        // XML comments are nodes of their own — see `architecture.md`. Nothing
+        // here is an annotation on another node.
+        comments: Vec::new(),
         synthetic_root,
     })
 }

@@ -368,6 +368,16 @@ b` there is
                 </td>
               </tr>
 
+              <!-- The note its author wrote above this value, whole and
+                   wrapped. The tree row has it too, clipped to one line — this
+                   is where a long one is actually readable. -->
+              {#if row.comment}
+                <tr class="explains" class:alt={i % 2 === 1}>
+                  <th scope="row">{t("inspector.comment")}</th>
+                  <td><EscapedText text={row.comment} /></td>
+                </tr>
+              {/if}
+
               {#if isOpen(row)}
                 {@const full = fullValue[row.id]}
                 <tr class="detail">

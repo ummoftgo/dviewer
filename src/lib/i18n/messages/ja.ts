@@ -171,6 +171,7 @@ export const ja: Messages = {
   "inspector.blank": "空です。",
   "inspector.key": "キー",
   "inspector.value": "値",
+  "inspector.comment": "説明",
   "inspector.drill": "この項目へ移動",
   "inspector.expand": "値をすべて表示",
   "inspector.valueCut": "値が長いため先頭のみ表示しています。",

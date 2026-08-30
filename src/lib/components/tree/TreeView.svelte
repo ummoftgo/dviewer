@@ -643,6 +643,13 @@
                 >{/if}
             </span>
           {/if}
+          <!-- The note its author wrote above this value. Dimmed and last,
+               because it explains the row rather than being part of it — and
+               shortened, because a row that grows to fit a paragraph stops
+               being a row. The whole of it is in the key/value table. -->
+          {#if row.comment}
+            <span class="note" title={row.comment}>{row.comment}</span>
+          {/if}
         </div>
       {/each}
     </div>
@@ -924,6 +931,15 @@
      apart the way `.punct` does. */
   .mark {
     color: var(--json-punct);
+  }
+
+  .note {
+    margin-left: 1.1rem;
+    color: var(--text-muted);
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .ellipsis {

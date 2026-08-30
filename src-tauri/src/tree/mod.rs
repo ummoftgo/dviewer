@@ -50,6 +50,12 @@ pub struct TreeRow {
     pub kind: &'static str,
     /// Scalar text; None for containers, which the frontend summarises.
     pub value: Option<String>,
+    /// The comment written above this value, shortened to what a row can hold.
+    ///
+    /// Sent with the row rather than fetched on demand because a note is meant
+    /// to be read while scanning — that is why its author put it there. The
+    /// whole of it is in the key/value table, where there is room.
+    pub comment: Option<String>,
     pub truncated: bool,
     pub child_count: u32,
     pub container: bool,
@@ -84,6 +90,14 @@ pub struct TreeStats {
     pub filtered: bool,
 }
 
+/// Characters of a comment carried with a row.
+///
+/// Sized for the key/value table, which wraps it and has room, rather than for
+/// the tree row, which clips it to one line in CSS. One length and one trip:
+/// asking again for the same note when the reader selects the row would cost a
+/// round trip to say what was already in hand.
+const COMMENT_PREVIEW_CHARS: usize = 300;
+
 pub struct TreeDoc {
     pub index: Arc<TreeIndex>,
     pub bytes: Arc<DocBytes>,
@@ -111,7 +125,12 @@ impl TreeDoc {
             }
             Syntax::Xml => crate::xml::scan(&bytes, limits, progress, should_stop)?,
         };
-        let index = Arc::new(TreeIndex::new(scanned.nodes, scanned.synthetic_root, syntax));
+        let index = Arc::new(TreeIndex::annotated(
+            scanned.nodes,
+            scanned.comments,
+            scanned.synthetic_root,
+            syntax,
+        ));
         let visibility = Visibility::new(&index.nodes, DEFAULT_EXPAND_DEPTH);
         Ok(Self {
             index,
@@ -169,6 +188,7 @@ impl TreeDoc {
             index: parent_is_array.then_some(node.sibling_index),
             kind: node.kind.as_str(),
             value,
+            comment: self.comment_of(id, COMMENT_PREVIEW_CHARS),
             truncated,
             child_count: node.child_count,
             container: node.kind.is_container(),
@@ -201,6 +221,44 @@ impl TreeDoc {
     /// A node's value for copying, plus a flag when it hit the transfer
     /// ceiling. Strings come back as their actual text — see `text::decode_full`
     /// for why that differs from what the row shows.
+    /// The comment above a node, as one line.
+    ///
+    /// Cut from the document's own bytes, so what comes back is what was
+    /// written — only the markers are dropped, because `//` on screen would be
+    /// punctuation the reader has to look past on every annotated row.
+    pub fn comment_of(&self, id: u32, max_chars: usize) -> Option<String> {
+        let (start, len) = self.index.comment_of(id)?;
+        let raw = &self.bytes[start as usize..(start + len) as usize];
+        let mut out = String::new();
+        let mut taken = 0usize;
+        for line in raw.split(|byte| *byte == b'\n') {
+            let line = String::from_utf8_lossy(line);
+            let line = line.trim();
+            let line = line
+                .strip_prefix("//")
+                .or_else(|| line.strip_prefix("/*"))
+                .unwrap_or(line);
+            let line = line.strip_suffix("*/").unwrap_or(line);
+            let line = line.trim_start_matches('*').trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push(' ');
+                taken += 1;
+            }
+            for character in line.chars() {
+                if taken >= max_chars {
+                    out.push('…');
+                    return Some(out);
+                }
+                out.push(character);
+                taken += 1;
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
     pub fn node_text(&self, id: u32) -> Option<(String, bool)> {
         let node = self.index.node(id)?;
         Some(text::decode_full(&self.bytes, node, MAX_NODE_TEXT_BYTES))

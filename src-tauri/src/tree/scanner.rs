@@ -146,9 +146,24 @@ impl Default for ScanLimits {
     }
 }
 
+/// A comment and the node it explains.
+///
+/// A side table rather than a field on `Node`. A node is 36 bytes and there are
+/// tens of millions of them in a large file; a span nobody but JSONC ever fills
+/// would cost every format eight bytes a node to carry nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Annotation {
+    pub node: u32,
+    pub start: u32,
+    pub len: u32,
+}
+
 #[derive(Debug)]
 pub struct Scan {
     pub nodes: Vec<Node>,
+    /// Comments, each attached to the value that followed it. In node order,
+    /// which is what lets a lookup be a binary search.
+    pub comments: Vec<Annotation>,
     /// True when the input held several top-level values (NDJSON and friends)
     /// and node 0 is a synthetic array wrapping them.
     pub synthetic_root: bool,
@@ -191,6 +206,8 @@ pub fn scan_as(
         stack: Vec::new(),
         roots: 0,
         pending_key: None,
+        pending_comment: None,
+        comments: Vec::new(),
         descended: false,
         limits,
         next_progress: PROGRESS_STEP,
@@ -200,9 +217,14 @@ pub fn scan_as(
     progress(body.len());
 
     let mut nodes = scanner.nodes;
+    let mut comments = scanner.comments;
     let synthetic_root = root_count != 1;
     if synthetic_root {
         wrap_in_synthetic_root(&mut nodes, root_count, body.len() as u32);
+        // Every node moved down one to make room for the wrapper.
+        for comment in &mut comments {
+            comment.node += 1;
+        }
     }
 
     // Offsets were computed against the BOM-stripped slice; shift them back so
@@ -214,10 +236,14 @@ pub fn scan_as(
                 node.key_start += bom_offset;
             }
         }
+        for comment in &mut comments {
+            comment.start += bom_offset;
+        }
     }
 
     Ok(Scan {
         nodes,
+        comments,
         synthetic_root,
     })
 }
@@ -235,6 +261,14 @@ struct Scanner<'a, 'l> {
     roots: u32,
     /// Key span parsed but not yet attached to its value.
     pending_key: Option<(u32, u32)>,
+    /// The comment block last walked past, waiting for a value to belong to.
+    ///
+    /// Only the block immediately before a value counts. A comment after the
+    /// last member of an object explains nothing that follows it, so closing a
+    /// container drops it rather than letting it drift onto whatever comes
+    /// next.
+    pending_comment: Option<(u32, u32)>,
+    comments: Vec<Annotation>,
     /// Set when the value just parsed was a container we stepped into.
     descended: bool,
     limits: &'l ScanLimits,
@@ -339,6 +373,8 @@ impl Scanner<'_, '_> {
     }
 
     fn close_container(&mut self) {
+        // Whatever was written before this brace explains nothing after it.
+        self.pending_comment = None;
         let (id, children) = self.stack.pop().expect("close_container with no open container");
         self.p += 1;
         let total = self.nodes.len() as u32;
@@ -393,6 +429,13 @@ impl Scanner<'_, '_> {
         };
 
         let id = self.nodes.len() as u32;
+        if let Some((start, end)) = self.pending_comment.take() {
+            self.comments.push(Annotation {
+                node: id,
+                start,
+                len: end - start,
+            });
+        }
         let (key_start, key_len) = key.unwrap_or((0, 0));
         self.nodes.push(Node {
             key_start,
@@ -502,23 +545,36 @@ impl Scanner<'_, '_> {
     /// what it does rather than for whitespace, because under JSONC whitespace
     /// is only half of it.
     fn skip_gap(&mut self) -> Result<()> {
+        let mut block: Option<(u32, u32)> = None;
         loop {
             while self.p < self.b.len() && matches!(self.b[self.p], b' ' | b'\t' | b'\n' | b'\r') {
                 self.p += 1;
             }
             if self.dialect == Dialect::Json || self.p + 1 >= self.b.len() {
+                if let Some(span) = block {
+                    self.pending_comment = Some(span);
+                }
                 return Ok(());
             }
             match (self.b[self.p], self.b[self.p + 1]) {
                 (b'/', b'/') => {
+                    let leading = self.starts_a_line(self.p);
+                    let from = self.p as u32;
                     // To the end of the line, or to the end of the file when
                     // the last line has no newline of its own.
                     self.p = match memchr::memchr(b'\n', &self.b[self.p..]) {
-                        Some(offset) => self.p + offset + 1,
+                        Some(offset) => self.p + offset,
                         None => self.b.len(),
                     };
+                    if leading {
+                        block = Some(grow(block, from, self.p as u32));
+                    }
+                    if self.p < self.b.len() {
+                        self.p += 1;
+                    }
                 }
                 (b'/', b'*') => {
+                    let leading = self.starts_a_line(self.p);
                     let start = self.p;
                     let mut at = self.p + 2;
                     loop {
@@ -530,13 +586,37 @@ impl Scanner<'_, '_> {
                         at += offset + 1;
                         if self.b.get(at) == Some(&b'/') {
                             self.p = at + 1;
+                            if leading {
+                                block = Some(grow(block, start as u32, self.p as u32));
+                            }
                             break;
                         }
                     }
                 }
-                _ => return Ok(()),
+                _ => {
+                    if let Some(span) = block {
+                        self.pending_comment = Some(span);
+                    }
+                    return Ok(());
+                }
             }
         }
+    }
+
+    /// Whether nothing but whitespace stands between `at` and the line above.
+    ///
+    /// This is what separates a note from a remark. A comment on its own line
+    /// explains what comes next — that is why its author put it there. One
+    /// written after a value on the same line is about the value it follows,
+    /// and attaching it to whatever comes next would put the author's words
+    /// against the wrong thing. Those are out of scope, so they are dropped
+    /// rather than misfiled.
+    fn starts_a_line(&self, at: usize) -> bool {
+        self.b[..at]
+            .iter()
+            .rev()
+            .find(|byte| !matches!(byte, b' ' | b'\t' | b'\r'))
+            .is_none_or(|byte| *byte == b'\n')
     }
 
     fn err_at(&self, reason: SyntaxReason) -> Error {
@@ -568,6 +648,17 @@ impl Scanner<'_, '_> {
                 .is_some_and(|byte| *byte == b','),
             _ => false,
         }
+    }
+}
+
+/// Widen a comment block to take in one more comment.
+///
+/// A run of `//` lines with nothing but whitespace between them is one note,
+/// which is how people write them.
+fn grow(block: Option<(u32, u32)>, from: u32, to: u32) -> (u32, u32) {
+    match block {
+        Some((start, _)) => (start, to),
+        None => (from, to),
     }
 }
 
@@ -1186,5 +1277,101 @@ mod tests {
             Error::JsonSyntax { jsonc, .. } => assert!(!jsonc),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod annotations {
+    use super::*;
+
+    fn scan_jsonc(src: &str) -> Scan {
+        scan_as(src.as_bytes(), Dialect::Jsonc, &ScanLimits::default(), |_| {}, &|| false)
+            .expect("scan")
+    }
+
+    fn note<'a>(src: &'a str, scan: &Scan, node: u32) -> Option<&'a str> {
+        scan.comments
+            .iter()
+            .find(|c| c.node == node)
+            .map(|c| &src[c.start as usize..(c.start + c.len) as usize])
+    }
+
+    /// A comment belongs to the value written under it — including when it sits
+    /// above the key rather than above the value, which is where people put it.
+    #[test]
+    fn a_comment_belongs_to_the_value_below_it() {
+        let src = "{\n  // 어느 포트로 열지\n  \"port\": 8080,\n  \"host\": \"a\"\n}";
+        let scan = scan_jsonc(src);
+        assert_eq!(note(src, &scan, 1), Some("// 어느 포트로 열지"));
+        assert_eq!(note(src, &scan, 2), None, "the next value has none of it");
+    }
+
+    /// A run of `//` lines with nothing between them is one note, which is how
+    /// people write a paragraph in a config file.
+    #[test]
+    fn a_run_of_lines_is_one_note() {
+        let src = "{\n  // 첫 줄\n  // 둘째 줄\n  \"a\": 1\n}";
+        let scan = scan_jsonc(src);
+        assert_eq!(note(src, &scan, 1), Some("// 첫 줄\n  // 둘째 줄"));
+    }
+
+    /// A block comment counts too, and an array's elements get theirs.
+    #[test]
+    fn blocks_and_array_elements() {
+        let src = "[\n  /* 첫 번째 */ 1,\n  // 두 번째\n  2\n]";
+        let scan = scan_jsonc(src);
+        assert_eq!(note(src, &scan, 1), Some("/* 첫 번째 */"));
+        assert_eq!(note(src, &scan, 2), Some("// 두 번째"));
+    }
+
+    /// A comment before a closing brace explains nothing that follows it, so it
+    /// must not drift onto the next value the scanner meets.
+    #[test]
+    fn a_trailing_comment_belongs_to_nothing() {
+        let src = "{\n  \"a\": { \"b\": 1\n    // 끝에 남은 말\n  },\n  \"c\": 2\n}";
+        let scan = scan_jsonc(src);
+        assert!(
+            scan.comments.iter().all(|c| c.node != 3),
+            "`c` must not inherit the note written above the closing brace"
+        );
+    }
+
+    /// The strict reading has no comments to attach, and pays nothing for the
+    /// table.
+    #[test]
+    fn strict_json_has_no_annotations() {
+        let src = "{\"a\": 1}";
+        let scan = scan(src.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).expect("scan");
+        assert!(scan.comments.is_empty());
+    }
+
+    /// A remark written after a value belongs to that value, not to the next
+    /// one. It is out of scope, so it is dropped — attaching it to whatever
+    /// follows would put the author's words against the wrong thing, which is
+    /// worse than not showing them.
+    #[test]
+    fn a_remark_after_a_value_is_not_a_note_on_the_next_one() {
+        let src = "[
+  \"a\", // a 에 대한 말
+  \"b\"
+]";
+        let scan = scan_jsonc(src);
+        assert!(
+            scan.comments.is_empty(),
+            "got {:?}",
+            scan.comments
+                .iter()
+                .map(|c| &src[c.start as usize..(c.start + c.len) as usize])
+                .collect::<Vec<_>>()
+        );
+
+        // And a note on its own line still attaches, even right after one.
+        let src = "[
+  \"a\", // a 에 대한 말
+  // b 에 대한 말
+  \"b\"
+]";
+        let scan = scan_jsonc(src);
+        assert_eq!(note(src, &scan, 2), Some("// b 에 대한 말"));
     }
 }

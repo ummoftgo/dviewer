@@ -200,6 +200,8 @@ export interface TreeRow {
   index: number | null;
   kind: NodeKind;
   value: string | null;
+  /** The comment written above this value, shortened. JSONC only. */
+  comment: string | null;
   truncated: boolean;
   childCount: number;
   container: boolean;
