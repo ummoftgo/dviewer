@@ -105,3 +105,19 @@ pub fn compile(query: &str, case_sensitive: bool) -> Result<Regex> {
             detail: error.to_string(),
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The name the frontend sends has to be the name serde reads. Nothing else
+    /// keeps the two in step, and a mismatch is silent: the field falls back to
+    /// its default and the search answers a different question.
+    #[test]
+    fn the_wire_names_are_what_the_frontend_sends() {
+        let read = |text: &str| serde_json::from_str::<Interpretation>(text).expect(text);
+        assert_eq!(read("\"literal\""), Interpretation::Literal);
+        assert_eq!(read("\"regex\""), Interpretation::Regex);
+        assert_eq!(read("\"jsonPath\""), Interpretation::JsonPath);
+    }
+}

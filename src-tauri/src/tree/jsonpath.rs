@@ -367,3 +367,44 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod against_a_real_shape {
+    use super::*;
+    use crate::tree::index::{Syntax, TreeIndex};
+    use crate::tree::scanner::{scan, ScanLimits};
+    use std::sync::Arc;
+
+    /// The shape `fixtures/small.json` has: a wrapper object, an array of
+    /// records, and a nested object two levels down.
+    const DOC: &str = r#"{
+        "generated": true,
+        "count": 2,
+        "items": [
+            {"id": 0, "meta": {"owner": {"team": "team-0"}}},
+            {"id": 1, "meta": {"owner": {"team": "team-1"}}}
+        ]
+    }"#;
+
+    fn index() -> Arc<TreeIndex> {
+        let scanned = scan(DOC.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).expect("scan");
+        Arc::new(TreeIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json))
+    }
+
+    /// Descent followed by two keys, which is what a reader actually types.
+    #[test]
+    fn descent_then_two_keys() {
+        let index = index();
+        let steps = parse("$..owner.team").expect("parse");
+        assert_eq!(
+            steps,
+            [Step::Descend, Step::Key("owner".into()), Step::Key("team".into())]
+        );
+        let found = select(&index, DOC.as_bytes(), &steps);
+        assert_eq!(found.len(), 2, "one team per item");
+
+        // And the long way round gives the same nodes.
+        let spelled = parse("$.items[*].meta.owner.team").expect("parse");
+        assert_eq!(select(&index, DOC.as_bytes(), &spelled), found);
+    }
+}

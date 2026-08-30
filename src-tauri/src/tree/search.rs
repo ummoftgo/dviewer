@@ -1123,3 +1123,18 @@ mod tests {
         assert!(run(DOC, "$.store.book", SearchScope::Paths, false).len() >= 3);
     }
 }
+
+#[cfg(test)]
+mod wire {
+    use super::*;
+
+    /// The whole options object as the frontend sends it.
+    #[test]
+    fn the_options_carry_the_interpretation() {
+        let sent = r#"{"query":"$..a","caseSensitive":false,"how":"jsonPath","scope":"paths","seq":3}"#;
+        let options: SearchOptions = serde_json::from_str(sent).expect("options");
+        assert_eq!(options.how, Interpretation::JsonPath);
+        assert_eq!(options.scope, SearchScope::Paths);
+        assert_eq!(options.seq, 3);
+    }
+}

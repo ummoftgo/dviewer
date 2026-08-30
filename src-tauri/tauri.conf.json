@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "dviewer",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "identifier": "com.xenia.dviewer",
   "build": {
     "beforeDevCommand": "npm run dev",
