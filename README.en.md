@@ -109,6 +109,6 @@ The technical documentation lives in `doc/` (Korean).
 - Scanning a SQLite database stops at five million rows. A larger table shows its first five million, and the status bar says so.
 - SQLite cannot be opened from a URL. A database is read by querying a file, so it has to be downloaded and then opened.
 - A Parquet file with a row group over four million rows does not open. A row group cannot be half-decoded, so a larger one would freeze the window for seconds the moment it is reached. Writers use 100k to 1M, so few files are affected.
-- Excel workbooks are converted into memory, so they are read up to 64MB. A formula cell shows the value Excel **last computed** — a file saved without recalculating can show a stale one. Cell display formats are not reproduced (dates are ISO 8601). `.xls`, the older binary format, is not read.
+- Excel workbooks are converted into memory, so they are read up to 64MB. The values are larger than the file — measured, a 9.7MB workbook becomes 51MB. A formula cell shows the value Excel **last computed** — a file saved without recalculating can show a stale one. Cell display formats are not reproduced (dates are ISO 8601). `.xls`, the older binary format, is not read.
 - SQLite is opened read-only. A database left with a rollback journal (`-journal`) by an interrupted transaction cannot have that journal replayed read-only, so the first query fails. The program that wrote it has to open it once and settle it first.
 - No editing or saving. This is a read-only viewer.

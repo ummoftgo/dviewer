@@ -18,6 +18,7 @@ cargo run --release --example table -- ../fixtures/huge.log  "id=1999999"
 cargo run --release --example table -- ../fixtures/huge.jsonl "항목 1999999"
 cargo run --release --example sqlite -- ../fixtures/huge.sqlite events
 cargo run --release --example parquet -- read ../fixtures/huge.parquet "항목 1999999"
+cargo run --release --example xlsx -- ../fixtures/huge.xlsx "9928527"
 ```
 
 이 저장소를 만든 기계(Windows 11)에서:
@@ -54,6 +55,24 @@ rowid 가 없는 것 — 뷰와 WITHOUT ROWID 테이블 — 은 적어 둘 것�
 
 JSONL 이 바이트당 가장 빠른 이유가 이 설계의 요약입니다. 색인은 개행만 세므로 로그와 같고, 값을 JSON 으로 읽는 일은 **화면에 있는 행에서만** 일어납니다. 100행에 0.1ms — 한 행당 1마이크로초 남짓이니, 행마다 스캐너를 도는 비용은 파일 크기와 무관하게 한 화면치입니다. 열을 알아내는 데는 앞 1MB 만 봅니다.
 
+xlsx 는 표 밖입니다. 바이트를 훑는 것이 아니라 **통째로 변환**하기 때문입니다 — 재는 것이 인덱싱 속도가 아니라 "한 시트가 메모리에서 얼마가 되는가"입니다. 9.7MB·25만 행 × 6열(150만 칸) 파일에서:
+
+| 항목 | 값 |
+|---|---|
+| 열기 (시트 목록) | 93ms — 2.9KB 파일에서는 1.8ms |
+| 시트 선택 (값 전부) | 0.36초 |
+| 메모리에 올라간 값 | **51MB** |
+| 100행 조회 (앞 / 중간 / 끝) | 0.14 / 0.10 / 0.08ms |
+| 수식 켜기, 처음 | 0.35초 (시트를 한 번 더 읽습니다) |
+| 수식 켜기, 그다음 | 0.0002ms |
+| 전체 검색 (150만 칸) | 0.18초 |
+
+**9.7MB 가 51MB 가 됩니다 — 5.3배.** 이것이 64MB 상한이 있는 이유입니다. 공유 문자열은 디스크에서 색인 하나지만 메모리에서는 문자열 하나씩이고, 같은 비율이면 상한에 걸린 64MB 워크북은 340MB 쯤의 값이 됩니다.
+
+**여는 시간도 파일 크기를 따라갑니다.** Parquet 이 끝의 색인만 읽어 크기와 무관한 것과 달리, 여기서는 압축을 풀어야 목록이 나옵니다. 시트를 고르는 순간이 진짜 비용인 것은 맞지만, 여는 것이 공짜라고는 말할 수 없습니다.
+
+수식은 시트를 한 번 더 읽습니다. 값을 읽는 것과 같은 값(0.35초)이고, 그래서 켤 때만 읽습니다 — 두 번째부터는 들고 있는 것을 씁니다.
+
 Parquet 도 표 밖입니다. 바이트를 훑지 않는 것은 SQLite 와 같은데, 이유가 하나 더 있습니다 — 파일이 **행 그룹 단위로 쓰여 있어** "통째로 안 올린다"를 형식이 공짜로 줍니다. 52MB·200만 행·행 그룹 8개(그룹당 25만 행)에서:
 
 | 항목 | 값 |
@@ -85,5 +104,5 @@ Parquet 픽스처만 생성기 밖에 있습니다. thrift 로 인코딩된 푸�
 cd src-tauri && cargo run --release --example parquet -- write ../fixtures [--huge]
 ```
 
-`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
+`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
 

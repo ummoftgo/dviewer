@@ -518,6 +518,8 @@ console.log("  settings.json");
 // carry exactly the shapes the reader has to get right, which a library's
 // defaults would not.
 
+const { deflateRawSync } = await import("node:zlib");
+
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
   for (let i = 0; i < 256; i += 1) {
@@ -534,7 +536,14 @@ function crc32(bytes) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-/** A zip file with every entry stored, from `{name: text}`. */
+/**
+ * A zip file from `{name: text}`.
+ *
+ * Deflated, not stored. A real xlsx is compressed, and the difference is not
+ * cosmetic: the format's whole memory story is that a modest file expands on
+ * the way in, so a fixture written uncompressed would hold a tenth of the rows
+ * for the same megabytes and measure the wrong thing.
+ */
 function zipOf(entries) {
   const files = [];
   const locals = [];
@@ -542,22 +551,24 @@ function zipOf(entries) {
 
   for (const [name, text] of Object.entries(entries)) {
     const nameBytes = Buffer.from(name, "utf8");
-    const data = Buffer.from(text, "utf8");
+    const raw = Buffer.from(text, "utf8");
+    const body = deflateRawSync(raw, { level: 6 });
+    const crc = crc32(raw);
     const header = Buffer.alloc(30);
     header.writeUInt32LE(0x04034b50, 0);
     header.writeUInt16LE(20, 4); // version needed
     header.writeUInt16LE(0, 6); // flags
-    header.writeUInt16LE(0, 8); // stored
+    header.writeUInt16LE(8, 8); // deflate
     header.writeUInt16LE(0, 10); // time
     header.writeUInt16LE(0x21, 12); // date: 1980-01-01, so the file is stable
-    header.writeUInt32LE(crc32(data), 14);
-    header.writeUInt32LE(data.length, 18);
-    header.writeUInt32LE(data.length, 22);
+    header.writeUInt32LE(crc, 14);
+    header.writeUInt32LE(body.length, 18);
+    header.writeUInt32LE(raw.length, 22);
     header.writeUInt16LE(nameBytes.length, 26);
     header.writeUInt16LE(0, 28);
-    locals.push(header, nameBytes, data);
-    files.push({ nameBytes, data, offset });
-    offset += header.length + nameBytes.length + data.length;
+    locals.push(header, nameBytes, body);
+    files.push({ nameBytes, body, raw, crc, offset });
+    offset += header.length + nameBytes.length + body.length;
   }
 
   const central = [];
@@ -568,12 +579,12 @@ function zipOf(entries) {
     entry.writeUInt16LE(20, 4); // version made by
     entry.writeUInt16LE(20, 6); // version needed
     entry.writeUInt16LE(0, 8);
-    entry.writeUInt16LE(0, 10);
+    entry.writeUInt16LE(8, 10); // deflate
     entry.writeUInt16LE(0, 12);
     entry.writeUInt16LE(0x21, 14);
-    entry.writeUInt32LE(crc32(file.data), 16);
-    entry.writeUInt32LE(file.data.length, 20);
-    entry.writeUInt32LE(file.data.length, 24);
+    entry.writeUInt32LE(file.crc, 16);
+    entry.writeUInt32LE(file.body.length, 20);
+    entry.writeUInt32LE(file.raw.length, 24);
     entry.writeUInt16LE(file.nameBytes.length, 28);
     entry.writeUInt32LE(file.offset, 42);
     central.push(entry, file.nameBytes);
@@ -786,6 +797,65 @@ if (wantHuge) {
     `);
     db.close();
     console.log("  huge.sqlite");
+  }
+
+  // A workbook at the size the 64MB ceiling exists for. Shared strings are the
+  // point: every repeat of a name is one index on disk and a whole string in
+  // memory, which is why a modest file is not modest once open.
+  {
+    const ROWS = 250_000;
+    const names = ["가나다 상사", "라마바 유통", "사아자 물산", "O'Brien & Co", "Björn Handels"];
+    const strings = ["거래처", "수량", "단가", "합계", "등록일", "비고", ...names, "정상", "보류"];
+    const index = new Map(strings.map((s, i) => [s, i]));
+
+    const head = [0, 1, 2, 3, 4, 5]
+      .map((i, c) => cellXml(`${"ABCDEF"[c]}1`, "s", i))
+      .join("");
+    const body = [];
+    for (let r = 0; r < ROWS; r += 1) {
+      const row = r + 2;
+      const name = names[r % names.length];
+      body.push(
+        `<row r="${row}">` +
+          cellXml(`A${row}`, "s", index.get(name)) +
+          cellXml(`B${row}`, "n", (r % 97) + 1) +
+          cellXml(`C${row}`, "n", Math.round(r * 13.7) / 10) +
+          cellXml(`D${row}`, "f", Math.round(r * 13.7 * ((r % 97) + 1)) / 10, 0, `B${row}*C${row}`) +
+          cellXml(`E${row}`, "n", 46265 + (r % 365), 1) +
+          cellXml(`F${row}`, "s", index.get(r % 3 === 0 ? "보류" : "정상")) +
+          "</row>",
+      );
+    }
+
+    const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">${head}</row>${body.join("")}</sheetData></worksheet>`;
+
+    const shared = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${strings.length}" uniqueCount="${strings.length}">${strings
+      .map((s) => `<si><t xml:space="preserve">${xmlEscape(s)}</t></si>`)
+      .join("")}</sst>`;
+
+    const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" xfId="0"/><xf numFmtId="14" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`;
+
+    await writeFile(
+      path.join(OUT, "huge.xlsx"),
+      zipOf({
+        "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+        "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+        "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="거래" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+        "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+        "xl/sharedStrings.xml": shared,
+        "xl/styles.xml": styles,
+        "xl/worksheets/sheet1.xml": sheet,
+      }),
+    );
+    const size = (await import("node:fs")).statSync(path.join(OUT, "huge.xlsx")).size;
+    console.log(`  huge.xlsx  ${(size / 1048576).toFixed(1)}MB, ${ROWS} rows`);
   }
 }
 
