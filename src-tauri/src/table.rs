@@ -17,6 +17,7 @@ use parking_lot::RwLock;
 use serde::Serialize;
 
 use crate::bytes::DocBytes;
+use crate::jsonl::JsonlLayout;
 use crate::log::LogLayout;
 use crate::state::DocKind;
 use crate::error::{Error, Result};
@@ -216,6 +217,9 @@ pub enum Records {
     /// newline exactly as for `Lines` — only the split differs, which is what
     /// lets the reader turn it off without the file being read again.
     Log(Arc<LogLayout>),
+    /// One JSON object per line. The same bargain as `Log`: a line is still a
+    /// line, and only the split knows the notation.
+    Jsonl(Arc<JsonlLayout>),
 }
 
 impl Records {
@@ -235,6 +239,7 @@ impl Records {
             Records::Delimited { .. } => None,
             Records::Lines => Some(1),
             Records::Log(layout) => Some(layout.column_count() as u32),
+            Records::Jsonl(layout) => Some(layout.column_count() as u32),
         }
     }
 
@@ -256,6 +261,12 @@ impl Records {
             // not: the extension is used loosely, and a European spreadsheet's
             // semicolons would otherwise show up as a single column and look
             // like a failed load.
+            // A JSONL file says what its records are; only the columns are a
+            // guess, and a file whose lines are not objects reads as lines.
+            DocKind::Jsonl => match crate::jsonl::detect(bytes) {
+                Some(layout) => Records::Jsonl(Arc::new(layout)),
+                None => Records::Lines,
+            },
             DocKind::Tsv => Records::Delimited { delimiter: b'\t' },
             _ => Records::Delimited {
                 delimiter: sniff_delimiter(bytes),
@@ -269,6 +280,7 @@ impl Records {
             Records::Delimited { delimiter } => delimiter_name(*delimiter),
             Records::Lines => "lines",
             Records::Log(_) => "log",
+            Records::Jsonl(_) => "jsonl",
         }
     }
 }
@@ -442,7 +454,9 @@ impl TableDoc {
     /// Nothing is re-scanned: the record index does not depend on the split,
     /// which is the whole reason the two readings share one document.
     pub fn set_plain(&self, on: bool) {
-        if !matches!(self.records, Records::Log(_)) {
+        // Only a reading that split the columns itself has anything to fold
+        // back. A delimited file's columns are in the file, not in a guess.
+        if !matches!(self.records, Records::Log(_) | Records::Jsonl(_)) {
             return;
         }
         *self.plain.write() = on;
@@ -455,6 +469,12 @@ impl TableDoc {
 
     /// Column names, or empty strings when the file has no header row.
     pub fn header(&self) -> Vec<String> {
+        // A JSONL record names its own fields, so the columns have names
+        // without a row being spent on them — and without the reader being
+        // offered a header toggle that would only ever hide the first record.
+        if let Records::Jsonl(layout) = self.reading() {
+            return layout.columns.clone();
+        }
         let mut names = vec![String::new(); self.columns() as usize];
         if !*self.has_header.read() {
             return names;
@@ -800,6 +820,7 @@ fn record_fields(bytes: &[u8], start: u32, end: u32, records: &Records) -> Vec<(
         // that the reader would thank us for guessing at.
         Records::Lines => return vec![(start, end)],
         Records::Log(layout) => return log_fields(bytes, start, end, layout),
+        Records::Jsonl(layout) => return crate::jsonl::split(bytes, start, end, layout),
     };
     let mut spans = Vec::new();
     let mut field_start = start;
@@ -1373,5 +1394,112 @@ mod tests {
         assert_eq!(page.rows.len(), 1);
         assert_eq!(page.rows[0].index, 2);
         assert!(doc.page(99, 10).rows.is_empty());
+    }
+
+    // --- JSON lines ---------------------------------------------------------
+
+    const RECORDS: &str = "{\"at\":\"01:02\",\"level\":\"info\",\"msg\":\"시작\"}\n\
+                           {\"at\":\"01:03\",\"level\":\"error\",\"msg\":\"실패\",\"code\":500}\n\
+                           {\"at\":\"01:04\",\"msg\":\"끝\"}\n";
+
+    fn jsonl_doc(source: &str) -> TableDoc {
+        built(source, Records::for_kind(DocKind::Jsonl, source.as_bytes()))
+    }
+
+    /// Records are rows, keys are columns, and the columns carry their own
+    /// names — no row is spent on a header.
+    #[test]
+    fn records_become_rows_and_keys_become_columns() {
+        let doc = jsonl_doc(RECORDS);
+        let stats = doc.stats();
+
+        assert_eq!(stats.row_count, 3);
+        assert_eq!(stats.column_count, 4);
+        assert_eq!(stats.delimiter, "jsonl");
+        assert!(!stats.has_header, "there is no header row to take");
+        assert!(!stats.header_possible, "and none to offer");
+        assert_eq!(doc.header(), ["at", "level", "msg", "code"]);
+
+        let rows = doc.page(0, 3).rows;
+        let text = |row: usize, column: usize| rows[row].cells[column].text.as_str();
+        assert_eq!(text(0, 0), "01:02");
+        assert_eq!(text(0, 1), "info");
+        assert_eq!(text(0, 2), "시작");
+        assert_eq!(text(0, 3), "", "a key this record does not have");
+        assert_eq!(text(1, 3), "500");
+        assert_eq!(text(2, 1), "");
+        assert_eq!(text(2, 2), "끝");
+    }
+
+    /// Folding back gives the line as the file wrote it, and the columns come
+    /// back on. The record index is untouched either way — the whole point of
+    /// making this a display switch.
+    #[test]
+    fn folding_to_one_column_is_a_display_switch() {
+        let doc = jsonl_doc(RECORDS);
+        let before = doc.stats().index_bytes;
+
+        doc.set_plain(true);
+        let stats = doc.stats();
+        assert_eq!(stats.column_count, 1);
+        assert_eq!(stats.row_count, 3);
+        assert_eq!(stats.index_bytes, before, "nothing was re-indexed");
+        assert_eq!(
+            doc.page(0, 1).rows[0].cells[0].text,
+            "{\"at\":\"01:02\",\"level\":\"info\",\"msg\":\"시작\"}"
+        );
+        // The document still knows what it is, so the way back stays visible.
+        assert_eq!(stats.delimiter, "jsonl");
+
+        doc.set_plain(false);
+        assert_eq!(doc.stats().column_count, 4);
+        assert_eq!(doc.header(), ["at", "level", "msg", "code"]);
+    }
+
+    /// A hit is a cell, at the column the value is in — not the column the key
+    /// happens to be written in.
+    #[test]
+    fn a_search_hit_lands_in_the_right_cell() {
+        let doc = jsonl_doc(RECORDS);
+        let idle = AtomicBool::new(false);
+
+        let hits = doc.search("실패", false, &idle).expect("search").hits;
+        assert_eq!(hits.len(), 1);
+        assert_eq!((hits[0].row, hits[0].column), (1, 2));
+
+        // Out of order in the file, in order in the grid.
+        let out_of_order = jsonl_doc("{\"a\":1,\"b\":\"찾을것\"}\n{\"b\":2,\"a\":\"찾을것\"}\n");
+        let hits = out_of_order.search("찾을것", false, &idle).expect("search").hits;
+        assert_eq!(
+            hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
+            [(0, 1), (1, 0)]
+        );
+
+        // A key is a column name, not a cell, so searching for one finds no
+        // cell to scroll to.
+        assert!(doc.search("level", false, &idle).expect("search").hits.is_empty());
+    }
+
+    /// Copying a cell gives the value; copying a row gives the line.
+    #[test]
+    fn copying_gives_the_value_and_the_line() {
+        let doc = jsonl_doc(RECORDS);
+        assert_eq!(doc.cell_text(1, 1).expect("cell").0, "error");
+        assert_eq!(doc.cell_text(2, 3).expect("cell").0, "");
+        assert_eq!(
+            doc.row_text(2).expect("row"),
+            "{\"at\":\"01:04\",\"msg\":\"끝\"}"
+        );
+    }
+
+    /// A file whose lines are not objects is not made into columns. It is still
+    /// a document, and it still opens — as lines.
+    #[test]
+    fn lines_that_are_not_objects_stay_one_column() {
+        let doc = jsonl_doc("[1,2]\n[3,4]\n[5,6]\n");
+        let stats = doc.stats();
+        assert_eq!(stats.column_count, 1);
+        assert_eq!(stats.delimiter, "lines");
+        assert_eq!(doc.page(0, 1).rows[0].cells[0].text, "[1,2]");
     }
 }

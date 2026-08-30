@@ -134,6 +134,7 @@
 
   .tab.active .kind[data-kind="json"],
   .tab.active .kind[data-kind="jsonc"],
+  .tab.active .kind[data-kind="jsonl"],
   .tab.active .kind[data-kind="yaml"],
   .tab.active .kind[data-kind="toml"] {
     color: var(--json-key);

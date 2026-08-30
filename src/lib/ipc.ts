@@ -13,6 +13,7 @@ export type DocKind =
   | "markdown"
   | "json"
   | "jsonc"
+  | "jsonl"
   | "yaml"
   | "toml"
   | "xml"
@@ -22,7 +23,7 @@ export type DocKind =
   | "sqlite";
 
 /**
- * How a document is read. Nine formats, four views — routing on the view is
+ * How a document is read. Ten formats, four views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
 export type DocView = "prose" | "tree" | "table" | "database";
@@ -38,6 +39,7 @@ export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "markdown", label: "format.markdown" },
   { kind: "json", label: "format.json" },
   { kind: "jsonc", label: "format.jsonc" },
+  { kind: "jsonl", label: "format.jsonl" },
   { kind: "yaml", label: "format.yaml" },
   { kind: "toml", label: "format.toml" },
   { kind: "xml", label: "format.xml" },
@@ -53,6 +55,7 @@ export function viewOf(kind: DocKind): DocView {
     case "csv":
     case "tsv":
     case "text":
+    case "jsonl":
       return "table";
     case "sqlite":
       return "database";
@@ -76,6 +79,7 @@ const BADGES: Record<DocKind, string> = {
   markdown: "M↓",
   json: "{ }",
   jsonc: "{/}",
+  jsonl: "{↵}",
   yaml: "Y",
   toml: "T",
   xml: "< >",

@@ -512,6 +512,16 @@ await writeFile(path.join(OUT, "settings.json"), jsoncBody + "\n");
 console.log("  settings.json");
 
 if (wantHuge) {
+  // The same records the small stream has, at the size the row window exists
+  // for: splitting a row means running the JSON scanner over that line, so the
+  // cost of the table view is paid per screenful and has to be measured.
+  await writeStream(
+    "huge.jsonl",
+    (function* () {
+      for (let i = 0; i < 2_000_000; i++) yield record(i) + "\n";
+    })(),
+  );
+
   // Same shape as a real export: wide enough that columns matter, long enough
   // that nothing but a windowed grid can show it.
   const COLUMNS = 12;

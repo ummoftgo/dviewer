@@ -17,6 +17,7 @@ export const en: Messages = {
   "format.markdown": "Markdown",
   "format.json": "JSON",
   "format.jsonc": "JSONC",
+  "format.jsonl": "JSON Lines",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -41,6 +42,7 @@ export const en: Messages = {
   "table.expand": "Expand pairs",
   "table.expand.title": "Give each key=value pair at the end of the message its own column.",
   "delimiter.log": "log (inferred)",
+  "delimiter.jsonl": "JSON lines (inferred)",
   "delimiter.other": "delimiter",
 
   // --- 앱 / app -----------------------------------------------------------

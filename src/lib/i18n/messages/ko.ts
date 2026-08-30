@@ -22,6 +22,7 @@ export const ko = {
   "format.markdown": "마크다운",
   "format.json": "JSON",
   "format.jsonc": "JSONC",
+  "format.jsonl": "JSON Lines",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -46,6 +47,7 @@ export const ko = {
   "table.expand": "키=값 펼치기",
   "table.expand.title": "메시지 끝의 key=value 쌍을 각각 열로 폅니다.",
   "delimiter.log": "로그(추론)",
+  "delimiter.jsonl": "JSON 줄(추론)",
   "delimiter.other": "구분자",
 
   // --- 앱 / app -----------------------------------------------------------

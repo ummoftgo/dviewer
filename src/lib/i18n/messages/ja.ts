@@ -17,6 +17,7 @@ export const ja: Messages = {
   "format.markdown": "Markdown",
   "format.json": "JSON",
   "format.jsonc": "JSONC",
+  "format.jsonl": "JSON Lines",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -41,6 +42,7 @@ export const ja: Messages = {
   "table.expand": "キー=値を展開",
   "table.expand.title": "メッセージ末尾の key=value をそれぞれ列にします。",
   "delimiter.log": "ログ（推定）",
+  "delimiter.jsonl": "JSON 行(推論)",
   "delimiter.other": "区切り文字",
 
   // --- 앱 / app -----------------------------------------------------------

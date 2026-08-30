@@ -14,7 +14,10 @@ use crate::state::DocKind;
 pub const MAX_URL_BYTES: u64 = 512 * 1024 * 1024;
 
 const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
-const JSON_EXTS: &[&str] = &["json", "jsonl", "ndjson", "geojson", "har", "ipynb"];
+const JSON_EXTS: &[&str] = &["json", "geojson", "har", "ipynb"];
+/// One record per line, so the table is the reading that matches the format.
+/// The tree is one switch away for anyone who wants the records nested.
+const JSONL_EXTS: &[&str] = &["jsonl", "ndjson"];
 /// Only the extension that says so. `.json` stays strict however common the
 /// comments in the wild are — the toolbar switch is one click, and a viewer
 /// that reads a malformed file without a word teaches its reader it was fine.
@@ -42,6 +45,7 @@ const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
 /// Every format the viewer knows, paired with the extensions that name it.
 const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Json, JSON_EXTS),
+    (DocKind::Jsonl, JSONL_EXTS),
     (DocKind::Jsonc, JSONC_EXTS),
     (DocKind::Markdown, MARKDOWN_EXTS),
     (DocKind::Yaml, YAML_EXTS),
@@ -375,8 +379,9 @@ mod tests {
     fn the_extension_decides_when_there_is_one() {
         let cases: &[(&str, DocKind)] = &[
             ("a.json", DocKind::Json),
-            ("a.jsonl", DocKind::Json),
-            ("a.ndjson", DocKind::Json),
+            ("a.jsonl", DocKind::Jsonl),
+            ("a.ndjson", DocKind::Jsonl),
+            ("a.jsonc", DocKind::Jsonc),
             ("a.md", DocKind::Markdown),
             ("a.yaml", DocKind::Yaml),
             ("a.YML", DocKind::Yaml),

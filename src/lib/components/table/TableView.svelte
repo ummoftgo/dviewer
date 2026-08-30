@@ -42,6 +42,17 @@
     };
   });
 
+  /**
+   * Whether the columns on screen were guessed at.
+   *
+   * A log's shape and a JSONL file's keys are both inferred, and both readings
+   * fold back to one column per line. The toggle belongs to that, not to logs —
+   * and it has to stay put while folded, or the way back would disappear with
+   * the columns.
+   */
+  const inferred = $derived(
+    tab.tableStats?.logLayout != null || tab.tableStats?.delimiter === "jsonl",
+  );
   const rowCount = $derived(tab.tableStats?.rowCount ?? 0);
   const columnCount = $derived(tab.tableStats?.columnCount ?? 0);
   const progressPercent = $derived(
@@ -182,9 +193,9 @@
 
   {#if tab.tableStats}
     <div class="toolbar">
-      <!-- Only a log that was actually recognised can be folded back; plain
-           text has nothing to fold. -->
-      {#if tab.tableStats.logLayout}
+      <!-- Only a reading that split the columns itself can be folded back;
+           plain text has nothing to fold. -->
+      {#if inferred}
         <button
           class="btn toggle"
           class:on={tab.tableStats.plain}

@@ -8,6 +8,7 @@ pub mod error;
 pub mod fonts;
 pub mod highlight;
 pub mod grid;
+pub mod jsonl;
 pub mod log;
 pub mod sqlite;
 pub mod tree;

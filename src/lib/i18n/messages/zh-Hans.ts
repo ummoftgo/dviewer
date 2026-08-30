@@ -17,6 +17,7 @@ export const zhHans: Messages = {
   "format.markdown": "Markdown",
   "format.json": "JSON",
   "format.jsonc": "JSONC",
+  "format.jsonl": "JSON Lines",
   "format.yaml": "YAML",
   "format.toml": "TOML",
   "format.xml": "XML",
@@ -41,6 +42,7 @@ export const zhHans: Messages = {
   "table.expand": "展开键=值",
   "table.expand.title": "把消息末尾的 key=value 各自拆成一列。",
   "delimiter.log": "日志（推断）",
+  "delimiter.jsonl": "JSON 行（推断）",
   "delimiter.other": "分隔符",
 
   // --- 앱 / app -----------------------------------------------------------

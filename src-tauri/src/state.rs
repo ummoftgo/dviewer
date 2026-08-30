@@ -20,6 +20,11 @@ pub type DocId = u32;
 pub enum DocKind {
     Markdown,
     Json,
+    /// One JSON object per line, read as a table. A kind of its own rather
+    /// than a view of `Json`, because it is a different reading of the bytes:
+    /// records are lines here, and the tree makes them a synthetic array. The
+    /// format switch is what moves between the two.
+    Jsonl,
     /// JSON with comments and trailing commas. A separate kind rather than a
     /// flag on `Json`, so that `.json` keeps refusing what `.json` may not
     /// contain — a viewer that quietly accepts a malformed file teaches its
@@ -64,7 +69,7 @@ impl DocKind {
             DocKind::Json | DocKind::Jsonc | DocKind::Yaml | DocKind::Toml | DocKind::Xml => {
                 DocView::Tree
             }
-            DocKind::Csv | DocKind::Tsv | DocKind::Text => DocView::Table,
+            DocKind::Csv | DocKind::Tsv | DocKind::Text | DocKind::Jsonl => DocView::Table,
             DocKind::Sqlite => DocView::Database,
         }
     }
