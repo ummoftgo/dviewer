@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use dviewer_lib::grid::Grid;
+use dviewer_lib::query::Interpretation;
 use dviewer_lib::parquet::ParquetDoc;
 use parquet::basic::{Compression, Repetition, Type as PhysicalType};
 use parquet::data_type::{ByteArray, ByteArrayType, DoubleType, Int32Type, Int64Type};
@@ -267,7 +268,7 @@ fn read(path: &Path, query: Option<&str>) {
     if let Some(query) = query {
         let idle = AtomicBool::new(false);
         let started = Instant::now();
-        let found = doc.search(query, false, &idle).expect("search");
+        let found = doc.search(query, false, Interpretation::Literal, &idle).expect("search");
         println!(
             "검색      {:>8.1?}  {query:?} {}건{}",
             started.elapsed(),

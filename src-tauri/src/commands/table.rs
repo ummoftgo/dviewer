@@ -343,10 +343,12 @@ pub async fn grid_search(
     doc_id: DocId,
     query: String,
     case_sensitive: bool,
+    #[allow(non_snake_case)] how: Option<crate::query::Interpretation>,
 ) -> Result<TableSearch> {
     let grid = grid_of(&state, doc_id)?;
+    let how = how.unwrap_or_default();
     let cancel = state.start_search_job(doc_id);
-    tauri::async_runtime::spawn_blocking(move || grid.search(&query, case_sensitive, &cancel))
+    tauri::async_runtime::spawn_blocking(move || grid.search(&query, case_sensitive, how, &cancel))
         .await
         .map_err(Error::internal)?
 }

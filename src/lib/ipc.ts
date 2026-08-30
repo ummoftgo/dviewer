@@ -508,8 +508,12 @@ export const xlsxSetFormulas = (docId: number, formulas: boolean) =>
 export const parquetOpen = (docId: number) => invoke<Collections>("parquet_open", { docId });
 export const parquetSelect = (docId: number) => invoke<GridStats>("parquet_select", { docId });
 export const parquetSchema = (docId: number) => invoke<string | null>("parquet_schema", { docId });
-export const gridSearch = (docId: number, query: string, caseSensitive: boolean) =>
-  invoke<TableSearchResult>("grid_search", { docId, query, caseSensitive });
+export const gridSearch = (
+  docId: number,
+  query: string,
+  caseSensitive: boolean,
+  how: Interpretation,
+) => invoke<TableSearchResult>("grid_search", { docId, query, caseSensitive, how });
 
 // --- events ---------------------------------------------------------------
 

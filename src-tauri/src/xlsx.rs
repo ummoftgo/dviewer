@@ -20,6 +20,7 @@ use serde::Serialize;
 
 use crate::error::{Error, Result, Subject};
 use crate::grid::Grid;
+use crate::query::{Interpretation, Matcher};
 use crate::table::{
     CellText, TableCell, TableHit, TablePage, TableRow, TableSearch, CELL_PREVIEW_CHARS,
     MAX_SEARCH_HITS,
@@ -298,9 +299,9 @@ impl Grid for XlsxGrid {
         &self,
         query: &str,
         case_sensitive: bool,
+        how: Interpretation,
         cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<TableSearch> {
-        use aho_corasick::{AhoCorasick, MatchKind};
         use std::sync::atomic::Ordering;
 
         if query.is_empty() {
@@ -309,13 +310,7 @@ impl Grid for XlsxGrid {
                 capped: false,
             });
         }
-        let finder = AhoCorasick::builder()
-            .match_kind(MatchKind::LeftmostFirst)
-            .ascii_case_insensitive(!case_sensitive)
-            .build([query.as_bytes()])
-            .map_err(|error| Error::BadQuery {
-                detail: error.to_string(),
-            })?;
+        let matcher = Matcher::new(query, case_sensitive, how)?;
 
         let mut hits = Vec::new();
         let mut capped = false;
@@ -330,7 +325,7 @@ impl Grid for XlsxGrid {
             for column in 0..self.columns {
                 // Searched as shown: a reader looking for `2026-08-31` means
                 // the date they can see, not the serial number behind it.
-                if finder.find(self.text_at(row, column).as_bytes()).is_some() {
+                if matcher.matches(&self.text_at(row, column)) {
                     hits.push(TableHit {
                         row: row as u32,
                         column: column as u32,
@@ -581,7 +576,7 @@ mod tests {
         let sheet = XlsxGrid::open(&book, "매출").expect("sheet");
         let idle = std::sync::atomic::AtomicBool::new(false);
 
-        let hits = sheet.search("2026-08-31", false, &idle).expect("search").hits;
+        let hits = sheet.search("2026-08-31", false, Interpretation::Literal, &idle).expect("search").hits;
         assert_eq!(
             hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
             [(1, 4), (1, 5)]

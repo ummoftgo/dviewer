@@ -77,6 +77,7 @@ class TableSearchState {
   seq = $state(0);
   query = $state("");
   caseSensitive = $state(false);
+  how = $state<Interpretation>("literal");
   running = $state(false);
   hits = $state<TableHit[]>([]);
   /** Index into `hits` of the cell the grid is parked on. */

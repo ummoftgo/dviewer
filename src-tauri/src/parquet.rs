@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use aho_corasick::{AhoCorasick, MatchKind};
+use crate::query::{Interpretation, Matcher};
 use parking_lot::Mutex;
 use parquet::basic::{ConvertedType, LogicalType};
 use parquet::file::reader::{FileReader, SerializedFileReader};
@@ -284,6 +284,7 @@ impl Grid for ParquetDoc {
         &self,
         query: &str,
         case_sensitive: bool,
+        how: Interpretation,
         cancel: &AtomicBool,
     ) -> Result<TableSearch> {
         if query.is_empty() {
@@ -292,13 +293,7 @@ impl Grid for ParquetDoc {
                 capped: false,
             });
         }
-        let finder = AhoCorasick::builder()
-            .match_kind(MatchKind::LeftmostFirst)
-            .ascii_case_insensitive(!case_sensitive)
-            .build([query.as_bytes()])
-            .map_err(|error| Error::BadQuery {
-                detail: error.to_string(),
-            })?;
+        let matcher = Matcher::new(query, case_sensitive, how)?;
 
         // Its own reader, so a search over a large file does not hold the lock
         // the viewport needs — and its own decoding, so the two groups the
@@ -324,7 +319,7 @@ impl Grid for ParquetDoc {
                 for (column, (_, field)) in row.get_column_iter().enumerate() {
                     // Searched as shown: a reader looking for a timestamp means
                     // the one on screen, not the integer behind it.
-                    if finder.find(full_text(field).as_bytes()).is_some() {
+                    if matcher.matches(&full_text(field)) {
                         hits.push(TableHit {
                             row: start + offset as u32,
                             column: column as u32,
@@ -705,7 +700,7 @@ mod tests {
         let Some(doc) = fixture() else { return };
         let idle = AtomicBool::new(false);
 
-        let hits = doc.search("Björn", false, &idle).expect("search").hits;
+        let hits = doc.search("Björn", false, Interpretation::Literal, &idle).expect("search").hits;
         assert_eq!(
             hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
             [(4, 1)]
@@ -714,20 +709,20 @@ mod tests {
         // A timestamp is searched as it is written, not as the integer behind
         // it — and as a substring, so a whole second matches the fraction that
         // follows it too. Both rows in the last group are that second.
-        let hits = doc.search("2026-08-29T10:40:04", false, &idle).expect("search").hits;
+        let hits = doc.search("2026-08-29T10:40:04", false, Interpretation::Literal, &idle).expect("search").hits;
         assert_eq!(
             hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
             [(4, 3), (5, 3)]
         );
-        let hits = doc.search("10:40:04.500", false, &idle).expect("search").hits;
+        let hits = doc.search("10:40:04.500", false, Interpretation::Literal, &idle).expect("search").hits;
         assert_eq!(hits.len(), 1, "the fraction narrows it to one");
 
         // A cancelled search says so rather than answering "nothing found".
         let cancelled = AtomicBool::new(true);
         assert!(matches!(
-            doc.search("가", false, &cancelled),
+            doc.search("가", false, Interpretation::Literal, &cancelled),
             Err(Error::Cancelled)
         ));
-        assert!(doc.search("", false, &idle).expect("search").hits.is_empty());
+        assert!(doc.search("", false, Interpretation::Literal, &idle).expect("search").hits.is_empty());
     }
 }

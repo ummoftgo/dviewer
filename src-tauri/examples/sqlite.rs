@@ -12,6 +12,7 @@ use std::time::Instant;
 use std::sync::atomic::AtomicBool;
 
 use dviewer_lib::grid::Grid;
+use dviewer_lib::query::Interpretation;
 use dviewer_lib::sqlite::{SqliteDoc, SqliteGrid};
 
 fn main() {
@@ -59,7 +60,7 @@ fn main() {
     for query in ["event number 2999999", "ERROR"] {
         let idle = AtomicBool::new(false);
         let started = Instant::now();
-        let found = grid.search(query, false, &idle).expect("search");
+        let found = grid.search(query, false, Interpretation::Literal, &idle).expect("search");
         println!(
             "search {query:?}  {:>8.0?}   {} hits{}",
             started.elapsed(),

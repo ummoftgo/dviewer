@@ -42,7 +42,7 @@
     const seq = search.begin();
     const mine = () => seq === search.seq;
     try {
-      const result = await gridSearch(tab.id, query, search.caseSensitive);
+      const result = await gridSearch(tab.id, query, search.caseSensitive, search.how);
       if (!mine()) return;
       search.hits = result.hits;
       search.capped = result.capped;
@@ -83,6 +83,17 @@
       if (e.key === "Escape") clearSearch();
     }}
   />
+  <!-- Beside the case toggle, because the two answer the same question in
+       sequence: how should the box read what I typed. -->
+  <label class="case" title={t("search.regex.title")}>
+    <input
+      type="checkbox"
+      checked={tab.tableSearch.how === "regex"}
+      onchange={(event) =>
+        (tab.tableSearch.how = event.currentTarget.checked ? "regex" : "literal")}
+    />
+    .*
+  </label>
   <label class="case" title={t("search.caseSensitive")}>
     <input type="checkbox" bind:checked={tab.tableSearch.caseSensitive} />
     Aa

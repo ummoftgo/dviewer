@@ -124,5 +124,29 @@ fn main() {
             ),
             Err(err) => eprintln!("검색 실패: {err}"),
         }
+
+        // The same question as a pattern, which walks the cells instead of
+        // scanning the bytes — the number that decides whether a prefilter is
+        // needed at all.
+        let pattern = format!("^{}$", regex::escape(&query));
+        for expression in [query.clone(), pattern] {
+            let started = Instant::now();
+            match dviewer_lib::grid::Grid::search(
+                &doc,
+                &expression,
+                false,
+                dviewer_lib::query::Interpretation::Regex,
+                &AtomicBool::new(false),
+            ) {
+                Ok(found) => println!(
+                    "정규식      {:?} {:.2}초, {}건{}",
+                    expression,
+                    started.elapsed().as_secs_f64(),
+                    found.hits.len(),
+                    if found.capped { " (상한)" } else { "" }
+                ),
+                Err(error) => println!("정규식      {expression:?} 실패: {error}"),
+            }
+        }
     }
 }

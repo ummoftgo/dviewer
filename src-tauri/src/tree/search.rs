@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use aho_corasick::{AhoCorasick, MatchKind};
-use regex::{Regex, RegexBuilder};
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +20,7 @@ use super::index::{TreeIndex, Syntax};
 use super::scanner::Kind;
 use super::text;
 use crate::error::{Error, Result};
+pub use crate::query::Interpretation;
 
 /// Hard cap on collected hits. Past this the result list stops being something
 /// a person navigates, and holding millions of ids helps nobody.
@@ -59,31 +59,6 @@ fn default_scope() -> SearchScope {
     SearchScope::All
 }
 
-/// What language the query is written in.
-///
-/// A second axis, not a fourth scope: the scope says which part of a node to
-/// look at, and this says how to read what is being looked for. The default is
-/// what the box has always done, so nothing changes for anyone who does not
-/// reach for the control.
-///
-/// Deliberately not inferred from the query's shape. `$.items` is a perfectly
-/// good literal search today, and a box that quietly switched engines when a
-/// query started looking like an expression would answer differently tomorrow
-/// with no way to see why.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Interpretation {
-    #[default]
-    Literal,
-    /// A regular expression, matched **inside one key, value or path** rather
-    /// than across the document.
-    ///
-    /// That is not a shortcut around the chunked scan — it is the only reading
-    /// under which the expression means what it says. `^` and `$` in a byte
-    /// stream anchor to any newline in the file, which for a JSON document is
-    /// nothing at all, so `^\d+$` would answer a question nobody asked.
-    Regex,
-}
 
 /// Which part of a node a hit landed in. A plain `in_key` flag could not
 /// describe a path match, which belongs to neither the key nor the value.
@@ -191,20 +166,6 @@ pub fn search(
     Ok(SearchResult { hits, summary })
 }
 
-/// Build the expression, with the case toggle folded in.
-///
-/// The toggle is not redundant with `(?i)` — it is the control that was already
-/// there, and a reader who set it once should not have to remember to also
-/// write it into every pattern. A pattern that says `(?i)` itself still wins
-/// inside its own group, which is what that syntax is for.
-fn compile(options: &SearchOptions) -> Result<Regex> {
-    RegexBuilder::new(&options.query)
-        .case_insensitive(!options.case_sensitive)
-        .build()
-        .map_err(|error| Error::BadRegex {
-            detail: error.to_string(),
-        })
-}
 
 /// Match an expression against each node's key and value.
 ///
@@ -223,7 +184,7 @@ fn search_nodes(
     cancel: &AtomicBool,
     mut on_batch: impl FnMut(&[SearchHit], usize),
 ) -> Result<SearchResult> {
-    let pattern = compile(options)?;
+    let pattern = crate::query::compile(&options.query, options.case_sensitive)?;
 
     let mut hits: Vec<SearchHit> = Vec::new();
     let mut batch_start = 0usize;

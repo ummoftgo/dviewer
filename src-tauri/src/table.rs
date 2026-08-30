@@ -10,7 +10,7 @@
 //! spreadsheet than the spreadsheet.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use aho_corasick::{AhoCorasick, MatchKind};
 use parking_lot::RwLock;
@@ -542,6 +542,57 @@ impl TableDoc {
         Some(String::from_utf8_lossy(&raw[..raw.len().min(MAX_CELL_TEXT_BYTES)]).into_owned())
     }
 
+    /// Match a pattern against each cell.
+    ///
+    /// A walk rather than the byte scan, for the reason in
+    /// `Interpretation::Regex`: an anchor has to have something to hold to, and
+    /// in a grid that is a cell. What it matches is the cell's **value** —
+    /// quotes off, `""` collapsed — because a pattern is written in characters,
+    /// and because that is the text the reader sees in the cell.
+    ///
+    /// One buffer, refilled per cell. A four-million-row export has forty-eight
+    /// million cells in it, and a `String` allocated for each would be the most
+    /// expensive thing in the loop by a wide margin.
+    fn search_pattern(
+        &self,
+        pattern: &regex::Regex,
+        cancel: &AtomicBool,
+    ) -> Result<TableSearch> {
+        let offset = self.header_offset();
+        let total = self.record_count();
+        let reading = self.reading();
+
+        let mut hits: Vec<TableHit> = Vec::new();
+        let mut capped = false;
+        let mut cell = String::new();
+
+        for record in offset..total {
+            if record % 1024 == 0 && cancel.load(Ordering::Relaxed) {
+                return Err(Error::Cancelled);
+            }
+            if hits.len() >= MAX_SEARCH_HITS {
+                capped = true;
+                break;
+            }
+            let Some((start, end)) = self.record_span(record) else {
+                continue;
+            };
+            for (column, span) in record_fields(&self.bytes, start, end, &reading)
+                .into_iter()
+                .enumerate()
+            {
+                value_into(&self.bytes, span, &reading, MAX_MATCHED_BYTES, &mut cell);
+                if pattern.is_match(&cell) {
+                    hits.push(TableHit {
+                        row: record - offset,
+                        column: column as u32,
+                    });
+                }
+            }
+        }
+        Ok(TableSearch { hits, capped })
+    }
+
     pub fn search(&self, query: &str, case_sensitive: bool, cancel: &AtomicBool) -> Result<TableSearch> {
         if query.is_empty() {
             return Ok(TableSearch {
@@ -910,9 +961,24 @@ impl crate::grid::Grid for TableDoc {
         &self,
         query: &str,
         case_sensitive: bool,
+        how: crate::query::Interpretation,
         cancel: &AtomicBool,
     ) -> Result<TableSearch> {
-        TableDoc::search(self, query, case_sensitive, cancel)
+        match how {
+            crate::query::Interpretation::Literal => {
+                TableDoc::search(self, query, case_sensitive, cancel)
+            }
+            crate::query::Interpretation::Regex => {
+                if query.is_empty() {
+                    return Ok(TableSearch {
+                        hits: Vec::new(),
+                        capped: false,
+                    });
+                }
+                let pattern = crate::query::compile(query, case_sensitive)?;
+                self.search_pattern(&pattern, cancel)
+            }
+        }
     }
 }
 
@@ -921,6 +987,52 @@ impl crate::grid::Grid for TableDoc {
 /// `max_chars` bounds the preview so a cell holding a megabyte cannot stall the
 /// IPC channel; `max_bytes` bounds the source instead, for copying. Exactly one
 /// of the two is ever a real limit.
+/// How much of one cell a pattern is matched against.
+///
+/// A cell can hold a megabyte of base64, and running a pattern over every byte
+/// of several thousand of those is time spent on something nobody is reading.
+const MAX_MATCHED_BYTES: usize = 1024 * 1024;
+
+/// The cell's value, written into `out` rather than returned.
+///
+/// The same reading `decode_cell` gives for copying — quotes off, `""` become
+/// one — with the buffer supplied so a scan over millions of cells allocates
+/// once instead of once per cell.
+fn value_into(bytes: &[u8], span: (u32, u32), records: &Records, max_bytes: usize, out: &mut String) {
+    out.clear();
+    let (start, end) = span;
+    let raw = &bytes[start as usize..end as usize];
+    let cut = raw.len() > max_bytes;
+    let raw = &raw[..raw.len().min(max_bytes)];
+
+    let quoted = records.quotes_span_records() && raw.first() == Some(&b'"');
+    let inner = if quoted {
+        let tail = if !cut && raw.len() > 1 && raw.last() == Some(&b'"') {
+            raw.len() - 1
+        } else {
+            raw.len()
+        };
+        &raw[1..tail]
+    } else {
+        raw
+    };
+
+    let mut pending_quote = false;
+    for ch in String::from_utf8_lossy(inner).chars() {
+        if quoted && ch == '"' {
+            if pending_quote {
+                pending_quote = false;
+            } else {
+                pending_quote = true;
+                continue;
+            }
+        } else {
+            pending_quote = false;
+        }
+        out.push(ch);
+    }
+}
+
 fn decode_cell(
     bytes: &[u8],
     span: (u32, u32),
@@ -1593,5 +1705,105 @@ mod tests {
         // the value.
         assert_eq!(doc.cell_text(0, 0).expect("cell").0, "[\"a\",\"b\"]");
         assert_eq!(doc.cell_text(0, 2).expect("cell").0, "q\"x");
+    }
+
+    // --- patterns in a grid -------------------------------------------------
+
+    fn pattern_hits(doc: &TableDoc, query: &str) -> Vec<(u32, u32)> {
+        use crate::grid::Grid;
+        Grid::search(
+            doc,
+            query,
+            false,
+            crate::query::Interpretation::Regex,
+            &AtomicBool::new(false),
+        )
+        .expect("search")
+        .hits
+        .into_iter()
+        .map(|hit| (hit.row, hit.column))
+        .collect()
+    }
+
+    /// An anchor holds to the cell, not to the line it is in. Over the record's
+    /// bytes `^b$` would match nothing here; over the file's, nothing either.
+    #[test]
+    fn an_anchor_holds_to_the_cell() {
+        let doc = built(
+            "a,b,c\nb,bb,ab\n",
+            Records::for_kind(DocKind::Csv, b"a,b,c\nb,bb,ab\n"),
+        );
+        doc.set_has_header(false);
+        assert_eq!(pattern_hits(&doc, "^b$"), [(0, 1), (1, 0)]);
+        assert_eq!(pattern_hits(&doc, "^b"), [(0, 1), (1, 0), (1, 1)]);
+        assert_eq!(pattern_hits(&doc, "b$"), [(0, 1), (1, 0), (1, 1), (1, 2)]);
+    }
+
+    /// A pattern matches the cell's value, so a quoted field is matched without
+    /// its quotes and a doubled quote is the one character it stands for. That
+    /// is the same text copying the cell gives.
+    #[test]
+    fn a_pattern_matches_the_value_not_the_bytes() {
+        let src = "a\n\"say \"\"hi\"\"\"\n\"has, comma\"\n";
+        let doc = built(src, Records::for_kind(DocKind::Csv, src.as_bytes()));
+        doc.set_has_header(false);
+
+        // The value is `say "hi"` — one quote each, and none at the ends.
+        assert_eq!(pattern_hits(&doc, "^say \"hi\"$"), [(1, 0)]);
+        // The bytes are `"say ""hi"""`, which the value is not.
+        assert!(pattern_hits(&doc, "\"\"hi").is_empty());
+        // A comma inside a quoted field is part of the value, not a boundary.
+        assert_eq!(pattern_hits(&doc, "^has, comma$"), [(2, 0)]);
+    }
+
+    /// A log's columns are cells too, so a pattern anchors to the field the log
+    /// layout found rather than to the line.
+    #[test]
+    fn a_pattern_anchors_to_a_log_field() {
+        let src = "\
+2026-08-30T01:02:03.123Z INFO  [server] 시작됨
+2026-08-30T01:02:04.001Z ERROR [db] 실패
+";
+        let doc = built(src, Records::for_kind(DocKind::Text, src.as_bytes()));
+        assert_eq!(doc.stats().column_count, 4);
+        assert_eq!(pattern_hits(&doc, "^ERROR$"), [(1, 1)]);
+        assert_eq!(pattern_hits(&doc, "^db$"), [(1, 2)]);
+        // The whole line is not a cell, so a pattern spanning fields finds
+        // nothing — which is what "matched inside one cell" means.
+        assert!(pattern_hits(&doc, "ERROR.*실패").is_empty());
+    }
+
+    /// The literal reading is untouched, and the two disagree exactly where
+    /// they should.
+    #[test]
+    fn the_literal_reading_of_a_grid_is_untouched() {
+        let src = "a\n^b$\nb\n";
+        let doc = built(src, Records::for_kind(DocKind::Csv, src.as_bytes()));
+        doc.set_has_header(false);
+
+        let idle = AtomicBool::new(false);
+        let literal = doc.search("^b$", false, &idle).expect("search").hits;
+        assert_eq!(literal.len(), 1, "the row whose text is ^b$");
+        assert_eq!((literal[0].row, literal[0].column), (1, 0));
+
+        assert_eq!(pattern_hits(&doc, "^b$"), [(2, 0)], "the row whose text is b");
+    }
+
+    /// A pattern that does not compile is an error, not an empty answer.
+    #[test]
+    fn a_broken_pattern_in_a_grid_says_so() {
+        let doc = built("a\nb\n", Records::for_kind(DocKind::Csv, b"a\nb\n"));
+        use crate::grid::Grid;
+        match Grid::search(
+            &doc,
+            "(unclosed",
+            false,
+            crate::query::Interpretation::Regex,
+            &AtomicBool::new(false),
+        ) {
+            Err(Error::BadRegex { detail }) => assert!(detail.contains("unclosed"), "got {detail}"),
+            Err(other) => panic!("unexpected error: {other:?}"),
+            Ok(_) => panic!("a pattern that does not compile must not succeed"),
+        }
     }
 }

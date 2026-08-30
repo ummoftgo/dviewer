@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use aho_corasick::{AhoCorasick, MatchKind};
+use crate::query::{Interpretation, Matcher};
 
 use parking_lot::{Mutex, MutexGuard};
 use rusqlite::{Connection, OpenFlags};
@@ -256,6 +256,7 @@ impl SqliteGrid {
         &self,
         query: &str,
         case_sensitive: bool,
+        how: Interpretation,
         cancel: &AtomicBool,
     ) -> Result<TableSearch> {
         if query.is_empty() {
@@ -264,13 +265,7 @@ impl SqliteGrid {
                 capped: false,
             });
         }
-        let finder = AhoCorasick::builder()
-            .match_kind(MatchKind::LeftmostFirst)
-            .ascii_case_insensitive(!case_sensitive)
-            .build([query.as_bytes()])
-            .map_err(|error| Error::BadQuery {
-                detail: error.to_string(),
-            })?;
+        let matcher = Matcher::new(query, case_sensitive, how)?;
 
         let searching = self.database.connect()?;
         let mut statement = searching
@@ -301,7 +296,7 @@ impl SqliteGrid {
             }
 
             for column in 0..self.columns.len() {
-                if matches(row, column, &finder)? {
+                if matches(row, column, &matcher)? {
                     hits.push(TableHit {
                         row: index,
                         column: column as u32,
@@ -335,13 +330,13 @@ impl SqliteGrid {
 /// draws: the reader is looking for what is in the data. The other classes are
 /// short enough that rendering them costs nothing, and a reader who searches
 /// for `42` expects to find the number 42.
-fn matches(row: &rusqlite::Row<'_>, column: usize, finder: &AhoCorasick) -> Result<bool> {
+fn matches(row: &rusqlite::Row<'_>, column: usize, matcher: &Matcher) -> Result<bool> {
     use rusqlite::types::ValueRef;
     Ok(match row.get_ref(column).map_err(query_failed)? {
         ValueRef::Null => false,
-        ValueRef::Text(bytes) => finder.find(bytes).is_some(),
-        ValueRef::Integer(number) => finder.find(number.to_string().as_bytes()).is_some(),
-        ValueRef::Real(number) => finder.find(format_real(number).as_bytes()).is_some(),
+        ValueRef::Text(bytes) => matcher.matches(&String::from_utf8_lossy(bytes)),
+        ValueRef::Integer(number) => matcher.matches(&number.to_string()),
+        ValueRef::Real(number) => matcher.matches(&format_real(number)),
         // Not searched. A BLOB's bytes are not text, and the hex the grid shows
         // is this app's rendering rather than anything the file says — matching
         // against it would find cells whose data does not contain the query.
@@ -394,9 +389,10 @@ impl Grid for SqliteGrid {
         &self,
         query: &str,
         case_sensitive: bool,
+        how: Interpretation,
         cancel: &AtomicBool,
     ) -> Result<TableSearch> {
-        SqliteGrid::search(self, query, case_sensitive, cancel)
+        SqliteGrid::search(self, query, case_sensitive, how, cancel)
     }
 
     fn row_text(&self, row: u32) -> Result<CellText> {
@@ -947,7 +943,7 @@ lines', 'tab\there', -7, 0.5, x'');",
 
     fn found(grid: &SqliteGrid, query: &str, case_sensitive: bool) -> Vec<(u32, u32)> {
         let idle = AtomicBool::new(false);
-        grid.search(query, case_sensitive, &idle)
+        grid.search(query, case_sensitive, Interpretation::Literal, &idle)
             .expect("search")
             .hits
             .into_iter()
@@ -1023,7 +1019,7 @@ lines', 'tab\there', -7, 0.5, x'');",
         );
         let cancelled = AtomicBool::new(true);
         assert!(matches!(
-            grid.search("row", false, &cancelled),
+            grid.search("row", false, Interpretation::Literal, &cancelled),
             Err(Error::Cancelled)
         ));
     }
@@ -1038,7 +1034,7 @@ lines', 'tab\there', -7, 0.5, x'');",
             "t",
         );
         let idle = AtomicBool::new(false);
-        let result = grid.search("", false, &idle).expect("search");
+        let result = grid.search("", false, Interpretation::Literal, &idle).expect("search");
         assert!(result.hits.is_empty());
         assert!(!result.capped);
     }

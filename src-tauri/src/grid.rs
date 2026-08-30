@@ -15,6 +15,7 @@
 use std::sync::atomic::AtomicBool;
 
 use crate::error::Result;
+use crate::query::Interpretation;
 use crate::table::{CellText, TablePage, TableSearch, MAX_CELL_TEXT_BYTES};
 
 /// Bytes of a binary value shown as hex in the grid.
@@ -62,10 +63,19 @@ pub trait Grid: Send + Sync {
     /// A whole row as text.
     fn row_text(&self, row: u32) -> Result<CellText>;
 
-    /// Every cell containing `query`, up to the hit ceiling.
+    /// Every cell matching `query`, up to the hit ceiling.
+    ///
+    /// `how` says whether the query is a string to find or a pattern to match.
+    /// A pattern is matched **inside one cell** — see `Interpretation::Regex`
+    /// for why that is the only reading under which an anchor means anything.
     ///
     /// Long enough to need interrupting, so `cancel` is checked as it goes and
     /// a set flag ends it with `Cancelled` rather than with a stale answer.
-    fn search(&self, query: &str, case_sensitive: bool, cancel: &AtomicBool)
-        -> Result<TableSearch>;
+    fn search(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+        how: Interpretation,
+        cancel: &AtomicBool,
+    ) -> Result<TableSearch>;
 }

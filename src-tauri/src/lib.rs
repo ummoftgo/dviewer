@@ -11,6 +11,7 @@ pub mod grid;
 pub mod jsonl;
 pub mod log;
 pub mod parquet;
+pub mod query;
 pub mod sqlite;
 pub mod tree;
 pub mod markdown;
