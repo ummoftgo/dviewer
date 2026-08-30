@@ -177,6 +177,9 @@ pub struct GridStats {
     /// The opening scan hit its ceiling, so the row count is that ceiling and
     /// not the collection's real size.
     pub truncated: bool,
+    /// A workbook showing its formulas instead of the values they produced.
+    /// Always false for a database, which has no second reading of a row.
+    pub formulas: bool,
 }
 
 /// Choose which table or view the grid shows.
@@ -208,6 +211,7 @@ pub async fn sqlite_select(
         columns: grid.columns().to_vec(),
         index_bytes: grid.index_bytes(),
         truncated: grid.truncated(),
+        formulas: false,
     };
     doc.set_collection(Arc::new(grid));
     Ok(stats)
@@ -345,4 +349,111 @@ pub async fn grid_search(
     tauri::async_runtime::spawn_blocking(move || grid.search(&query, case_sensitive, &cancel))
         .await
         .map_err(Error::internal)?
+}
+
+/// The sheets in a workbook.
+///
+/// Opening the file and reading its index is the whole cost; no sheet is read.
+#[tauri::command]
+pub async fn xlsx_sheets(state: State<'_, AppState>, doc_id: DocId) -> Result<Collections> {
+    let doc = state.get(doc_id)?;
+    if doc.kind() != DocKind::Xlsx {
+        return Err(Error::WrongView {
+            subject: Subject::Workbook,
+        });
+    }
+    if let Some(workbook) = doc.workbook() {
+        return Ok(Collections {
+            items: named(workbook.sheets()),
+        });
+    }
+
+    let DocSource::File { path } = &doc.meta().source else {
+        // The same reason a database cannot be opened from a URL: the reader
+        // works from a file, and a downloaded buffer is not one.
+        return Err(Error::NeedsFile);
+    };
+    let path = std::path::PathBuf::from(path);
+    let workbook = tauri::async_runtime::spawn_blocking(move || crate::xlsx::XlsxDoc::open(&path))
+        .await
+        .map_err(Error::internal)??;
+
+    let items = named(workbook.sheets());
+    doc.set_workbook(Arc::new(workbook));
+    Ok(Collections { items })
+}
+
+/// Sheets have no second kind the way a database has views.
+fn named(sheets: &[crate::xlsx::Sheet]) -> Vec<crate::sqlite::Collection> {
+    sheets
+        .iter()
+        .map(|sheet| crate::sqlite::Collection {
+            name: sheet.name.clone(),
+            is_view: false,
+        })
+        .collect()
+}
+
+/// Choose which sheet the grid shows.
+///
+/// Async because the sheet is read here — every value of it, which for a large
+/// workbook is the one slow moment in the whole format.
+#[tauri::command]
+pub async fn xlsx_select(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    name: String,
+) -> Result<GridStats> {
+    let doc = state.get(doc_id)?;
+    let workbook = doc.workbook().ok_or(Error::NotReady {
+        subject: Subject::Workbook,
+    })?;
+
+    let sheet = tauri::async_runtime::spawn_blocking(move || {
+        crate::xlsx::XlsxGrid::open(&workbook, &name)
+    })
+    .await
+    .map_err(Error::internal)??;
+
+    let stats = GridStats {
+        row_count: sheet.row_count(),
+        column_count: sheet.column_count(),
+        columns: sheet.column_names(),
+        index_bytes: sheet.heap_bytes(),
+        truncated: sheet.truncated(),
+        formulas: false,
+    };
+    doc.set_sheet(Arc::new(sheet));
+    Ok(stats)
+}
+
+/// Show the formulas behind the values, or the values again.
+///
+/// A display switch, like a log's columns — except that the first time it is
+/// turned on the sheet is read a second time, for the formulas nobody had asked
+/// for yet.
+#[tauri::command]
+pub async fn xlsx_set_formulas(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    formulas: bool,
+) -> Result<GridStats> {
+    let doc = state.get(doc_id)?;
+    let sheet = doc.sheet().ok_or(Error::NotReady {
+        subject: Subject::Workbook,
+    })?;
+
+    let switching = Arc::clone(&sheet);
+    tauri::async_runtime::spawn_blocking(move || switching.set_formulas(formulas))
+        .await
+        .map_err(Error::internal)??;
+
+    Ok(GridStats {
+        row_count: sheet.row_count(),
+        column_count: sheet.column_count(),
+        columns: sheet.column_names(),
+        index_bytes: sheet.heap_bytes(),
+        truncated: sheet.truncated(),
+        formulas: sheet.showing_formulas(),
+    })
 }

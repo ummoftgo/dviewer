@@ -35,6 +35,10 @@ const TSV_EXTS: &[&str] = &["tsv", "tab"];
 /// it says it is.
 const TEXT_EXTS: &[&str] = &["txt", "log"];
 const SQLITE_EXTS: &[&str] = &["db", "sqlite", "sqlite3", "db3"];
+/// `.xlsm` is the same format with macros in it, which this never runs.
+/// `.xls` is the older binary one and is not read: calamine can, but the value
+/// text and the date handling below are written against the modern shapes.
+const XLSX_EXTS: &[&str] = &["xlsx", "xlsm"];
 
 /// The sixteen bytes every SQLite database begins with.
 ///
@@ -55,6 +59,7 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Tsv, TSV_EXTS),
     (DocKind::Text, TEXT_EXTS),
     (DocKind::Sqlite, SQLITE_EXTS),
+    (DocKind::Xlsx, XLSX_EXTS),
 ];
 
 /// Decide how to read a document: extension first, then a peek at the content.

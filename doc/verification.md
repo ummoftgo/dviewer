@@ -3,7 +3,7 @@
 ← [README](../README.md)
 
 ```bash
-cd src-tauri && cargo test          # 266개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 표시/복사, 정화
+cd src-tauri && cargo test          # 275개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 표시/복사, 정화
 ```
 
 성능은 창 없이 직접 잽니다:
@@ -59,5 +59,5 @@ cd src-tauri && cargo run --release --example render -- ../fixtures/sample.md ou
 
 인코딩은 실제 바이트로 확인합니다 — `cp949.csv`, `utf16.csv`, `utf8bom.csv` 를 열면 도구 모음이 각각 EUC-KR / UTF-16 LE / UTF-8 을 표시하고 세 파일 모두 `id | 이름 | 메모` 로 읽힙니다.
 
-`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
+`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
 

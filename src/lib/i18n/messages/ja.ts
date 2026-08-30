@@ -25,6 +25,7 @@ export const ja: Messages = {
   "format.tsv": "TSV",
   "format.text": "テキスト",
   "format.sqlite": "SQLite",
+  "format.xlsx": "Excel",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "カンマ",
@@ -224,8 +225,11 @@ export const ja: Messages = {
   "table.search.empty": "結果なし",
   "table.collection": "テーブル",
   "table.noCollections": "このデータベースにはテーブルもビューもありません。",
+  "table.noSheets": "このブックにはシートがありません。",
   "table.view": "ビュー",
   "table.schema": "スキーマ",
+  "table.formulas": "数式表示",
+  "table.formulas.title": "値の代わりに、その値を作った数式を表示します",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "パスをコピーしました。",
@@ -257,6 +261,7 @@ export const ja: Messages = {
   "subject.tree": "ツリー",
   "subject.decompressed": "展開後の内容",
   "subject.database": "データベース",
+  "subject.workbook": "ブック",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "値の後に解釈できない内容があります",

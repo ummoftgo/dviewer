@@ -34,15 +34,15 @@ pub async fn open_path(
             // Decoding comes first: a UTF-16 document does not even begin with
             // the character that would say what format it is.
             //
-            // A database is the exception. Its bytes are not text in any
-            // encoding, so running the detector over them would only produce a
-            // confident wrong answer — and the pages it would guess from are
-            // not what the reader is going to be shown anyway.
+            // A database and a workbook are the exceptions. Their bytes are not
+            // text in any encoding, so running the detector over them would
+            // only produce a confident wrong answer — and the pages it would
+            // guess from are not what the reader is going to be shown anyway.
             let kind = source::detect_kind(&title, &bytes);
-            let decoded = if kind == DocKind::Sqlite {
-                encoding::verbatim(Arc::clone(&bytes))
-            } else {
+            let decoded = if kind.reads_bytes() {
                 encoding::decode(Arc::clone(&bytes))
+            } else {
+                encoding::verbatim(Arc::clone(&bytes))
             };
             Ok::<_, Error>((bytes, decoded, title, base_dir, kind))
         }
@@ -110,7 +110,7 @@ pub async fn open_url(
     // See `Error::NeedsFile`. Writing the download to a temporary file would
     // make this work, and would leave the reader with a copy of a database they
     // did not ask to keep, in a place they did not choose.
-    if kind == DocKind::Sqlite {
+    if !kind.reads_bytes() {
         return Err(Error::NeedsFile);
     }
 
@@ -178,8 +178,8 @@ pub fn set_doc_kind(
 ) -> Result<DocMeta> {
     let doc = state.get(doc_id)?;
     // See `Error::NotInterchangeable`: the switcher reinterprets bytes, and a
-    // database has no reading to change.
-    if (kind == DocKind::Sqlite) != (doc.kind() == DocKind::Sqlite) {
+    // document that is not read as bytes has no reading to change.
+    if !kind.reads_bytes() || !doc.kind().reads_bytes() {
         return Err(Error::NotInterchangeable);
     }
     state.cancel_jobs(doc_id);

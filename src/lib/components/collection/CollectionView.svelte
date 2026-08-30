@@ -17,7 +17,15 @@
   import CollectionPicker from "./CollectionPicker.svelte";
   import Icon from "../Icon.svelte";
   import { formatBytes } from "../../format";
-  import { sqliteCollections, sqliteSchema, sqliteSelect, errorMessage } from "../../ipc";
+  import {
+    sqliteCollections,
+    sqliteSchema,
+    sqliteSelect,
+    xlsxSheets,
+    xlsxSelect,
+    xlsxSetFormulas,
+    errorMessage,
+  } from "../../ipc";
   import { n, t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
 
@@ -41,6 +49,17 @@
   let loading = $state(false);
   let showSchema = $state(false);
 
+  /**
+   * Which format is behind the collections.
+   *
+   * The two differ in three places — how the list arrives, how one is chosen,
+   * and what the toolbar's tail offers — and nowhere else. Naming that here
+   * keeps the difference in one place instead of spread through the markup.
+   */
+  const workbook = $derived(tab.kind === "xlsx");
+  const list = $derived(workbook ? xlsxSheets : sqliteCollections);
+  const choose = $derived(workbook ? xlsxSelect : sqliteSelect);
+
   const items = $derived(
     tab.collections.map((entry) => ({ name: entry.name, secondary: entry.isView })),
   );
@@ -54,7 +73,7 @@
     const target = tab;
     if (target.collections.length > 0 || target.error) return;
     loading = true;
-    sqliteCollections(target.id)
+    list(target.id)
       .then((result) => {
         target.collections = result.items;
         if (result.items.length > 0) select(result.items[0].name);
@@ -85,13 +104,15 @@
     tab.tableSearch.reset();
     loading = true;
     try {
-      tab.gridStats = await sqliteSelect(tab.id, name);
+      tab.gridStats = await choose(tab.id, name);
       await grid?.refresh(true);
-      // The statement comes second: the rows are what the reader is waiting
-      // for, and the schema is a panel they may never open.
-      const sql = await sqliteSchema(tab.id, name);
-      // The reader may have moved on during the round trip.
-      if (tab.collection === name) tab.schema = sql;
+      if (!workbook) {
+        // The statement comes second: the rows are what the reader is waiting
+        // for, and the schema is a panel they may never open.
+        const sql = await sqliteSchema(tab.id, name);
+        // The reader may have moved on during the round trip.
+        if (tab.collection === name) tab.schema = sql;
+      }
     } catch (err) {
       tab.error = errorMessage(err);
     } finally {
@@ -99,9 +120,21 @@
     }
   }
 
-  /** A database names its own columns, and there is nothing to guess. */
+  /** Both formats name their own columns, and there is nothing to guess. */
   function columnName(column: number): string {
     return tab.gridStats?.columns[column] ?? String(column + 1);
+  }
+
+  async function toggleFormulas() {
+    loading = true;
+    try {
+      tab.gridStats = await xlsxSetFormulas(tab.id, !(tab.gridStats?.formulas ?? false));
+      await grid?.refresh();
+    } catch (err) {
+      tab.error = errorMessage(err);
+    } finally {
+      loading = false;
+    }
   }
 </script>
 
@@ -119,6 +152,8 @@
 
     <span class="spacer"></span>
 
+    <!-- The tail is where the two formats differ: a database has a statement
+         that made the collection, and a sheet has the formulas behind it. -->
     {#if tab.schema}
       <button
         class="btn btn-ghost"
@@ -127,6 +162,20 @@
       >
         <Icon name="list" size={13} />
         {t("table.schema")}
+      </button>
+    {/if}
+    {#if workbook && tab.gridStats}
+      <button
+        class="btn toggle"
+        class:on={tab.gridStats.formulas}
+        aria-pressed={tab.gridStats.formulas}
+        disabled={loading}
+        onclick={toggleFormulas}
+        title={t("table.formulas.title")}
+      >
+        <Icon name="list" size={13} />
+        {t("table.formulas")}
+        <span class="state">{tab.gridStats.formulas ? t("state.on") : t("state.off")}</span>
       </button>
     {/if}
     <button
@@ -159,7 +208,7 @@
   {/if}
 
   {#if tab.collections.length === 0 && !loading}
-    <p class="empty">{t("table.noCollections")}</p>
+    <p class="empty">{t(workbook ? "table.noSheets" : "table.noCollections")}</p>
   {:else}
     <DataGrid
       bind:this={grid}
@@ -257,6 +306,26 @@
     background: var(--bg-subtle);
     color: var(--text-muted);
     font-size: 0.85em;
+  }
+
+  .toggle.on {
+    border-color: var(--accent-border);
+    background: var(--accent-subtle);
+    color: var(--accent);
+  }
+
+  .toggle .state {
+    margin-left: 0.1rem;
+    padding: 0 0.25rem;
+    border-radius: var(--radius-sm);
+    background: var(--bg-inset);
+    color: var(--text-muted);
+    font-size: 0.85em;
+  }
+
+  .toggle.on .state {
+    background: var(--accent);
+    color: var(--accent-fg);
   }
 
   .status .warn {

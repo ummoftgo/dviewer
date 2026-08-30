@@ -25,6 +25,7 @@ export const zhHans: Messages = {
   "format.tsv": "TSV",
   "format.text": "文本",
   "format.sqlite": "SQLite",
+  "format.xlsx": "Excel",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "逗号",
@@ -224,8 +225,11 @@ export const zhHans: Messages = {
   "table.search.empty": "无结果",
   "table.collection": "表",
   "table.noCollections": "该数据库中没有表或视图。",
+  "table.noSheets": "该工作簿中没有工作表。",
   "table.view": "视图",
   "table.schema": "架构",
+  "table.formulas": "显示公式",
+  "table.formulas.title": "显示生成这些值的公式",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "已复制路径。",
@@ -257,6 +261,7 @@ export const zhHans: Messages = {
   "subject.tree": "树",
   "subject.decompressed": "解压后的内容",
   "subject.database": "数据库",
+  "subject.workbook": "工作簿",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "值之后有无法解析的内容",

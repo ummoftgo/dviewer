@@ -25,6 +25,7 @@ export const en: Messages = {
   "format.tsv": "TSV",
   "format.text": "Text",
   "format.sqlite": "SQLite",
+  "format.xlsx": "Excel",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "comma",
@@ -224,8 +225,11 @@ export const en: Messages = {
   "table.search.empty": "No matches",
   "table.collection": "Table",
   "table.noCollections": "This database has no tables or views.",
+  "table.noSheets": "This workbook has no sheets.",
   "table.view": "View",
   "table.schema": "Schema",
+  "table.formulas": "Formulas",
+  "table.formulas.title": "Show the formulas behind the values",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "Path copied.",
@@ -257,6 +261,7 @@ export const en: Messages = {
   "subject.tree": "tree",
   "subject.decompressed": "the decompressed content",
   "subject.database": "the database",
+  "subject.workbook": "workbook",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "there is unreadable content after the value",

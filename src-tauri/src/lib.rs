@@ -14,6 +14,7 @@ pub mod sqlite;
 pub mod tree;
 pub mod markdown;
 pub mod table;
+pub mod xlsx;
 pub mod xml;
 
 mod commands;
@@ -121,6 +122,9 @@ pub fn run() {
             commands::table_set_expand,
             commands::sqlite_collections,
             commands::sqlite_select,
+            commands::xlsx_sheets,
+            commands::xlsx_select,
+            commands::xlsx_set_formulas,
             commands::sqlite_schema,
             commands::grid_cell_text,
             commands::grid_row_text,

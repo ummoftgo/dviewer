@@ -44,6 +44,10 @@ tauri-plugin-single-instance = "2"
 # gzip only, and only the rust backend — no C toolchain in CI.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
+calamine = { version = "0.36", features = ["dates"] }
+# Only to read the date calamine hands back. Same crate calamine already pulls,
+# with the one feature that makes its accessors usable.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 # Serves the frontend from the binary instead of a dev server. The Tauri CLI
 # turns this on for `tauri build`; without it — a plain `cargo build`, whatever

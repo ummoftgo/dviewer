@@ -30,6 +30,7 @@ export const ko = {
   "format.tsv": "TSV",
   "format.text": "텍스트",
   "format.sqlite": "SQLite",
+  "format.xlsx": "Excel",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "쉼표",
@@ -229,8 +230,11 @@ export const ko = {
   "table.search.empty": "결과 없음",
   "table.collection": "테이블",
   "table.noCollections": "이 데이터베이스에는 테이블도 뷰도 없습니다.",
+  "table.noSheets": "이 통합 문서에는 시트가 없습니다.",
   "table.view": "뷰",
   "table.schema": "스키마",
+  "table.formulas": "수식 보기",
+  "table.formulas.title": "값 대신 그 값을 만든 수식을 보여줍니다",
 
   // --- 복사 알림 / toasts ----------------------------------------------------
   "toast.pathCopied": "경로를 복사했습니다.",
@@ -262,6 +266,7 @@ export const ko = {
   "subject.tree": "트리",
   "subject.decompressed": "압축을 푼 내용",
   "subject.database": "데이터베이스",
+  "subject.workbook": "통합 문서",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "값 뒤에 해석할 수 없는 내용이 있습니다",

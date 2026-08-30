@@ -33,6 +33,7 @@ pub enum Subject {
     Decompressed,
     /// A SQLite database, and anything asked of it.
     Database,
+    Workbook,
 }
 
 /// Why the JSON scanner stopped. Ten fixed reasons, so they are codes rather

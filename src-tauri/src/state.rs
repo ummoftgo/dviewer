@@ -39,6 +39,11 @@ pub enum DocKind {
     Text,
     /// A SQLite database. The first format that is not text at all.
     Sqlite,
+    /// A spreadsheet. Not a run of bytes either, but for the other reason: a
+    /// library turns it into values in memory rather than the reader querying
+    /// a file. What it shares with a database is the shape — several
+    /// collections, one on screen.
+    Xlsx,
 }
 
 /// How a document is presented. Seven formats, but only three ways to read
@@ -67,6 +72,17 @@ pub enum DocView {
 }
 
 impl DocKind {
+    /// Whether this document is a run of bytes someone could read.
+    ///
+    /// Everything the byte pipeline does — detecting an encoding, offering
+    /// another one, offering to read the same bytes as a different format —
+    /// assumes it is. A database is queried and a workbook is converted, so for
+    /// those the whole pipeline is not wrong so much as inapplicable, and a
+    /// control that acts on it would have nothing to act on.
+    pub fn reads_bytes(self) -> bool {
+        !matches!(self, DocKind::Sqlite | DocKind::Xlsx)
+    }
+
     pub fn view(self) -> DocView {
         match self {
             DocKind::Markdown => DocView::Prose,
@@ -74,7 +90,7 @@ impl DocKind {
                 DocView::Tree
             }
             DocKind::Csv | DocKind::Tsv | DocKind::Text | DocKind::Jsonl => DocView::Table,
-            DocKind::Sqlite => DocView::Collection,
+            DocKind::Sqlite | DocKind::Xlsx => DocView::Collection,
         }
     }
 }
@@ -143,6 +159,8 @@ struct DocInner {
     table: Option<Arc<TableDoc>>,
     /// An open database, for the one format that is not bytes.
     database: Option<Arc<crate::sqlite::SqliteDoc>>,
+    workbook: Option<Arc<crate::xlsx::XlsxDoc>>,
+    sheet: Option<Arc<crate::xlsx::XlsxGrid>>,
     /// The collection whose rows are on screen. Replaced, not added to, when
     /// another is chosen: a checkpoint index describes one collection's rows
     /// and means nothing for the next.
@@ -175,6 +193,8 @@ impl Document {
                 table: None,
                 database: None,
                 collection: None,
+                workbook: None,
+                sheet: None,
             }),
         }
     }
@@ -238,6 +258,22 @@ impl Document {
         self.inner.write().collection = Some(collection);
     }
 
+    pub fn workbook(&self) -> Option<Arc<crate::xlsx::XlsxDoc>> {
+        self.inner.read().workbook.clone()
+    }
+
+    pub fn set_workbook(&self, workbook: Arc<crate::xlsx::XlsxDoc>) {
+        self.inner.write().workbook = Some(workbook);
+    }
+
+    pub fn set_sheet(&self, sheet: Arc<crate::xlsx::XlsxGrid>) {
+        self.inner.write().sheet = Some(sheet);
+    }
+
+    pub fn sheet(&self) -> Option<Arc<crate::xlsx::XlsxGrid>> {
+        self.inner.read().sheet.clone()
+    }
+
     /// The rows and columns on screen, whichever kind of document made them.
     ///
     /// One or the other, never both: a document is a file of bytes with a
@@ -247,10 +283,13 @@ impl Document {
         if let Some(table) = &inner.table {
             return Some(Arc::clone(table) as Arc<dyn crate::grid::Grid>);
         }
+        if let Some(collection) = &inner.collection {
+            return Some(Arc::clone(collection) as Arc<dyn crate::grid::Grid>);
+        }
         inner
-            .collection
+            .sheet
             .clone()
-            .map(|collection| collection as Arc<dyn crate::grid::Grid>)
+            .map(|sheet| sheet as Arc<dyn crate::grid::Grid>)
     }
 
     pub fn set_table(&self, table: Arc<TableDoc>) {

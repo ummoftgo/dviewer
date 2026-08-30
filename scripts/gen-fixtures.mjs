@@ -511,6 +511,201 @@ console.log("  strict.json");
 await writeFile(path.join(OUT, "settings.json"), jsoncBody + "\n");
 console.log("  settings.json");
 
+// --- xlsx --------------------------------------------------------------------
+// An xlsx is a zip of XML, and a zip whose entries are stored uncompressed is a
+// header, the bytes, and a table of contents. That is small enough to write
+// here, which keeps this script's no-dependency rule — and it lets the fixture
+// carry exactly the shapes the reader has to get right, which a library's
+// defaults would not.
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let c = i;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const byte of bytes) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** A zip file with every entry stored, from `{name: text}`. */
+function zipOf(entries) {
+  const files = [];
+  const locals = [];
+  let offset = 0;
+
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBytes = Buffer.from(name, "utf8");
+    const data = Buffer.from(text, "utf8");
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4); // version needed
+    header.writeUInt16LE(0, 6); // flags
+    header.writeUInt16LE(0, 8); // stored
+    header.writeUInt16LE(0, 10); // time
+    header.writeUInt16LE(0x21, 12); // date: 1980-01-01, so the file is stable
+    header.writeUInt32LE(crc32(data), 14);
+    header.writeUInt32LE(data.length, 18);
+    header.writeUInt32LE(data.length, 22);
+    header.writeUInt16LE(nameBytes.length, 26);
+    header.writeUInt16LE(0, 28);
+    locals.push(header, nameBytes, data);
+    files.push({ nameBytes, data, offset });
+    offset += header.length + nameBytes.length + data.length;
+  }
+
+  const central = [];
+  let centralSize = 0;
+  for (const file of files) {
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0);
+    entry.writeUInt16LE(20, 4); // version made by
+    entry.writeUInt16LE(20, 6); // version needed
+    entry.writeUInt16LE(0, 8);
+    entry.writeUInt16LE(0, 10);
+    entry.writeUInt16LE(0, 12);
+    entry.writeUInt16LE(0x21, 14);
+    entry.writeUInt32LE(crc32(file.data), 16);
+    entry.writeUInt32LE(file.data.length, 20);
+    entry.writeUInt32LE(file.data.length, 24);
+    entry.writeUInt16LE(file.nameBytes.length, 28);
+    entry.writeUInt32LE(file.offset, 42);
+    central.push(entry, file.nameBytes);
+    centralSize += entry.length + file.nameBytes.length;
+  }
+
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+
+  return Buffer.concat([...locals, ...central, end]);
+}
+
+const xmlEscape = (text) =>
+  String(text).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]);
+
+/**
+ * One cell. `kind` picks how the value is written:
+ *   n  number (and the serial behind a date, with `style` naming the format)
+ *   s  index into the shared strings
+ *   b  boolean
+ *   f  formula, with the cached result Excel last computed
+ */
+function cellXml(ref, kind, value, style, formula) {
+  const s = style ? ` s="${style}"` : "";
+  if (kind === "s") return `<c r="${ref}"${s} t="s"><v>${value}</v></c>`;
+  if (kind === "b") return `<c r="${ref}"${s} t="b"><v>${value ? 1 : 0}</v></c>`;
+  if (kind === "f") return `<c r="${ref}"${s}><f>${xmlEscape(formula)}</f><v>${value}</v></c>`;
+  if (kind === "e") return `<c r="${ref}"${s}/>`;
+  return `<c r="${ref}"${s}><v>${value}</v></c>`;
+}
+
+function sheetXml(rows) {
+  const body = rows
+    .map((cells, r) => (cells.length ? `<row r="${r + 1}">${cells.join("")}</row>` : ""))
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
+}
+
+{
+  // Shared strings, which is what makes a small xlsx expand when it is read:
+  // every repeat of a word is one index here and a whole string in memory.
+  const strings = [
+    "이름",
+    "수량",
+    "단가",
+    "합계",
+    "등록일",
+    "마감",
+    "비고",
+    "가나다 상사",
+    "라마바 유통",
+    "사아자 물산",
+    "줄바꿈\n이 든 값",
+    "",
+  ];
+  const sharedStrings = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${strings.length}" uniqueCount="${strings.length}">${strings
+    .map((s) => `<si><t xml:space="preserve">${xmlEscape(s)}</t></si>`)
+    .join("")}</sst>`;
+
+  // cellXfs: 0 general, 1 date (numFmt 14), 2 date+time (22), 3 time (21).
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" xfId="0"/><xf numFmtId="14" xfId="0" applyNumberFormat="1"/><xf numFmtId="22" xfId="0" applyNumberFormat="1"/><xf numFmtId="21" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`;
+
+  // 46265 is 2026-08-30; .3958333 of a day is 09:30.
+  const sales = [
+    [0, 1, 2, 3, 4, 5, 6].map((i, c) => cellXml(`${"ABCDEFG"[c]}1`, "s", i)),
+    [
+      cellXml("A2", "s", 7),
+      cellXml("B2", "n", 3),
+      cellXml("C2", "n", 12500),
+      cellXml("D2", "f", 37500, 0, "B2*C2"),
+      cellXml("E2", "n", 46265, 1),
+      cellXml("F2", "n", 46265.3958333333, 2),
+      cellXml("G2", "b", true),
+    ],
+    [
+      cellXml("A3", "s", 8),
+      cellXml("B3", "n", 10),
+      cellXml("C3", "n", 990.5),
+      cellXml("D3", "f", 9905, 0, "B3*C3"),
+      cellXml("E3", "n", 46266, 1),
+      cellXml("F3", "n", 0.5, 3),
+      cellXml("G3", "b", false),
+    ],
+    [
+      cellXml("A4", "s", 9),
+      cellXml("B4", "e"),
+      cellXml("C4", "n", -1250),
+      cellXml("D4", "f", 0, 0, "B4*C4"),
+      cellXml("E4", "n", 1, 1),
+      cellXml("F4", "e"),
+      cellXml("G4", "s", 10),
+    ],
+  ];
+
+  // Deliberately not starting at A1. A range holds only the cells that were
+  // used, so a sheet like this is where a viewer that reads the matrix as if it
+  // began at the top left puts everything in the wrong place.
+  const notes = [
+    [],
+    [],
+    [],
+    [cellXml("C4", "s", 6)],
+    [cellXml("C5", "s", 11), cellXml("D5", "n", 42)],
+  ];
+
+  await writeFile(
+    path.join(OUT, "sample.xlsx"),
+    zipOf({
+      "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+      "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+      "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="매출" sheetId="1" r:id="rId1"/><sheet name="비고" sheetId="2" r:id="rId2"/></sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+      "xl/sharedStrings.xml": sharedStrings,
+      "xl/styles.xml": styles,
+      "xl/worksheets/sheet1.xml": sheetXml(sales),
+      "xl/worksheets/sheet2.xml": sheetXml(notes),
+    }),
+  );
+  console.log("  sample.xlsx");
+}
+
 if (wantHuge) {
   // The same records the small stream has, at the size the row window exists
   // for: splitting a row means running the JSON scanner over that line, so the

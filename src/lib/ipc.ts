@@ -14,6 +14,7 @@ export type DocKind =
   | "json"
   | "jsonc"
   | "jsonl"
+  | "xlsx"
   | "yaml"
   | "toml"
   | "xml"
@@ -23,7 +24,7 @@ export type DocKind =
   | "sqlite";
 
 /**
- * How a document is read. Ten formats, four views — routing on the view is
+ * How a document is read. Twelve formats, four views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
 export type DocView = "prose" | "tree" | "table" | "collection";
@@ -48,6 +49,17 @@ export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "text", label: "format.text" },
 ];
 
+/**
+ * Whether the document is a run of bytes someone could read.
+ *
+ * Mirrors `DocKind::reads_bytes`. The format switcher and the encoding picker
+ * both act on bytes, so for the formats that have none they are hidden rather
+ * than shown and refused.
+ */
+export function readsBytes(kind: DocKind): boolean {
+  return kind !== "sqlite" && kind !== "xlsx";
+}
+
 export function viewOf(kind: DocKind): DocView {
   switch (kind) {
     case "markdown":
@@ -58,6 +70,7 @@ export function viewOf(kind: DocKind): DocView {
     case "jsonl":
       return "table";
     case "sqlite":
+    case "xlsx":
       return "collection";
     default:
       return "tree";
@@ -66,6 +79,7 @@ export function viewOf(kind: DocKind): DocView {
 
 export function kindLabel(kind: DocKind): string {
   if (kind === "sqlite") return t("format.sqlite");
+  if (kind === "xlsx") return t("format.xlsx");
   const entry = DOC_KINDS.find((candidate) => candidate.kind === kind);
   return entry ? t(entry.label) : kind;
 }
@@ -87,6 +101,7 @@ const BADGES: Record<DocKind, string> = {
   tsv: "TSV",
   text: "TXT",
   sqlite: "DB",
+  xlsx: "XLS",
 };
 
 export function kindBadge(kind: DocKind): string {
@@ -457,6 +472,8 @@ export interface GridStats {
   indexBytes: number;
   /** The opening scan stopped at its ceiling, so `rowCount` is that ceiling. */
   truncated: boolean;
+  /** A workbook showing formulas rather than the values they produced. */
+  formulas: boolean;
 }
 
 export const sqliteCollections = (docId: number) =>
@@ -465,6 +482,14 @@ export const sqliteSchema = (docId: number, name: string) =>
   invoke<string | null>("sqlite_schema", { docId, name });
 export const sqliteSelect = (docId: number, name: string) =>
   invoke<GridStats>("sqlite_select", { docId, name });
+
+// --- xlsx -----------------------------------------------------------------
+
+export const xlsxSheets = (docId: number) => invoke<Collections>("xlsx_sheets", { docId });
+export const xlsxSelect = (docId: number, name: string) =>
+  invoke<GridStats>("xlsx_select", { docId, name });
+export const xlsxSetFormulas = (docId: number, formulas: boolean) =>
+  invoke<GridStats>("xlsx_set_formulas", { docId, formulas });
 export const gridSearch = (docId: number, query: string, caseSensitive: boolean) =>
   invoke<TableSearchResult>("grid_search", { docId, query, caseSensitive });
 

@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { formatBytes } from "../format";
   import Icon from "./Icon.svelte";
-  import { DOC_KINDS, encodingChoices, warningMessage, type DocKind } from "../ipc";
+  import { DOC_KINDS, encodingChoices, readsBytes, warningMessage, type DocKind } from "../ipc";
   import { t } from "../i18n";
   import { workspace, type DocTab } from "../state/docs.svelte";
   import { settings } from "../state/settings.svelte";
@@ -74,11 +74,11 @@
       {/if}
     {/if}
 
-    <!-- Neither control is shown for a database. The format switcher offers
-         readings of one run of bytes and the encoding picker says how to turn
-         those bytes into characters; a database is queried, so both would be
-         controls with nothing to act on. -->
-    {#if tab.kind !== "sqlite"}
+    <!-- Neither control is shown for a format that is not read as bytes. The
+         switcher offers readings of one run of bytes and the encoding picker
+         says how to turn those bytes into characters; a database is queried
+         and a workbook is converted, so both would have nothing to act on. -->
+    {#if readsBytes(tab.kind)}
     <!-- Eight formats is past what a row of buttons can carry, and the point
          of the control is to correct a wrong guess, not to be used often. -->
     <label class="format" title={t("toolbar.format.title")}>
