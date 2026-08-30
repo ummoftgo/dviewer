@@ -39,12 +39,20 @@ const SQLITE_EXTS: &[&str] = &["db", "sqlite", "sqlite3", "db3"];
 /// `.xls` is the older binary one and is not read: calamine can, but the value
 /// text and the date handling below are written against the modern shapes.
 const XLSX_EXTS: &[&str] = &["xlsx", "xlsm"];
+const PARQUET_EXTS: &[&str] = &["parquet", "pq"];
 
 /// The sixteen bytes every SQLite database begins with.
 ///
 /// A self-declaration in the same sense as JSON's `{` or XML's `<`, and a far
 /// stronger one — no text file starts with this by accident.
 const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
+
+/// The four bytes a Parquet file opens and closes with.
+///
+/// A weaker self-declaration than SQLite's sixteen, so it is only trusted at
+/// the front *and* the back — a text file starting with `PAR1` is possible, one
+/// that also ends with it is not worth worrying about.
+const PARQUET_MAGIC: &[u8] = b"PAR1";
 
 /// Every format the viewer knows, paired with the extensions that name it.
 const BY_EXTENSION: &[(DocKind, &[&str])] = &[
@@ -60,6 +68,7 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Text, TEXT_EXTS),
     (DocKind::Sqlite, SQLITE_EXTS),
     (DocKind::Xlsx, XLSX_EXTS),
+    (DocKind::Parquet, PARQUET_EXTS),
 ];
 
 /// Decide how to read a document: extension first, then a peek at the content.
@@ -72,6 +81,17 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
 /// no format is far more often a log or a dump than prose, and reading it as
 /// markdown renders it — asterisks become emphasis, hashes become headings.
 /// Whoever wants that says so in the toolbar.
+/// Whether these bytes are a Parquet file.
+///
+/// The format brackets itself: `PAR1` at both ends, with the footer's length
+/// just before the closing one. Both are checked because four bytes at the
+/// front alone is a weak promise.
+fn is_parquet(bytes: &[u8]) -> bool {
+    bytes.len() > PARQUET_MAGIC.len() * 2
+        && bytes.starts_with(PARQUET_MAGIC)
+        && bytes.ends_with(PARQUET_MAGIC)
+}
+
 pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
     let ext = Path::new(name)
         .extension()
@@ -79,16 +99,21 @@ pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
         .unwrap_or_default();
 
     // The magic comes first, because it is the one signal that cannot be wrong.
-    let is_sqlite = bytes.starts_with(SQLITE_MAGIC);
-    if is_sqlite {
+    if bytes.starts_with(SQLITE_MAGIC) {
         return DocKind::Sqlite;
+    }
+    if is_parquet(bytes) {
+        return DocKind::Parquet;
     }
 
     for (kind, extensions) in BY_EXTENSION {
         if extensions.contains(&ext.as_str()) {
             // `.db` names a dozen unrelated formats. Without the magic above,
             // the name alone is not enough to promise a database.
-            if *kind == DocKind::Sqlite {
+            // `.db` names a dozen unrelated formats, and `.pq` is not much
+            // better. Without the magic above, the name alone is not enough to
+            // promise either.
+            if matches!(kind, DocKind::Sqlite | DocKind::Parquet) {
                 break;
             }
             return *kind;

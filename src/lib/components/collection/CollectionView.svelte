@@ -24,6 +24,9 @@
     xlsxSheets,
     xlsxSelect,
     xlsxSetFormulas,
+    parquetOpen,
+    parquetSelect,
+    parquetSchema,
     errorMessage,
   } from "../../ipc";
   import { n, t } from "../../i18n";
@@ -57,8 +60,21 @@
    * keeps the difference in one place instead of spread through the markup.
    */
   const workbook = $derived(tab.kind === "xlsx");
-  const list = $derived(workbook ? xlsxSheets : sqliteCollections);
-  const choose = $derived(workbook ? xlsxSelect : sqliteSelect);
+  const columnar = $derived(tab.kind === "parquet");
+  const list = $derived(
+    columnar ? parquetOpen : workbook ? xlsxSheets : sqliteCollections,
+  );
+  /**
+   * A Parquet file holds one thing, so choosing it takes no name — the command
+   * signatures differ and the call site should not pretend otherwise.
+   */
+  const choose = $derived(
+    columnar
+      ? (id: number, _name: string) => parquetSelect(id)
+      : workbook
+        ? xlsxSelect
+        : sqliteSelect,
+  );
 
   const items = $derived(
     tab.collections.map((entry) => ({ name: entry.name, secondary: entry.isView })),
@@ -106,12 +122,14 @@
     try {
       tab.gridStats = await choose(tab.id, name);
       await grid?.refresh(true);
+      // The schema comes second: the rows are what the reader is waiting for,
+      // and the panel is one they may never open.
       if (!workbook) {
-        // The statement comes second: the rows are what the reader is waiting
-        // for, and the schema is a panel they may never open.
-        const sql = await sqliteSchema(tab.id, name);
+        const described = columnar
+          ? await parquetSchema(tab.id)
+          : await sqliteSchema(tab.id, name);
         // The reader may have moved on during the round trip.
-        if (tab.collection === name) tab.schema = sql;
+        if (tab.collection === name) tab.schema = described;
       }
     } catch (err) {
       tab.error = errorMessage(err);
@@ -208,7 +226,9 @@
   {/if}
 
   {#if tab.collections.length === 0 && !loading}
-    <p class="empty">{t(workbook ? "table.noSheets" : "table.noCollections")}</p>
+    <p class="empty">
+      {t(columnar ? "table.noColumns" : workbook ? "table.noSheets" : "table.noCollections")}
+    </p>
   {:else}
     <DataGrid
       bind:this={grid}

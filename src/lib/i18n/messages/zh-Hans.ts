@@ -26,6 +26,7 @@ export const zhHans: Messages = {
   "format.text": "文本",
   "format.sqlite": "SQLite",
   "format.xlsx": "Excel",
+  "format.parquet": "Parquet",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "逗号",
@@ -226,6 +227,7 @@ export const zhHans: Messages = {
   "table.collection": "表",
   "table.noCollections": "该数据库中没有表或视图。",
   "table.noSheets": "该工作簿中没有工作表。",
+  "table.noColumns": "该文件没有列。",
   "table.view": "视图",
   "table.schema": "架构",
   "table.formulas": "显示公式",
@@ -294,6 +296,7 @@ export const zhHans: Messages = {
   "error.fileTooLarge": "文件过大（{gigabytes}GB）。最多可打开 {limitGb}GB。",
   "error.tooLarge": "{subject} — 过大（{megabytes}MB）。最多支持 {limitMb}MB。",
   "error.tooManyNodes": "节点过多（上限 {limit}）。请将文件拆分后打开。",
+  "error.groupTooLarge": "该文件的某个行组有 {rows} 行，无法一次解码（上限 {limit} 行）。以更小的行组重写后即可打开。",
   "error.tooDeep": "{subject} 嵌套过深（上限 {limit}）。",
   "error.notReady": "仍在读取{subject}。",
   "error.wrongView": "此格式无法以{subject}形式显示。",

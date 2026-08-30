@@ -45,6 +45,17 @@ tauri-plugin-single-instance = "2"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 calamine = { version = "0.36", features = ["dates"] }
+# Without arrow: its reader builds columnar batches, which is the shape for
+# computing over a file and not for showing a hundred rows of one. The codecs
+# are what real files are written with; `flate2-rust_backend` reuses the backend
+# already here rather than pulling zlib-rs, which the default would.
+parquet = { version = "59", default-features = false, features = [
+    "snap",
+    "zstd",
+    "lz4",
+    "brotli",
+    "flate2-rust_backend",
+] }
 # Only to read the date calamine hands back. Same crate calamine already pulls,
 # with the one feature that makes its accessors usable.
 chrono = { version = "0.4", default-features = false, features = ["std"] }

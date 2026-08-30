@@ -2,16 +2,16 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-A desktop viewer for Markdown, JSON, JSONC, JSONL, YAML, TOML, XML, CSV, TSV, plain text or logs, SQLite, and Excel. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
+A desktop viewer for Markdown, JSON, JSONC, JSONL, YAML, TOML, XML, CSV, TSV, plain text or logs, SQLite, Excel, and Parquet. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
 
-Twelve formats, but only **four** ways of reading. Build a screen per format and you maintain twelve of them — eleven of which are always behind.
+Thirteen formats, but only **four** ways of reading. Build a screen per format and you maintain thirteen of them — twelve of which are always behind.
 
 | View | Formats | What it does |
 | --- | --- | --- |
 | Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle |
 | Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy |
 | Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy. **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
-| Collection | SQLite · Excel (xlsx) | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values |
+| Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
 
 - Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
@@ -19,6 +19,7 @@ Twelve formats, but only **four** ways of reading. Build a screen per format and
 - **Logs become columns.** The leading time, level and `[source]` are recognised and everything else stays in one message column. A line that does not start with a timestamp — a stack trace — joins the record above it. `key=value` pairs can be expanded from the toolbar, and the whole thing folds back to one line at any time. ERROR and WARN are tinted, in the level cell only. When the guess is not confident, nothing is split.
 - **JSONL is a table.** One line, one row; the keys are the columns. They are read from a sample of the front, and a key a record does not have leaves the cell empty — lines that are not objects are not split at all. It folds back to the original lines at any time, and switching the format to JSON opens the same file as a tree.
 - **JSON with comments is read as JSONC.** `.jsonc` walks past `//` and `/* */` comments and trailing commas. `.json` stays strict — but when the strict reading stops somewhere JSONC would have carried on, the error says which switch to reach for.
+- **Opening a Parquet file does not follow its size.** Only the index at the end is read, and only the row groups the screen reaches are decoded: 0.19ms at 52MB, 0.61ms at 311MB — what grows is the number of row groups, not the bytes. That is why it has none of the ceilings the other formats carry.
 - **Excel workbooks open.** Pick a sheet and read it as a table. Columns are named `A`, `B`, `AA` and row 1 is row 1, so the coordinates match the spreadsheet you are checking against. Dates are ISO 8601, and a toggle shows the formulas instead of the values. It is converted rather than mapped, so there is a 64MB ceiling.
 - **SQLite is read by querying.** The first format that is not a run of bytes. The file is opened read-only, its tables and views are listed, and the chosen one is drawn in the **same grid** the CSVs use. A position is written down every 1,024 rows, so the three-millionth row is one seek away.
 - **gzip files just open.** `access.log.gz` is decompressed and read under its inner name (`access.log`). The raw view shows the decompressed content.
@@ -99,6 +100,7 @@ The technical documentation lives in `doc/` (Korean).
 - SQLite views and WITHOUT ROWID tables have no rowid, so their row positions cannot be written down in advance. The beginning is as fast as anywhere else; the further in you scroll, the longer a screenful takes. Ordinary tables are constant whatever their size.
 - Scanning a SQLite database stops at five million rows. A larger table shows its first five million, and the status bar says so.
 - SQLite cannot be opened from a URL. A database is read by querying a file, so it has to be downloaded and then opened.
+- A Parquet file with a row group over four million rows does not open. A row group cannot be half-decoded, so a larger one would freeze the window for seconds the moment it is reached. Writers use 100k to 1M, so few files are affected.
 - Excel workbooks are converted into memory, so they are read up to 64MB. A formula cell shows the value Excel **last computed** — a file saved without recalculating can show a stale one. Cell display formats are not reproduced (dates are ISO 8601). `.xls`, the older binary format, is not read.
 - SQLite is opened read-only. A database left with a rollback journal (`-journal`) by an interrupted transaction cannot have that journal replayed read-only, so the first query fails. The program that wrote it has to open it once and settle it first.
 - No editing or saving. This is a read-only viewer.

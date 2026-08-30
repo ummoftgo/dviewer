@@ -10,6 +10,7 @@ pub mod highlight;
 pub mod grid;
 pub mod jsonl;
 pub mod log;
+pub mod parquet;
 pub mod sqlite;
 pub mod tree;
 pub mod markdown;
@@ -125,6 +126,9 @@ pub fn run() {
             commands::xlsx_sheets,
             commands::xlsx_select,
             commands::xlsx_set_formulas,
+            commands::parquet_open,
+            commands::parquet_select,
+            commands::parquet_schema,
             commands::sqlite_schema,
             commands::grid_cell_text,
             commands::grid_row_text,

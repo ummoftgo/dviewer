@@ -457,3 +457,76 @@ pub async fn xlsx_set_formulas(
         formulas: sheet.showing_formulas(),
     })
 }
+
+/// What a Parquet file offers to look at: itself.
+///
+/// One file is one table, so the list has one entry — and the picker, which
+/// hides itself below two, does not draw. The command stays in the shape the
+/// other collection formats use rather than becoming a special case, because
+/// the view that calls it is the same view.
+#[tauri::command]
+pub async fn parquet_open(state: State<'_, AppState>, doc_id: DocId) -> Result<Collections> {
+    let doc = state.get(doc_id)?;
+    if doc.kind() != DocKind::Parquet {
+        return Err(Error::WrongView {
+            subject: Subject::Columnar,
+        });
+    }
+    if let Some(columnar) = doc.columnar() {
+        return Ok(Collections {
+            items: vec![only(columnar.name())],
+        });
+    }
+
+    let DocSource::File { path } = &doc.meta().source else {
+        // A row group is read by seeking to it, which a downloaded buffer
+        // cannot be asked to do.
+        return Err(Error::NeedsFile);
+    };
+    let path = std::path::PathBuf::from(path);
+    // Reading the footer touches the disk twice and parses thrift; small, but
+    // not something to do on the event loop.
+    let columnar =
+        tauri::async_runtime::spawn_blocking(move || crate::parquet::ParquetDoc::open(&path))
+            .await
+            .map_err(Error::internal)??;
+
+    let items = vec![only(columnar.name())];
+    doc.set_columnar(Arc::new(columnar));
+    Ok(Collections { items })
+}
+
+fn only(name: &str) -> crate::sqlite::Collection {
+    crate::sqlite::Collection {
+        name: name.to_owned(),
+        is_view: false,
+    }
+}
+
+/// The shape of the one thing a Parquet file holds.
+#[tauri::command]
+pub fn parquet_select(state: State<'_, AppState>, doc_id: DocId) -> Result<GridStats> {
+    let columnar = state.get(doc_id)?.columnar().ok_or(Error::NotReady {
+        subject: Subject::Columnar,
+    })?;
+    Ok(GridStats {
+        row_count: columnar.row_count(),
+        column_count: columnar.column_count(),
+        columns: columnar.columns().to_vec(),
+        // Nothing is held but the footer and at most two decoded row groups,
+        // and the groups come and go. What the reader wants to know here is how
+        // the file is cut up.
+        index_bytes: 0,
+        truncated: false,
+        formulas: false,
+    })
+}
+
+/// The schema the file declares, for the panel the database view already has.
+#[tauri::command]
+pub fn parquet_schema(state: State<'_, AppState>, doc_id: DocId) -> Result<Option<String>> {
+    Ok(state
+        .get(doc_id)?
+        .columnar()
+        .map(|columnar| columnar.schema().to_owned()))
+}

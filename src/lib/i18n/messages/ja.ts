@@ -26,6 +26,7 @@ export const ja: Messages = {
   "format.text": "テキスト",
   "format.sqlite": "SQLite",
   "format.xlsx": "Excel",
+  "format.parquet": "Parquet",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "カンマ",
@@ -226,6 +227,7 @@ export const ja: Messages = {
   "table.collection": "テーブル",
   "table.noCollections": "このデータベースにはテーブルもビューもありません。",
   "table.noSheets": "このブックにはシートがありません。",
+  "table.noColumns": "このファイルには列がありません。",
   "table.view": "ビュー",
   "table.schema": "スキーマ",
   "table.formulas": "数式表示",
@@ -294,6 +296,7 @@ export const ja: Messages = {
   "error.fileTooLarge": "ファイルが大きすぎます ({gigabytes}GB)。最大 {limitGb}GB まで開けます。",
   "error.tooLarge": "{subject} — 大きすぎます ({megabytes}MB)。{limitMb}MB まで対応します。",
   "error.tooManyNodes": "ノードが多すぎます (最大 {limit})。ファイルを分けて開いてください。",
+  "error.groupTooLarge": "このファイルの行グループひとつが{rows}行あり、一度に展開できません(上限{limit}行)。行グループを小さく分けて書き直せば開けます。",
   "error.tooDeep": "{subject} のネストが深すぎます (最大 {limit})。",
   "error.notReady": "まだ{subject}を読み込んでいます。",
   "error.wrongView": "この形式は{subject}として表示できません。",

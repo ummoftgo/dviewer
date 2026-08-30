@@ -30,7 +30,11 @@
   } = $props();
 </script>
 
-<label class="picker">
+<!-- Below two there is nothing to choose, and a control that can only be set
+     to what it already says is furniture. The count beside it goes too — one
+     name that is right there does not need to be counted. -->
+{#if items.length > 1}
+  <label class="picker">
   <Icon name="list" size={13} />
   <span class="label">{label}</span>
   <select
@@ -46,8 +50,9 @@
       </option>
     {/each}
   </select>
-  <span class="count">{items.length}</span>
-</label>
+    <span class="count">{items.length}</span>
+  </label>
+{/if}
 
 <style>
   .picker {

@@ -15,7 +15,39 @@
 use std::sync::atomic::AtomicBool;
 
 use crate::error::Result;
-use crate::table::{CellText, TablePage, TableSearch};
+use crate::table::{CellText, TablePage, TableSearch, MAX_CELL_TEXT_BYTES};
+
+/// Bytes of a binary value shown as hex in the grid.
+const BINARY_PREVIEW_BYTES: usize = 16;
+
+/// A run of bytes that is not text, as a cell shows it.
+///
+/// Here rather than in either format because a database's BLOB and a
+/// spreadsheet's or a Parquet file's binary column are the same thing to the
+/// reader, and two renderings of it would be a difference nobody could explain.
+///
+/// The grid takes a glance and says how big the rest is — the size is the
+/// useful fact about a value that cannot be read. Copying takes the whole
+/// thing, up to the ceiling every other value has, and no size: what is on the
+/// clipboard is the value, not a description of it.
+pub fn hex_cell(bytes: &[u8], preview: bool) -> (String, bool) {
+    let shown = if preview {
+        bytes.len().min(BINARY_PREVIEW_BYTES)
+    } else {
+        bytes.len().min(MAX_CELL_TEXT_BYTES / 2)
+    };
+    let mut text = String::with_capacity(shown * 2 + 3);
+    text.push_str("x'");
+    for byte in &bytes[..shown] {
+        text.push_str(&format!("{byte:02X}"));
+    }
+    text.push('\'');
+    let cut = shown < bytes.len();
+    if cut && preview {
+        text.push_str(&format!(" ({} B)", bytes.len()));
+    }
+    (text, cut)
+}
 
 pub trait Grid: Send + Sync {
     fn row_count(&self) -> u32;

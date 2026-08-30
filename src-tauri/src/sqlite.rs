@@ -24,7 +24,7 @@ use crate::error::{Error, Result};
 use crate::grid::Grid;
 use crate::table::{
     CellText, TableCell, TableHit, TablePage, TableRow, TableSearch, CELL_PREVIEW_CHARS,
-    MAX_CELL_TEXT_BYTES, MAX_SEARCH_HITS,
+    MAX_SEARCH_HITS,
 };
 
 /// A table or view in the database, as the collection picker shows it.
@@ -130,9 +130,6 @@ const CHECKPOINT_STRIDE: u32 = 1024;
 /// so beats an open-ended wait: the reader still gets a grid over the first
 /// rows, and the status bar says it is not all of them.
 const MAX_SCANNED_ROWS: u32 = 5_000_000;
-
-/// Bytes of a BLOB shown as hex in the grid.
-const BLOB_PREVIEW_BYTES: usize = 16;
 
 /// One table or view, opened for reading.
 ///
@@ -520,27 +517,10 @@ fn cell_of(row: &rusqlite::Row<'_>, column: usize, max_chars: usize) -> Result<T
             }
         }
         ValueRef::Blob(bytes) => {
-            // Copying takes the whole thing, up to the ceiling every other
-            // value has; the grid takes a glance and says how big the rest is.
-            let shown = if max_chars == usize::MAX {
-                bytes.len().min(MAX_CELL_TEXT_BYTES / 2)
-            } else {
-                bytes.len().min(BLOB_PREVIEW_BYTES)
-            };
-            let mut text = String::with_capacity(shown * 2 + 3);
-            text.push_str("x'");
-            for byte in &bytes[..shown] {
-                text.push_str(&format!("{byte:02X}"));
-            }
-            text.push('\'');
-            if shown < bytes.len() && max_chars != usize::MAX {
-                // The size is the useful fact about a value nobody can read.
-                // Only where it was cut: a short one says everything already.
-                text.push_str(&format!(" ({} B)", bytes.len()));
-            }
+            let (text, truncated) = crate::grid::hex_cell(bytes, max_chars != usize::MAX);
             TableCell {
                 text,
-                truncated: shown < bytes.len(),
+                truncated,
                 null: false,
             }
         }
@@ -1082,7 +1062,7 @@ lines', 'tab\there', -7, 0.5, x'');",
         assert!(cells[1].truncated);
         assert_eq!(
             cells[1].text.matches(|c: char| c.is_ascii_hexdigit()).count(),
-            BLOB_PREVIEW_BYTES * 2 + 4,
+            16 * 2 + 4,
             "16 bytes of hex, plus the digits of the size"
         );
 

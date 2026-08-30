@@ -31,6 +31,7 @@ export const ko = {
   "format.text": "텍스트",
   "format.sqlite": "SQLite",
   "format.xlsx": "Excel",
+  "format.parquet": "Parquet",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "쉼표",
@@ -231,6 +232,7 @@ export const ko = {
   "table.collection": "테이블",
   "table.noCollections": "이 데이터베이스에는 테이블도 뷰도 없습니다.",
   "table.noSheets": "이 통합 문서에는 시트가 없습니다.",
+  "table.noColumns": "이 파일에는 열이 없습니다.",
   "table.view": "뷰",
   "table.schema": "스키마",
   "table.formulas": "수식 보기",
@@ -299,6 +301,7 @@ export const ko = {
   "error.fileTooLarge": "파일이 너무 큽니다 ({gigabytes}GB). 최대 {limitGb}GB까지 열 수 있습니다.",
   "error.tooLarge": "{subject} — 너무 큽니다 ({megabytes}MB). {limitMb}MB까지 지원합니다.",
   "error.tooManyNodes": "노드가 너무 많습니다 (최대 {limit}개). 파일을 나눠서 열어 주세요.",
+  "error.groupTooLarge": "이 파일의 행 그룹 하나가 {rows}행이라 한 번에 펼칠 수 없습니다 (최대 {limit}행). 행 그룹을 더 잘게 나눠 다시 쓰면 열립니다.",
   "error.tooDeep": "{subject} — 중첩이 너무 깊습니다 (최대 {limit}단계).",
   "error.notReady": "{subject} — 아직 읽는 중입니다.",
   "error.wrongView": "이 형식은 {subject} 형태로 볼 수 없습니다.",

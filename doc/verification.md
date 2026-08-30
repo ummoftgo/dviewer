@@ -3,7 +3,7 @@
 ← [README](../README.md)
 
 ```bash
-cd src-tauri && cargo test          # 275개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 표시/복사, 정화
+cd src-tauri && cargo test          # 281개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 표시/복사, 정화
 ```
 
 성능은 창 없이 직접 잽니다:
@@ -17,6 +17,7 @@ cargo run --release --example table -- ../fixtures/huge.csv  "항목 3999999"
 cargo run --release --example table -- ../fixtures/huge.log  "id=1999999"
 cargo run --release --example table -- ../fixtures/huge.jsonl "항목 1999999"
 cargo run --release --example sqlite -- ../fixtures/huge.sqlite events
+cargo run --release --example parquet -- read ../fixtures/huge.parquet "항목 1999999"
 ```
 
 이 저장소를 만든 기계(Windows 11)에서:
@@ -49,6 +50,21 @@ rowid 가 없는 것 — 뷰와 WITHOUT ROWID 테이블 — 은 적어 둘 것�
 
 JSONL 이 바이트당 가장 빠른 이유가 이 설계의 요약입니다. 색인은 개행만 세므로 로그와 같고, 값을 JSON 으로 읽는 일은 **화면에 있는 행에서만** 일어납니다. 100행에 0.1ms — 한 행당 1마이크로초 남짓이니, 행마다 스캐너를 도는 비용은 파일 크기와 무관하게 한 화면치입니다. 열을 알아내는 데는 앞 1MB 만 봅니다.
 
+Parquet 도 표 밖입니다. 바이트를 훑지 않는 것은 SQLite 와 같은데, 이유가 하나 더 있습니다 — 파일이 **행 그룹 단위로 쓰여 있어** "통째로 안 올린다"를 형식이 공짜로 줍니다. 52MB·200만 행·행 그룹 8개(그룹당 25만 행)에서:
+
+| 항목 | 값 |
+|---|---|
+| 열기 (푸터만) | 0.19ms — 311MB·행 그룹 48개에서도 0.61ms |
+| 100행 조회, 새 행 그룹 | 147~194ms |
+| 같은 조회, 캐시된 행 그룹 | 0.10ms |
+| 전체 검색 (200만 행 × 5열) | 2.5초 |
+
+**여는 시간이 파일 크기를 따라가지 않습니다.** 푸터의 색인만 읽으므로 자라는 것은 행 그룹 수뿐입니다 — 파일이 여섯 배(311MB)가 되고 행 그룹이 여섯 배(48개)가 되었을 때 0.19ms 가 0.61ms 가 됩니다. 그래서 다른 형식들이 가진 전체 상한이 여기엔 없습니다.
+
+값을 치르는 자리는 하나뿐입니다 — 처음 닿는 행 그룹을 통째로 푸는 순간. 행 그룹은 형식이 쓰인 단위(페이지가 함께 압축되어 있어 절반만 풀 수 없습니다)라 피할 수 없고, 대신 **그 크기에만 상한**을 둡니다. 실측이 근거입니다: 5열 파일에서 그룹당 25만 행이 148ms, 100만 행이 608ms, 200만 행이 1.2초 — 행당 약 0.6µs 로 선형입니다. 상한 400만 행은 최악의 경우 2.5초쯤 창이 멈춘다는 뜻이고, 그보다 크면 뷰어가 아닙니다. 쓰는 쪽이 보통 10만~100만 행을 한 그룹에 넣으므로, 이 상한에 걸리는 것은 일부러 이상하게 쓴 파일뿐입니다.
+
+행 그룹은 두 개까지 들고 있습니다. 뷰포트가 경계에 걸치면 둘이 필요하고, 셋째는 스크롤 방향이 바뀔 때만 값을 하는데 그때는 어차피 다시 읽힙니다.
+
 YAML과 TOML은 이 표에 없습니다. 파서가 값을 메모리에 만들기 때문에 64MB에서 막아 두었고, 설정 파일이 사는 크기와는 자릿수가 다릅니다.
 
 렌더링 결과를 눈으로 확인하려면:
@@ -59,5 +75,11 @@ cd src-tauri && cargo run --release --example render -- ../fixtures/sample.md ou
 
 인코딩은 실제 바이트로 확인합니다 — `cp949.csv`, `utf16.csv`, `utf8bom.csv` 를 열면 도구 모음이 각각 EUC-KR / UTF-16 LE / UTF-8 을 표시하고 세 파일 모두 `id | 이름 | 메모` 로 읽힙니다.
 
-`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
+Parquet 픽스처만 생성기 밖에 있습니다. thrift 로 인코딩된 푸터 위에 압축된 열 덩어리라, 손으로 쓰는 것은 읽는 쪽을 시험하려고 형식을 다시 구현하는 일이 됩니다. 읽는 크레이트가 쓰기도 하므로 example 이 만듭니다:
+
+```bash
+cd src-tauri && cargo run --release --example parquet -- write ../fixtures [--huge]
+```
+
+`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
 

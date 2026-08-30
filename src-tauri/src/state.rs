@@ -44,6 +44,10 @@ pub enum DocKind {
     /// a file. What it shares with a database is the shape — several
     /// collections, one on screen.
     Xlsx,
+    /// A columnar file. Not a run of bytes for a third reason: it is written in
+    /// row groups with an index at the end, so it is read a group at a time and
+    /// never as a whole.
+    Parquet,
 }
 
 /// How a document is presented. Seven formats, but only three ways to read
@@ -80,7 +84,7 @@ impl DocKind {
     /// those the whole pipeline is not wrong so much as inapplicable, and a
     /// control that acts on it would have nothing to act on.
     pub fn reads_bytes(self) -> bool {
-        !matches!(self, DocKind::Sqlite | DocKind::Xlsx)
+        !matches!(self, DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet)
     }
 
     pub fn view(self) -> DocView {
@@ -90,7 +94,7 @@ impl DocKind {
                 DocView::Tree
             }
             DocKind::Csv | DocKind::Tsv | DocKind::Text | DocKind::Jsonl => DocView::Table,
-            DocKind::Sqlite | DocKind::Xlsx => DocView::Collection,
+            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet => DocView::Collection,
         }
     }
 }
@@ -160,6 +164,7 @@ struct DocInner {
     /// An open database, for the one format that is not bytes.
     database: Option<Arc<crate::sqlite::SqliteDoc>>,
     workbook: Option<Arc<crate::xlsx::XlsxDoc>>,
+    columnar: Option<Arc<crate::parquet::ParquetDoc>>,
     sheet: Option<Arc<crate::xlsx::XlsxGrid>>,
     /// The collection whose rows are on screen. Replaced, not added to, when
     /// another is chosen: a checkpoint index describes one collection's rows
@@ -195,6 +200,7 @@ impl Document {
                 collection: None,
                 workbook: None,
                 sheet: None,
+                columnar: None,
             }),
         }
     }
@@ -274,6 +280,14 @@ impl Document {
         self.inner.read().sheet.clone()
     }
 
+    pub fn columnar(&self) -> Option<Arc<crate::parquet::ParquetDoc>> {
+        self.inner.read().columnar.clone()
+    }
+
+    pub fn set_columnar(&self, columnar: Arc<crate::parquet::ParquetDoc>) {
+        self.inner.write().columnar = Some(columnar);
+    }
+
     /// The rows and columns on screen, whichever kind of document made them.
     ///
     /// One or the other, never both: a document is a file of bytes with a
@@ -286,10 +300,13 @@ impl Document {
         if let Some(collection) = &inner.collection {
             return Some(Arc::clone(collection) as Arc<dyn crate::grid::Grid>);
         }
+        if let Some(sheet) = &inner.sheet {
+            return Some(Arc::clone(sheet) as Arc<dyn crate::grid::Grid>);
+        }
         inner
-            .sheet
+            .columnar
             .clone()
-            .map(|sheet| sheet as Arc<dyn crate::grid::Grid>)
+            .map(|columnar| columnar as Arc<dyn crate::grid::Grid>)
     }
 
     pub fn set_table(&self, table: Arc<TableDoc>) {

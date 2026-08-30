@@ -34,6 +34,7 @@ pub enum Subject {
     /// A SQLite database, and anything asked of it.
     Database,
     Workbook,
+    Columnar,
 }
 
 /// Why the JSON scanner stopped. Ten fixed reasons, so they are codes rather
@@ -94,6 +95,10 @@ pub enum Error {
         limit_mb: usize,
     },
     TooManyNodes { limit: u32 },
+    /// One row group of a columnar file holds more rows than may be decoded at
+    /// once. The group is the unit the format is written in, so there is no
+    /// half of it to show.
+    GroupTooLarge { rows: u32, limit: u32 },
     TooDeep { subject: Subject, limit: u32 },
 
     // --- asking for something that is not there ------------------------------
@@ -179,6 +184,7 @@ impl Error {
             Error::FileTooLarge { .. } => "fileTooLarge",
             Error::TooLarge { .. } => "tooLarge",
             Error::TooManyNodes { .. } => "tooManyNodes",
+            Error::GroupTooLarge { .. } => "groupTooLarge",
             Error::TooDeep { .. } => "tooDeep",
             Error::NotReady { .. } => "notReady",
             Error::WrongView { .. } => "wrongView",
@@ -224,6 +230,7 @@ impl std::fmt::Display for Error {
                 limit_mb,
             } => write!(f, ": {subject:?} {megabytes}MB (max {limit_mb}MB)"),
             Error::TooManyNodes { limit } => write!(f, ": max {limit}"),
+            Error::GroupTooLarge { rows, limit } => write!(f, ": {rows} rows (max {limit})"),
             Error::TooDeep { subject, limit } => write!(f, ": {subject:?} max {limit}"),
             Error::NotReady { subject } | Error::WrongView { subject } | Error::NotUtf8 { subject } => {
                 write!(f, ": {subject:?}")
@@ -314,6 +321,7 @@ mod tests {
             Error::FileTooLarge { gigabytes: 5, limit_gb: 4 },
             Error::TooLarge { subject: Subject::Json, megabytes: 1, limit_mb: 1 },
             Error::TooManyNodes { limit: 1 },
+            Error::GroupTooLarge { rows: 9, limit: 4 },
             Error::TooDeep { subject: Subject::Yaml, limit: 1 },
             Error::NotReady { subject: Subject::Tree },
             Error::WrongView { subject: Subject::Table },

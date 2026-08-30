@@ -15,6 +15,7 @@ export type DocKind =
   | "jsonc"
   | "jsonl"
   | "xlsx"
+  | "parquet"
   | "yaml"
   | "toml"
   | "xml"
@@ -24,7 +25,7 @@ export type DocKind =
   | "sqlite";
 
 /**
- * How a document is read. Twelve formats, four views — routing on the view is
+ * How a document is read. Thirteen formats, four views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
 export type DocView = "prose" | "tree" | "table" | "collection";
@@ -57,7 +58,7 @@ export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
  * than shown and refused.
  */
 export function readsBytes(kind: DocKind): boolean {
-  return kind !== "sqlite" && kind !== "xlsx";
+  return kind !== "sqlite" && kind !== "xlsx" && kind !== "parquet";
 }
 
 export function viewOf(kind: DocKind): DocView {
@@ -71,6 +72,7 @@ export function viewOf(kind: DocKind): DocView {
       return "table";
     case "sqlite":
     case "xlsx":
+    case "parquet":
       return "collection";
     default:
       return "tree";
@@ -80,6 +82,7 @@ export function viewOf(kind: DocKind): DocView {
 export function kindLabel(kind: DocKind): string {
   if (kind === "sqlite") return t("format.sqlite");
   if (kind === "xlsx") return t("format.xlsx");
+  if (kind === "parquet") return t("format.parquet");
   const entry = DOC_KINDS.find((candidate) => candidate.kind === kind);
   return entry ? t(entry.label) : kind;
 }
@@ -102,6 +105,7 @@ const BADGES: Record<DocKind, string> = {
   text: "TXT",
   sqlite: "DB",
   xlsx: "XLS",
+  parquet: "PQ",
 };
 
 export function kindBadge(kind: DocKind): string {
@@ -490,6 +494,12 @@ export const xlsxSelect = (docId: number, name: string) =>
   invoke<GridStats>("xlsx_select", { docId, name });
 export const xlsxSetFormulas = (docId: number, formulas: boolean) =>
   invoke<GridStats>("xlsx_set_formulas", { docId, formulas });
+
+// --- parquet --------------------------------------------------------------
+
+export const parquetOpen = (docId: number) => invoke<Collections>("parquet_open", { docId });
+export const parquetSelect = (docId: number) => invoke<GridStats>("parquet_select", { docId });
+export const parquetSchema = (docId: number) => invoke<string | null>("parquet_schema", { docId });
 export const gridSearch = (docId: number, query: string, caseSensitive: boolean) =>
   invoke<TableSearchResult>("grid_search", { docId, query, caseSensitive });
 
