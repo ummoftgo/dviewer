@@ -162,6 +162,20 @@ pub struct TableCell {
     /// Single-line, escaped, and capped at `CELL_PREVIEW_CHARS`.
     pub text: String,
     pub truncated: bool,
+    /// A database value that is NULL, which is not the same fact as an empty
+    /// string and must not be drawn as one. Always false for a text file: a
+    /// field that is not there and a field that is empty look identical in a
+    /// CSV, and inventing a difference would be inventing data.
+    #[serde(default)]
+    pub null: bool,
+}
+
+/// One value in full, for copying — not the line the grid draws.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CellText {
+    pub text: String,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -612,13 +626,18 @@ impl TableDoc {
             .map(|span| {
                 let (text, truncated) =
                     decode_cell(&self.bytes, span, &self.reading(), CELL_PREVIEW_CHARS, usize::MAX);
-                TableCell { text, truncated }
+                TableCell {
+                    text,
+                    truncated,
+                    null: false,
+                }
             })
             .collect();
         // A ragged record still has to line up with the columns beside it.
         cells.resize_with(self.columns() as usize, || TableCell {
             text: String::new(),
             truncated: false,
+            null: false,
         });
         cells
     }
@@ -816,6 +835,37 @@ fn record_fields(bytes: &[u8], start: u32, end: u32, records: &Records) -> Vec<(
     }
     spans.push((field_start, end));
     spans
+}
+
+/// The grid a delimited file draws.
+///
+/// The index is already built by the time anything asks, so none of this can
+/// fail the way a query can — a row that is not there is `NoSuchRow`, and there
+/// is no third outcome.
+impl crate::grid::Grid for TableDoc {
+    fn row_count(&self) -> u32 {
+        self.stats().row_count
+    }
+
+    fn column_count(&self) -> u32 {
+        self.columns()
+    }
+
+    fn page(&self, start: u32, count: u32) -> Result<TablePage> {
+        Ok(TableDoc::page(self, start, count))
+    }
+
+    fn cell_text(&self, row: u32, column: u32) -> Result<CellText> {
+        let (text, truncated) = TableDoc::cell_text(self, row, column).ok_or(Error::NoSuchCell)?;
+        Ok(CellText { text, truncated })
+    }
+
+    fn row_text(&self, row: u32) -> Result<CellText> {
+        Ok(CellText {
+            text: TableDoc::row_text(self, row).ok_or(Error::NoSuchRow)?,
+            truncated: false,
+        })
+    }
 }
 
 /// One field's text: surrounding quotes removed and doubled quotes collapsed.

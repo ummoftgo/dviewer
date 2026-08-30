@@ -212,6 +212,7 @@ export const zhHans: Messages = {
   "table.status.delimiter": "分隔符 {name}",
   "table.status.index": "索引 {size}",
   "table.status.truncated": "行数过多，仅读取了一部分",
+  "table.status.scanned": "仅扫描了前 {rows} 行",
   "table.status.where": "第 {row} 行 · {column}",
   "table.search.placeholder": "在表格中查找",
   "table.search.run": "查找",

@@ -212,6 +212,7 @@ export const ja: Messages = {
   "table.status.delimiter": "区切り文字 {name}",
   "table.status.index": "インデックス {size}",
   "table.status.truncated": "行が多すぎるため一部のみ読み込みました",
+  "table.status.scanned": "最初の{rows}行までしか走査していません",
   "table.status.where": "{row}行 · {column}",
   "table.search.placeholder": "表内を検索",
   "table.search.run": "検索",

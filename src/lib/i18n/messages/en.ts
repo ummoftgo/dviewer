@@ -212,6 +212,7 @@ export const en: Messages = {
   "table.status.delimiter": "delimiter {name}",
   "table.status.index": "index {size}",
   "table.status.truncated": "Too many rows; only part of the file was read",
+  "table.status.scanned": "scanned the first {rows} rows only",
   "table.status.where": "row {row} · {column}",
   "table.search.placeholder": "Search the table",
   "table.search.run": "Search",

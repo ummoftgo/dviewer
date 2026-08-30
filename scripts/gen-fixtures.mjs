@@ -446,7 +446,14 @@ console.log("  sample.tsv");
   const names = ["김하늘", "Alice Nguyen", "佐藤 健", "Björn Öst", "O'Brien"];
   const customer = db.prepare("INSERT INTO customers VALUES (?, ?, ?, ?)");
   for (let i = 1; i <= 50; i += 1) {
-    customer.run(i, `${names[i % 5]} ${i}`, `user${i}@example.com`, `2026-0${(i % 9) + 1}-1${i % 9}`);
+    // Every seventh has no email. A viewer that cannot tell NULL from an empty
+    // string has nothing here to catch it, so the fixture carries both.
+    customer.run(
+      i,
+      `${names[i % 5]} ${i}`,
+      i % 7 === 0 ? null : i % 11 === 0 ? "" : `user${i}@example.com`,
+      `2026-0${(i % 9) + 1}-1${i % 9}`,
+    );
   }
   const order = db.prepare("INSERT INTO orders VALUES (?, ?, ?, ?, ?)");
   for (let i = 1; i <= 200; i += 1) {
@@ -497,6 +504,40 @@ if (wantHuge) {
     if (buffer) yield buffer;
     yield "</catalog>\n";
   })());
+
+  // The one the checkpoint index exists for. Written in a single recursive
+  // INSERT: three million round trips through the prepared-statement API would
+  // take minutes, and the whole point of this file is that it finishes.
+  {
+    const { DatabaseSync } = await import("node:sqlite");
+    const file = path.join(OUT, "huge.sqlite");
+    await rm(file, { force: true });
+    const db = new DatabaseSync(file);
+    db.exec("PRAGMA journal_mode = OFF");
+    db.exec(`
+      CREATE TABLE events (
+        id INTEGER PRIMARY KEY,
+        at TEXT,
+        level TEXT,
+        source TEXT,
+        message TEXT,
+        payload BLOB
+      );
+      INSERT INTO events
+        WITH RECURSIVE counter(i) AS (
+          SELECT 1 UNION ALL SELECT i + 1 FROM counter WHERE i < 3000000
+        )
+        SELECT i,
+               '2026-08-30T01:02:' || printf('%02d', i % 60) || 'Z',
+               CASE i % 7 WHEN 0 THEN 'ERROR' WHEN 3 THEN 'WARN' ELSE 'INFO' END,
+               'service-' || (i % 20),
+               'event number ' || i || ' with some words after it',
+               randomblob(24)
+        FROM counter;
+    `);
+    db.close();
+    console.log("  huge.sqlite");
+  }
 }
 
 console.log("완료");

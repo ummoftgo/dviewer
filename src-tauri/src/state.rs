@@ -127,6 +127,10 @@ struct DocInner {
     table: Option<Arc<TableDoc>>,
     /// An open database, for the one format that is not bytes.
     database: Option<Arc<crate::sqlite::SqliteDoc>>,
+    /// The collection whose rows are on screen. Replaced, not added to, when
+    /// another is chosen: a checkpoint index describes one collection's rows
+    /// and means nothing for the next.
+    collection: Option<Arc<crate::sqlite::SqliteGrid>>,
 }
 
 impl Document {
@@ -154,6 +158,7 @@ impl Document {
                 tree: None,
                 table: None,
                 database: None,
+                collection: None,
             }),
         }
     }
@@ -211,6 +216,25 @@ impl Document {
 
     pub fn set_database(&self, database: Arc<crate::sqlite::SqliteDoc>) {
         self.inner.write().database = Some(database);
+    }
+
+    pub fn set_collection(&self, collection: Arc<crate::sqlite::SqliteGrid>) {
+        self.inner.write().collection = Some(collection);
+    }
+
+    /// The rows and columns on screen, whichever kind of document made them.
+    ///
+    /// One or the other, never both: a document is a file of bytes with a
+    /// record index or a database with a collection chosen.
+    pub fn grid(&self) -> Option<Arc<dyn crate::grid::Grid>> {
+        let inner = self.inner.read();
+        if let Some(table) = &inner.table {
+            return Some(Arc::clone(table) as Arc<dyn crate::grid::Grid>);
+        }
+        inner
+            .collection
+            .clone()
+            .map(|collection| collection as Arc<dyn crate::grid::Grid>)
     }
 
     pub fn set_table(&self, table: Arc<TableDoc>) {

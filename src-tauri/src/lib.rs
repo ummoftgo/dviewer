@@ -7,6 +7,7 @@ pub mod encoding;
 pub mod error;
 pub mod fonts;
 pub mod highlight;
+pub mod grid;
 pub mod log;
 pub mod sqlite;
 pub mod tree;
@@ -113,14 +114,15 @@ pub fn run() {
             commands::tree_clear_search,
             commands::tree_hit_row,
             commands::table_open,
-            commands::table_rows,
+            commands::grid_rows,
             commands::table_set_has_header,
             commands::table_set_plain,
             commands::table_set_expand,
             commands::sqlite_collections,
+            commands::sqlite_select,
             commands::sqlite_schema,
-            commands::table_cell_text,
-            commands::table_row_text,
+            commands::grid_cell_text,
+            commands::grid_row_text,
             commands::table_search,
         ])
         .run(tauri::generate_context!())

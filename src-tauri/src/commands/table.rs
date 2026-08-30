@@ -9,7 +9,8 @@ use tauri::{AppHandle, Emitter, State};
 use super::{DocError, IndexProgress, IndexSlot};
 use crate::error::{Error, Result, Subject};
 use crate::state::{AppState, DocId, DocKind, DocSource, DocView};
-use crate::table::{self, TableDoc, TablePage, TableSearch, TableStats};
+use crate::grid::Grid;
+use crate::table::{self, CellText, TableDoc, TablePage, TableSearch, TableStats};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,15 +117,100 @@ fn table_doc(state: &State<'_, AppState>, doc_id: DocId) -> Result<Arc<TableDoc>
         })
 }
 
+
+/// The grid behind this document, whichever kind it is.
+///
+/// A document is one or the other and never both, so there is nothing to
+/// choose between: a table has an index or it has not been built yet, and a
+/// database has a collection chosen or it has not been chosen yet.
+fn grid_of(state: &State<'_, AppState>, doc_id: DocId) -> Result<Arc<dyn Grid>> {
+    let doc = state.get(doc_id)?;
+    doc.grid().ok_or(Error::NotReady {
+        subject: if doc.kind() == DocKind::Sqlite {
+            Subject::Database
+        } else {
+            Subject::Table
+        },
+    })
+}
+
 #[tauri::command]
-pub fn table_rows(
+pub fn grid_rows(
     state: State<'_, AppState>,
     doc_id: DocId,
     start: u32,
     count: u32,
 ) -> Result<TablePage> {
     // A viewport request should never be able to ask for the whole file.
-    Ok(table_doc(&state, doc_id)?.page(start, count.min(2000)))
+    grid_of(&state, doc_id)?.page(start, count.min(2000))
+}
+
+/// One cell's real text, for copying — for a delimited file that means quotes
+/// stripped and doubled quotes collapsed, unlike the escaped single line the
+/// grid shows.
+#[tauri::command]
+pub fn grid_cell_text(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    row: u32,
+    column: u32,
+) -> Result<CellText> {
+    grid_of(&state, doc_id)?.cell_text(row, column)
+}
+
+/// A whole row as text.
+#[tauri::command]
+pub fn grid_row_text(state: State<'_, AppState>, doc_id: DocId, row: u32) -> Result<CellText> {
+    grid_of(&state, doc_id)?.row_text(row)
+}
+
+/// What the grid needs to draw a collection.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GridStats {
+    pub row_count: u32,
+    pub column_count: u32,
+    /// The column names the database itself gives.
+    pub columns: Vec<String>,
+    /// Memory the checkpoint index occupies.
+    pub index_bytes: usize,
+    /// The opening scan hit its ceiling, so the row count is that ceiling and
+    /// not the collection's real size.
+    pub truncated: bool,
+}
+
+/// Choose which table or view the grid shows.
+///
+/// Async because of the scan behind it. Reading one integer per row is cheap
+/// per row and not cheap over five million of them, and a synchronous command
+/// would spend that time holding the event loop — the same mistake that made
+/// the detached panel draw nothing.
+#[tauri::command]
+pub async fn sqlite_select(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    name: String,
+) -> Result<GridStats> {
+    let doc = state.get(doc_id)?;
+    let database = doc.database().ok_or(Error::NotReady {
+        subject: Subject::Database,
+    })?;
+
+    let grid = tauri::async_runtime::spawn_blocking(move || {
+        crate::sqlite::SqliteGrid::open(database, &name)
+    })
+    .await
+    .map_err(Error::internal)??;
+
+    let stats = GridStats {
+        row_count: grid.row_count(),
+        column_count: grid.column_count(),
+        columns: grid.columns().to_vec(),
+        index_bytes: grid.index_bytes(),
+        truncated: grid.truncated(),
+    };
+    doc.set_collection(Arc::new(grid));
+    Ok(stats)
 }
 
 /// What a database offers to look at.
@@ -241,39 +327,6 @@ pub fn table_set_has_header(
     })
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CellText {
-    pub text: String,
-    pub truncated: bool,
-}
-
-/// One cell's real text, for copying — quotes stripped and doubled quotes
-/// collapsed, unlike the escaped single line the grid shows.
-#[tauri::command]
-pub fn table_cell_text(
-    state: State<'_, AppState>,
-    doc_id: DocId,
-    row: u32,
-    column: u32,
-) -> Result<CellText> {
-    let (text, truncated) = table_doc(&state, doc_id)?
-        .cell_text(row, column)
-        .ok_or(Error::NoSuchCell)?;
-    Ok(CellText { text, truncated })
-}
-
-/// A whole record, exactly as the file wrote it.
-#[tauri::command]
-pub fn table_row_text(state: State<'_, AppState>, doc_id: DocId, row: u32) -> Result<CellText> {
-    let text = table_doc(&state, doc_id)?
-        .row_text(row)
-        .ok_or(Error::NoSuchRow)?;
-    Ok(CellText {
-        truncated: false,
-        text,
-    })
-}
 
 /// Find every cell containing `query`.
 ///

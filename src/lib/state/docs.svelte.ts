@@ -3,6 +3,7 @@ import { viewOf } from "../ipc";
 import { t } from "../i18n";
 import type {
   Collection,
+  GridStats,
   DocKind,
   DocMeta,
   DocView,
@@ -160,6 +161,8 @@ export class DocTab {
   collections = $state<Collection[]>([]);
   /** Which one is being read. Null only before the first list arrives. */
   collection = $state<string | null>(null);
+  /** Rows and columns of the chosen collection; null until one is chosen. */
+  gridStats = $state<GridStats | null>(null);
   schema = $state<string | null>(null);
 
   constructor(meta: DocMeta) {

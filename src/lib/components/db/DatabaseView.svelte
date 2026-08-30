@@ -1,25 +1,35 @@
-<!--
-  Reading a SQLite file.
-
-  The first format that is not a run of bytes. There is no index to build and no
-  original text to show — the file is opened as a connection, and everything
-  shown here comes from a query. What it shares with the table view is the grid,
-  which arrives with the rows; for now this is the connection, the list of what
-  the file holds, and the statement that made the chosen one.
--->
 <script lang="ts">
+  /**
+   * Reading a SQLite file.
+   *
+   * The first format that is not a run of bytes. There is no index to build and
+   * no original text to show — the file is opened as a connection, and every
+   * row here came back from a query.
+   *
+   * The grid is the table view's, unchanged. That is the whole point of the
+   * split: a database's rows and a CSV's rows differ in where they come from
+   * and in nothing the reader does with them, so the difference stops at the
+   * Rust boundary and both draw through `DataGrid`.
+   */
+  import DataGrid from "../table/DataGrid.svelte";
   import CollectionPicker from "./CollectionPicker.svelte";
-  import { sqliteCollections, sqliteSchema, errorMessage } from "../../ipc";
-  import { t } from "../../i18n";
+  import Icon from "../Icon.svelte";
+  import { formatBytes } from "../../format";
+  import { sqliteCollections, sqliteSchema, sqliteSelect, errorMessage } from "../../ipc";
+  import { n, t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
 
   let { tab }: { tab: DocTab } = $props();
 
+  let grid = $state<ReturnType<typeof DataGrid>>();
   let loading = $state(false);
+  let showSchema = $state(false);
 
   const items = $derived(
     tab.collections.map((entry) => ({ name: entry.name, secondary: entry.isView })),
   );
+  const rowCount = $derived(tab.gridStats?.rowCount ?? 0);
+  const columnCount = $derived(tab.gridStats?.columnCount ?? 0);
 
   // Opening the connection is what this does; the list comes back with it. A
   // tab that already has its list has already paid for it — switching tabs must
@@ -41,17 +51,40 @@
       });
   });
 
-  function select(name: string) {
+  /**
+   * Show another collection.
+   *
+   * Everything the grid was holding belonged to the last one — the column
+   * widths were measured against its values, and a cell coordinate points at a
+   * row that another collection does not have — so all of it goes.
+   */
+  async function select(name: string) {
     tab.collection = name;
     tab.schema = null;
-    sqliteSchema(tab.id, name)
-      .then((sql) => {
-        // The reader may have moved on during the round trip.
-        if (tab.collection === name) tab.schema = sql;
-      })
-      .catch((err) => {
-        tab.error = errorMessage(err);
-      });
+    tab.gridStats = null;
+    tab.selectedCell = null;
+    tab.pendingCell = null;
+    tab.columnWidths = [];
+    tab.tableScrollTop = 0;
+    loading = true;
+    try {
+      tab.gridStats = await sqliteSelect(tab.id, name);
+      await grid?.refresh(true);
+      // The statement comes second: the rows are what the reader is waiting
+      // for, and the schema is a panel they may never open.
+      const sql = await sqliteSchema(tab.id, name);
+      // The reader may have moved on during the round trip.
+      if (tab.collection === name) tab.schema = sql;
+    } catch (err) {
+      tab.error = errorMessage(err);
+    } finally {
+      loading = false;
+    }
+  }
+
+  /** A database names its own columns, and there is nothing to guess. */
+  function columnName(column: number): string {
+    return tab.gridStats?.columns[column] ?? String(column + 1);
   }
 </script>
 
@@ -61,67 +94,157 @@
       label={t("table.collection")}
       {items}
       selected={tab.collection}
-      onselect={select}
+      onselect={(name) => void select(name)}
       disabled={loading}
     />
+
+    <span class="spacer"></span>
+
+    {#if tab.schema}
+      <button
+        class="btn btn-ghost"
+        aria-pressed={showSchema}
+        onclick={() => (showSchema = !showSchema)}
+      >
+        <Icon name="list" size={13} />
+        {t("table.schema")}
+      </button>
+    {/if}
+    <button
+      class="btn btn-ghost"
+      disabled={!tab.selectedCell}
+      onclick={() =>
+        tab.selectedCell && grid?.copyCell(tab.selectedCell.row, tab.selectedCell.column)}
+    >
+      <Icon name="copy" size={13} />
+      {t("table.copyValue")}
+    </button>
+    <button
+      class="btn btn-ghost"
+      disabled={!tab.selectedCell}
+      onclick={() => tab.selectedCell && grid?.copyRow(tab.selectedCell.row)}
+    >
+      {t("table.copyRow")}
+    </button>
   </div>
 
-  <div class="body">
-    {#if tab.collections.length === 0 && !loading}
-      <p class="empty">{t("table.noCollections")}</p>
-    {:else if tab.schema}
-      <section class="schema">
-        <h2>{t("table.schema")}</h2>
-        <pre>{tab.schema}</pre>
-      </section>
-    {/if}
-  </div>
+  {#if tab.error}
+    <p class="banner error" role="alert">
+      <Icon name="warning" />
+      {tab.error}
+    </p>
+  {/if}
+
+  {#if showSchema && tab.schema}
+    <pre class="schema">{tab.schema}</pre>
+  {/if}
+
+  {#if tab.collections.length === 0 && !loading}
+    <p class="empty">{t("table.noCollections")}</p>
+  {:else}
+    <DataGrid
+      bind:this={grid}
+      {tab}
+      {rowCount}
+      {columnCount}
+      {columnName}
+      label={t("table.label", { title: tab.meta.title })}
+    />
+
+    <div class="status">
+      <span>
+        {t("table.status.size", { rows: n(rowCount), columns: n(columnCount) })}
+      </span>
+      {#if tab.gridStats}
+        <span>{t("table.status.index", { size: formatBytes(tab.gridStats.indexBytes) })}</span>
+        {#if tab.gridStats.truncated}
+          <span class="warn">{t("table.status.scanned", { rows: n(rowCount) })}</span>
+        {/if}
+      {/if}
+      {#if tab.selectedCell}
+        <span class="spacer"></span>
+        <span class="where">
+          {t("table.status.where", {
+            row: n(tab.selectedCell.row + 1),
+            column: columnName(tab.selectedCell.column),
+          })}
+        </span>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
   .database {
     display: flex;
-    flex: 1;
     flex-direction: column;
+    height: 100%;
     min-height: 0;
   }
 
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.6rem;
+    gap: 0.35rem;
+    padding: 0.3rem 0.6rem;
     border-bottom: 1px solid var(--border);
   }
 
-  .body {
+  .spacer {
     flex: 1;
-    min-height: 0;
-    overflow: auto;
-    padding: 0.8rem;
+  }
+
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.9em;
+  }
+
+  .banner.error {
+    background: var(--danger-subtle);
+    color: var(--danger);
   }
 
   .empty {
     margin: 0;
+    padding: 0.8rem;
     color: var(--text-secondary);
   }
 
-  .schema h2 {
-    margin: 0 0 0.4rem;
-    color: var(--text-secondary);
-    font-size: 0.92em;
-    font-weight: 600;
-  }
-
-  .schema pre {
+  /* Above the grid rather than beside it: the statement is wide, and a column
+     of it would take the width the rows need. */
+  .schema {
+    flex: none;
+    max-height: 30%;
     margin: 0;
     padding: 0.6rem 0.8rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-elevated);
-    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-inset);
+    overflow: auto;
     font-family: var(--font-code);
     font-size: 0.92em;
     line-height: 1.5;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.25rem 0.7rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg-subtle);
+    color: var(--text-muted);
+    font-size: 0.85em;
+  }
+
+  .status .warn {
+    color: var(--warning);
+  }
+
+  .status .where {
+    font-variant-numeric: tabular-nums;
   }
 </style>

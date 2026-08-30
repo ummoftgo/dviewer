@@ -217,6 +217,7 @@ export const ko = {
   "table.status.delimiter": "구분자 {name}",
   "table.status.index": "색인 {size}",
   "table.status.truncated": "행이 너무 많아 일부만 읽었습니다",
+  "table.status.scanned": "처음 {rows}행까지만 훑었습니다",
   "table.status.where": "{row}행 · {column}",
   "table.search.placeholder": "표 안에서 찾기",
   "table.search.run": "찾기",

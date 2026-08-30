@@ -235,6 +235,10 @@ export interface TableCell {
   /** Already escaped to a single line and capped, like a tree row's value. */
   text: string;
   truncated: boolean;
+  /** A database NULL, which is not the empty string it would otherwise be
+   *  indistinguishable from. Absent for a text file, where a field that is not
+   *  there and a field that is empty look the same in the bytes. */
+  null?: boolean;
 }
 
 export interface TableRow {
@@ -407,18 +411,24 @@ export const treeHitRow = (docId: number, ordinal: number) =>
 // --- CSV and TSV ----------------------------------------------------------
 
 export const tableOpen = (docId: number) => invoke<void>("table_open", { docId });
-export const tableRows = (docId: number, start: number, count: number) =>
-  invoke<TablePage>("table_rows", { docId, start, count });
 export const tableSetExpand = (docId: number, expand: boolean) =>
   invoke<TableShape>("table_set_expand", { docId, expand });
 export const tableSetPlain = (docId: number, plain: boolean) =>
   invoke<TableShape>("table_set_plain", { docId, plain });
 export const tableSetHasHeader = (docId: number, hasHeader: boolean) =>
   invoke<TableShape>("table_set_has_header", { docId, hasHeader });
-export const tableCellText = (docId: number, row: number, column: number) =>
-  invoke<CellText>("table_cell_text", { docId, row, column });
-export const tableRowText = (docId: number, row: number) =>
-  invoke<CellText>("table_row_text", { docId, row });
+// --- the grid, whatever is behind it ---------------------------------------
+//
+// One set of commands for a delimited file and for a database table: the two
+// answer through the same trait in Rust, so nothing above this line has to know
+// which it is looking at.
+
+export const gridRows = (docId: number, start: number, count: number) =>
+  invoke<TablePage>("grid_rows", { docId, start, count });
+export const gridCellText = (docId: number, row: number, column: number) =>
+  invoke<CellText>("grid_cell_text", { docId, row, column });
+export const gridRowText = (docId: number, row: number) =>
+  invoke<CellText>("grid_row_text", { docId, row });
 
 // --- SQLite ---------------------------------------------------------------
 
@@ -432,10 +442,22 @@ export interface Collections {
   items: Collection[];
 }
 
+/** What the grid needs to draw one collection. */
+export interface GridStats {
+  rowCount: number;
+  columnCount: number;
+  columns: string[];
+  indexBytes: number;
+  /** The opening scan stopped at its ceiling, so `rowCount` is that ceiling. */
+  truncated: boolean;
+}
+
 export const sqliteCollections = (docId: number) =>
   invoke<Collections>("sqlite_collections", { docId });
 export const sqliteSchema = (docId: number, name: string) =>
   invoke<string | null>("sqlite_schema", { docId, name });
+export const sqliteSelect = (docId: number, name: string) =>
+  invoke<GridStats>("sqlite_select", { docId, name });
 export const tableSearch = (docId: number, query: string, caseSensitive: boolean) =>
   invoke<TableSearchResult>("table_search", { docId, query, caseSensitive });
 
