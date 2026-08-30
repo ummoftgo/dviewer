@@ -509,6 +509,19 @@ impl TableDoc {
     pub fn cell_text(&self, row: u32, column: u32) -> Option<(String, bool)> {
         let record = row.checked_add(self.header_offset())?;
         let (start, end) = self.record_span(record)?;
+        // A JSONL cell is a JSON value, and copying one means the value rather
+        // than the text that encodes it — the same thing the tree does with the
+        // same bytes.
+        if let Records::Jsonl(layout) = self.reading() {
+            return crate::jsonl::value_text(
+                &self.bytes,
+                start,
+                end,
+                &layout,
+                column as usize,
+                MAX_CELL_TEXT_BYTES,
+            );
+        }
         let span = record_fields(&self.bytes, start, end, &self.reading())
             .into_iter()
             .nth(column as usize)?;
@@ -641,6 +654,11 @@ impl TableDoc {
         let Some((start, end)) = self.record_span(record) else {
             return Vec::new();
         };
+        // A JSONL record is decoded by the tree's own readers, over the same
+        // nodes, so a value looks the same in the grid as it does in the tree.
+        if let Records::Jsonl(layout) = self.reading() {
+            return crate::jsonl::cells(&self.bytes, start, end, &layout);
+        }
         let mut cells: Vec<TableCell> = record_fields(&self.bytes, start, end, &self.reading())
             .into_iter()
             .map(|span| {
@@ -1501,5 +1519,79 @@ mod tests {
         assert_eq!(stats.column_count, 1);
         assert_eq!(stats.delimiter, "lines");
         assert_eq!(doc.page(0, 1).rows[0].cells[0].text, "[1,2]");
+    }
+
+    /// The grid shows the line as written; the clipboard gets the value.
+    ///
+    /// Copying the same value out of the tree gives a real newline, and the
+    /// same bytes must not mean two things depending on the view they were
+    /// copied from.
+    #[test]
+    fn copying_a_value_resolves_what_the_grid_shows_escaped() {
+        let source = "{\"msg\":\"a\\nb\",\"unicode\":\"\\uD55C\",\"quote\":\"say \\\"hi\\\"\"}\n\
+                      {\"msg\":\"plain\",\"unicode\":\"\",\"quote\":\"\"}\n";
+        let doc = jsonl_doc(source);
+
+        // What the grid draws keeps the escape: a row is one line high.
+        let shown = &doc.page(0, 1).rows[0].cells;
+        assert_eq!(shown[0].text, "a\\nb");
+
+        // What the clipboard gets is the value.
+        assert_eq!(doc.cell_text(0, 0).expect("cell").0, "a\nb");
+        assert_eq!(doc.cell_text(0, 1).expect("cell").0, "한");
+        assert_eq!(doc.cell_text(0, 2).expect("cell").0, "say \"hi\"");
+
+        // And the tree, over the same bytes, agrees.
+        let line = "{\"msg\":\"a\\nb\"}";
+        let tree = crate::tree::TreeDoc::build(
+            Arc::new(DocBytes::from(line.as_bytes().to_vec())),
+            crate::tree::index::Syntax::Json,
+            &crate::tree::scanner::ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("tree");
+        assert_eq!(tree.node_text(1).expect("node").0, doc.cell_text(0, 0).expect("cell").0);
+        assert_eq!(tree.rows(1, 1)[0].value.as_deref(), Some(shown[0].text.as_str()));
+    }
+
+    /// Values that are not strings are copied as written — a number is not a
+    /// string that happens to look like one.
+    #[test]
+    fn copying_a_value_that_is_not_a_string_changes_nothing() {
+        let doc = jsonl_doc(
+            "{\"n\":1.5,\"b\":true,\"z\":null,\"a\":[1,\"x\\ny\"],\"o\":{\"k\":\"v\"}}\n\
+             {\"n\":2,\"b\":false,\"z\":null,\"a\":[],\"o\":{}}\n",
+        );
+        assert_eq!(doc.cell_text(0, 0).expect("cell").0, "1.5");
+        assert_eq!(doc.cell_text(0, 1).expect("cell").0, "true");
+        assert_eq!(doc.cell_text(0, 2).expect("cell").0, "null");
+        // A nested value is JSON text, so its own escapes stay escaped —
+        // resolving them would produce something that is no longer JSON.
+        assert_eq!(doc.cell_text(0, 3).expect("cell").0, "[1,\"x\\ny\"]");
+        assert_eq!(doc.cell_text(0, 4).expect("cell").0, "{\"k\":\"v\"}");
+    }
+
+
+    /// A nested value is the JSON the file wrote. It is not a string, so it
+    /// does not get a string's escaping — `[\"a\"]` would be neither the
+    /// source nor the value.
+    #[test]
+    fn a_nested_cell_shows_the_json_the_file_wrote() {
+        let doc = jsonl_doc(
+            "{\"tags\":[\"a\",\"b\"],\"meta\":{\"k\":\"v\"},\"s\":\"q\\\"x\"}
+             {\"tags\":[],\"meta\":{},\"s\":\"\"}
+",
+        );
+        let cells = &doc.page(0, 1).rows[0].cells;
+        assert_eq!(cells[0].text, "[\"a\",\"b\"]");
+        assert_eq!(cells[1].text, "{\"k\":\"v\"}");
+        // A string keeps the tree's escaping, so the two views agree on it.
+        assert_eq!(cells[2].text, "q\\\"x");
+
+        // Copying a container gives the same JSON; copying the string gives
+        // the value.
+        assert_eq!(doc.cell_text(0, 0).expect("cell").0, "[\"a\",\"b\"]");
+        assert_eq!(doc.cell_text(0, 2).expect("cell").0, "q\"x");
     }
 }

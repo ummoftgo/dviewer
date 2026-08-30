@@ -11,7 +11,9 @@
 //! guesses at that: the document's own scanner reads each line, so a table cell
 //! and a tree node are the same bytes.
 
-use crate::tree::scanner::{scan, Kind, ScanLimits};
+use crate::tree::scanner::{scan, Kind, Node, ScanLimits};
+use crate::table::{TableCell, CELL_PREVIEW_CHARS};
+use crate::tree::text;
 
 /// How much of the front of the document the guess is made from.
 const SAMPLE_BYTES: usize = 1024 * 1024;
@@ -86,50 +88,53 @@ fn sample_lines(bytes: &[u8]) -> Vec<&[u8]> {
 
 /// The top-level keys of `line`, or None when it is not one JSON object.
 fn object_keys(line: &[u8]) -> Option<Vec<String>> {
-    let pairs = top_level_pairs(line)?;
+    let nodes = object_nodes(line)?;
     Some(
-        pairs
-            .into_iter()
-            .map(|(key, _)| String::from_utf8_lossy(&line[key.0..key.1]).into_owned())
+        fields(&nodes)
+            .map(|node| String::from_utf8_lossy(key_of(line, node)).into_owned())
             .collect(),
     )
 }
 
-/// Where each of a line's fields is: the key's text, and the value's span.
+/// The nodes of `line`, when it is one JSON object and nothing else.
 ///
-/// Both are offsets into `line`. A string value's span excludes its quotes — a
-/// table shows values, and `"error"` in a cell is punctuation the reader has to
-/// look past on every row. Everything else is the bytes as written, so a number
-/// stays a number and `null` says `null`.
-fn top_level_pairs(line: &[u8]) -> Option<Vec<((usize, usize), (usize, usize))>> {
-    // The document's own scanner rather than a second, smaller one. A line is
-    // small, this runs only over the sample and over rows on screen, and a
-    // reading of the file that disagreed with the tree would be worse than
-    // slow.
+/// The document's own scanner rather than a second, smaller one. A line is
+/// small, this runs only over the sample and over rows on screen, and a reading
+/// of the file that disagreed with the tree would be worse than slow.
+fn object_nodes(line: &[u8]) -> Option<Vec<Node>> {
     let scanned = scan(line, &ScanLimits::default(), |_| {}, &|| false).ok()?;
     let root = scanned.nodes.first()?;
     if root.kind != Kind::Object || scanned.synthetic_root {
         return None;
     }
+    Some(scanned.nodes)
+}
 
-    let mut pairs = Vec::with_capacity(root.child_count as usize);
-    for node in &scanned.nodes[1..] {
-        if node.depth != 1 {
-            continue;
+/// The object's own members, without anything nested inside them.
+fn fields(nodes: &[Node]) -> impl Iterator<Item = &Node> {
+    nodes.iter().skip(1).filter(|node| node.depth == 1)
+}
+
+fn key_of<'a>(line: &'a [u8], node: &Node) -> &'a [u8] {
+    &line[node.key_start as usize..(node.key_start + node.key_len) as usize]
+}
+
+/// Which node belongs in each column, by name.
+fn by_column<'a>(line: &[u8], nodes: &'a [Node], layout: &JsonlLayout) -> Vec<Option<&'a Node>> {
+    let mut found = vec![None; layout.column_count()];
+    for node in fields(nodes) {
+        // Compared as bytes: a key is matched, not decoded, and a name with an
+        // escape in it is rare enough to be left to the tree.
+        let name = key_of(line, node);
+        if let Some(column) = layout
+            .columns
+            .iter()
+            .position(|column| column.as_bytes() == name)
+        {
+            found[column] = Some(node);
         }
-        let key = (
-            node.key_start as usize,
-            (node.key_start + node.key_len) as usize,
-        );
-        let mut start = node.val_start as usize;
-        let mut end = start + node.val_len as usize;
-        if node.kind == Kind::String && end - start >= 2 {
-            start += 1;
-            end -= 1;
-        }
-        pairs.push((key, (start, end)));
     }
-    Some(pairs)
+    found
 }
 
 /// The value spans of one record, one per column.
@@ -143,26 +148,150 @@ pub fn split(bytes: &[u8], start: u32, end: u32, layout: &JsonlLayout) -> Vec<(u
     let line = &bytes[start as usize..end as usize];
     let mut spans = vec![(start, start); layout.column_count()];
 
-    let Some(pairs) = top_level_pairs(line) else {
+    let Some(nodes) = object_nodes(line) else {
         if let Some(first) = spans.first_mut() {
             *first = (start, end);
         }
         return spans;
     };
 
-    for (key, value) in pairs {
-        let name = &line[key.0..key.1];
-        // Compared as bytes: a key is matched, not decoded, and a name with an
-        // escape in it is rare enough to be left to the tree.
-        if let Some(column) = layout
-            .columns
-            .iter()
-            .position(|column| column.as_bytes() == name)
-        {
-            spans[column] = (start + value.0 as u32, start + value.1 as u32);
+    for (column, node) in by_column(line, &nodes, layout).into_iter().enumerate() {
+        let Some(node) = node else { continue };
+        let mut from = node.val_start;
+        let mut to = from + node.val_len;
+        // A string's quotes are not part of what the cell shows, and a hit on
+        // one is not a hit in the cell.
+        if node.kind == Kind::String && to - from >= 2 {
+            from += 1;
+            to -= 1;
         }
+        spans[column] = (start + from, start + to);
     }
     spans
+}
+
+/// One cell's value, with a string's escapes resolved.
+///
+/// What the grid draws is the line as written — `a\nb` stays two characters,
+/// because a row is one line high and a real newline would spill into the row
+/// below. Copying is the opposite job: the point is the value itself. The tree
+/// already draws that line between preview and clipboard, and a value copied
+/// out of the grid has to match the one copied out of the tree.
+pub fn value_text(
+    bytes: &[u8],
+    start: u32,
+    end: u32,
+    layout: &JsonlLayout,
+    column: usize,
+    max_bytes: usize,
+) -> Option<(String, bool)> {
+    let line = &bytes[start as usize..end as usize];
+    if column >= layout.column_count() {
+        return None;
+    }
+
+    let Some(nodes) = object_nodes(line) else {
+        // The whole line, in the column it was put in. See `split`.
+        let truncated = line.len() > max_bytes;
+        let shown = &line[..line.len().min(max_bytes)];
+        return (column == 0)
+            .then(|| (String::from_utf8_lossy(shown).into_owned(), truncated))
+            .or(Some((String::new(), false)));
+    };
+
+    Some(match by_column(line, &nodes, layout)[column] {
+        Some(node) => text::decode_full(line, node, max_bytes),
+        // A key this record does not have. Empty, like the cell.
+        None => (String::new(), false),
+    })
+}
+
+/// One record as the grid draws it.
+///
+/// The same decoders the tree uses, over the same nodes: a string loses its
+/// quotes and keeps its escapes, because a row is one line high and a real
+/// newline would spill into the row below. Whatever the tree shows for a value,
+/// the grid shows too.
+pub fn cells(bytes: &[u8], start: u32, end: u32, layout: &JsonlLayout) -> Vec<TableCell> {
+    let line = &bytes[start as usize..end as usize];
+    let empty = || TableCell {
+        text: String::new(),
+        truncated: false,
+        null: false,
+    };
+
+    let Some(nodes) = object_nodes(line) else {
+        let mut cells = vec![empty(); layout.column_count()];
+        if let Some(first) = cells.first_mut() {
+            let (text, truncated) = truncate(line, CELL_PREVIEW_CHARS);
+            *first = TableCell {
+                text,
+                truncated,
+                null: false,
+            };
+        }
+        return cells;
+    };
+
+    by_column(line, &nodes, layout)
+        .into_iter()
+        .map(|node| match node {
+            Some(node) => {
+                // A scalar is decoded the way the tree decodes it, so the two
+                // views show one value one way. A container is not a value the
+                // tree ever draws — it summarises those as `{ 3 }` — so there
+                // is nothing to agree with, and what the cell claims to hold is
+                // the JSON itself. Running it through the scalar reader would
+                // escape its own quotes and give `[\"a\"]`, which is neither
+                // the source nor the value.
+                let (text, truncated) = if node.kind.is_container() {
+                    source_text(line, node, CELL_PREVIEW_CHARS)
+                } else {
+                    text::decode_scalar(line, node)
+                };
+                TableCell {
+                    text,
+                    truncated,
+                    null: false,
+                }
+            }
+            None => empty(),
+        })
+        .collect()
+}
+
+/// A container's JSON, as the file wrote it.
+///
+/// Only characters a row cannot draw are escaped. JSON source has none of them
+/// outside strings, and inside strings they are already escaped, so this is the
+/// document's own text in every well-formed case.
+fn source_text(line: &[u8], node: &Node, max_chars: usize) -> (String, bool) {
+    let from = node.val_start as usize;
+    let raw = &line[from..from + node.val_len as usize];
+    let text = String::from_utf8_lossy(raw);
+    let mut out = String::with_capacity(text.len());
+    let mut taken = 0usize;
+    for character in text.chars() {
+        if taken == max_chars {
+            return (out, true);
+        }
+        if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
+            text::push_display(&mut out, character, false);
+        } else {
+            out.push(character);
+        }
+        taken += 1;
+    }
+    (out, false)
+}
+
+/// A line that is not an object, cut to what a cell can hold.
+fn truncate(line: &[u8], max_chars: usize) -> (String, bool) {
+    let text = String::from_utf8_lossy(line);
+    match text.char_indices().nth(max_chars) {
+        Some((at, _)) => (text[..at].to_owned(), true),
+        None => (text.into_owned(), false),
+    }
 }
 
 #[cfg(test)]
