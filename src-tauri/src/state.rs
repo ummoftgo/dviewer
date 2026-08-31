@@ -101,6 +101,20 @@ impl DocKind {
         )
     }
 
+    /// Whether reading this needs a file on disk rather than a buffer.
+    ///
+    /// Three of the four formats that are not runs of bytes are read through a
+    /// library that opens a path: a database is queried, a workbook converted,
+    /// a columnar file seeked. A download or an unpacked entry has no path to
+    /// give them, and writing one to a temporary file would leave the reader
+    /// with a copy they did not ask to keep, somewhere they did not choose.
+    ///
+    /// An archive is the one that is not, because its reader takes the bytes.
+    /// So a zip can be opened from a URL, and out of another zip.
+    pub fn needs_file(self) -> bool {
+        matches!(self, DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet)
+    }
+
     pub fn view(self) -> DocView {
         match self {
             DocKind::Markdown => DocView::Prose,
@@ -114,12 +128,70 @@ impl DocKind {
     }
 }
 
+/// One step of the way into an archive: which entry, and what it was called.
+///
+/// The number is what identifies it. The name is carried for the tab's
+/// subtitle, and is frozen at the moment the list was read — an archive that
+/// is rewritten under an open tab does not rename what that tab is showing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryRef {
+    pub index: u32,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DocSource {
     File { path: String },
     Url { url: String },
     Text,
+    /// A document taken out of an archive, named by the whole way in.
+    ///
+    /// Complete in itself, and deliberately so: there is no document id here.
+    /// An entry outlives the archive tab it was opened from — the bytes were
+    /// copied out, not borrowed — so a reference to that tab would be a
+    /// reference to something that may not exist. Being a value also means two
+    /// tabs showing the same entry can be recognised as such by comparing what
+    /// they say, which is what stops a second click opening a second copy.
+    ArchiveEntry {
+        /// Where the outermost archive came from. A file or a URL — never
+        /// another chain, which is what `entries` is for, and never pasted
+        /// text, which is a string and was never an archive.
+        root: Box<DocSource>,
+        /// The way in, one archive per step. The last one is this document.
+        entries: Vec<EntryRef>,
+    },
+}
+
+impl DocSource {
+    /// The chain naming an entry of the document this is the source of.
+    pub fn entry(&self, index: u32, name: String) -> Result<DocSource> {
+        let (root, mut entries) = match self {
+            DocSource::File { .. } | DocSource::Url { .. } => {
+                (Box::new(self.clone()), Vec::new())
+            }
+            DocSource::ArchiveEntry { root, entries } => (root.clone(), entries.clone()),
+            // Pasted text arrives as a Rust String, so it is UTF-8 and was
+            // never an archive. Reachable only if something upstream forgets.
+            DocSource::Text => {
+                return Err(Error::WrongView {
+                    subject: crate::error::Subject::Archive,
+                })
+            }
+        };
+        entries.push(EntryRef { index, name });
+        Ok(DocSource::ArchiveEntry { root, entries })
+    }
+
+    /// How many archives had to be opened to reach this document. Zero for
+    /// anything that came from a file, a URL or the clipboard.
+    pub fn depth(&self) -> usize {
+        match self {
+            DocSource::ArchiveEntry { entries, .. } => entries.len(),
+            _ => 0,
+        }
+    }
 }
 
 /// The encoding a document is being read as, and how confident that is.

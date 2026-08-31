@@ -267,6 +267,7 @@ export const ko = {
   "archive.label": "{title} 압축 파일 목록",
   "archive.empty": "빈 압축 파일입니다.",
   "archive.locked": "암호가 걸려 있습니다",
+  "archive.open": "{name} 열기",
   "archive.status.entries": "항목 {count}개",
   "archive.status.hidden": "{count}개는 목록에 없습니다",
   "archive.status.names": "이름 인코딩 {encoding}",

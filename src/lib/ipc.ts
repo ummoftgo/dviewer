@@ -118,10 +118,26 @@ export function kindBadge(kind: DocKind): string {
   return BADGES[kind] ?? "?";
 }
 
+/** One step of the way into an archive: which entry, and what it was called. */
+export interface EntryRef {
+  /** The identity. See `ArchiveEntry.index`. */
+  index: number;
+  /** For the subtitle, frozen at the moment the list was read. */
+  name: string;
+}
+
 export type DocSource =
   | { type: "file"; path: string }
   | { type: "url"; url: string }
-  | { type: "text" };
+  | { type: "text" }
+  /**
+   * A document taken out of an archive, named by the whole way in.
+   *
+   * Complete in itself — no document id — so it still says what it points at
+   * after the archive's tab is closed, and two tabs showing the same entry can
+   * be recognised as such by comparing what they say.
+   */
+  | { type: "archiveEntry"; root: DocSource; entries: EntryRef[] };
 
 /** How the encoding in effect was arrived at. Only `guessed` can be wrong. */
 export type EncodingSource = "bom" | "utf8" | "guessed" | "chosen";
@@ -528,10 +544,20 @@ export interface ArchiveListing {
   namesGuessed: boolean;
   /** Entries the list left out, when the archive holds more than it shows. */
   hidden: number;
+  /**
+   * Why the one document this archive holds was not opened directly.
+   *
+   * An archive with a single entry is unwrapped on the way in, so a list with
+   * one row means that entry was refused. Shaped like any other backend error,
+   * and translated the same way.
+   */
+  refused: BackendError | null;
 }
 
 export const archiveEntries = (docId: number) =>
   invoke<ArchiveListing>("archive_entries", { docId });
+export const openEntry = (docId: number, index: number) =>
+  invoke<DocMeta>("open_entry", { docId, index });
 
 // --- xlsx -----------------------------------------------------------------
 

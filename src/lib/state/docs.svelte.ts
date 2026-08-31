@@ -4,6 +4,7 @@ import { t } from "../i18n";
 import type {
   ArchiveEntry,
   Collection,
+  DocSource,
   GridStats,
   Interpretation,
   DocKind,
@@ -172,6 +173,8 @@ export class DocTab {
   // Archive (zip)
   /** What the archive holds; empty until the central directory is read. */
   entries = $state<ArchiveEntry[]>([]);
+  /** The entry being opened, so its row can say so. Null when none is. */
+  openingEntry = $state<number | null>(null);
   /** Which encoding the entry names were read in, and whether that was a guess.
    *  Shown in the status line, and only worth reading when it was a guess. */
   nameEncoding = $state<string | null>(null);
@@ -199,10 +202,7 @@ export class DocTab {
 
   get subtitle(): string {
     if (this.status === "blank") return "";
-    const source = this.meta.source;
-    if (source.type === "file") return source.path;
-    if (source.type === "url") return source.url;
-    return t("doc.pastedSource");
+    return describeSource(this.meta.source);
   }
 
   /** Drop derived state so the tab reloads from scratch on the next view. */
@@ -244,12 +244,33 @@ class Workspace {
     this.activeId = id;
   }
 
-  /** Re-focus an already-open file instead of loading a second copy. */
+  /**
+   * Re-focus an already-open file instead of loading a second copy.
+   *
+   * An archive holding one document is unwrapped on the way in, so opening
+   * `a.zip` twice would otherwise make two tabs: the first is not a file tab at
+   * all by the time the second is asked for, it is that single entry. Which is
+   * exactly what the second clause recognises — an entry one step deep whose
+   * root is this file is the tab that opening this file produces.
+   */
   private findByPath(path: string): DocTab | null {
     return (
-      this.tabs.find((tab) => tab.meta.source.type === "file" && tab.meta.source.path === path) ??
-      null
+      this.tabs.find((tab) => {
+        const source = tab.meta.source;
+        if (source.type === "file") return source.path === path;
+        return (
+          source.type === "archiveEntry" &&
+          source.entries.length === 1 &&
+          source.root.type === "file" &&
+          source.root.path === path
+        );
+      }) ?? null
     );
+  }
+
+  /** Re-focus the tab already showing an entry, rather than unpacking it twice. */
+  private findEntry(source: DocSource): DocTab | null {
+    return this.tabs.find((tab) => sameSource(tab.meta.source, source)) ?? null;
   }
 
   /**
@@ -289,6 +310,34 @@ class Workspace {
 
   async openUrl(url: string) {
     return this.run(placeholder(url, { type: "url", url }), () => ipc.openUrl(url));
+  }
+
+  /**
+   * Open one entry of an archive in a tab of its own.
+   *
+   * A new tab rather than a replacement: the archive stays where it is, which
+   * is what lets two entries be compared and what saves a navigation stack
+   * nobody has asked for. The list is the hub, in the same grammar the start
+   * pane already uses.
+   */
+  async openEntry(archive: DocTab, entry: ArchiveEntry) {
+    // What the backend is about to build, built here too so the tab that is
+    // already showing it can be raised without unpacking anything.
+    const wanted = chainOf(archive.meta.source, entry);
+    const existing = wanted && this.findEntry(wanted);
+    if (existing) {
+      this.activeId = existing.id;
+      return existing;
+    }
+
+    archive.openingEntry = entry.index;
+    try {
+      return await this.run(placeholder(entry.name, wanted ?? undefined), () =>
+        ipc.openEntry(archive.id, entry.index),
+      );
+    } finally {
+      archive.openingEntry = null;
+    }
   }
 
   async openText(content: string, title?: string, kind?: DocKind) {
@@ -353,7 +402,14 @@ class Workspace {
         this.tabs = this.tabs.filter((t) => t !== tab);
         if (this.activeId === meta.id) this.activeId = this.tabs.at(-1)?.id ?? null;
       }
-      this.notice = ipc.errorMessage(err);
+      // `notice` is only ever drawn by the start pane, which is right for a
+      // file that would not open — there is no tab to put it on. An entry that
+      // would not open has one: the archive it was clicked in, which is still
+      // on screen and is where the reader is looking.
+      const message = ipc.errorMessage(err);
+      const archive = this.tabs.find((t) => t.openingEntry !== null);
+      if (archive) archive.error = message;
+      else this.notice = message;
       // A recent entry pointing at a file that no longer opens is just noise.
       if (failedPath) recents.remove(failedPath);
       return null;
@@ -416,6 +472,50 @@ class Workspace {
   tab(id: number): DocTab | null {
     return this.tabs.find((t) => t.id === id) ?? null;
   }
+}
+
+/** How a source reads in the tab's tooltip. */
+function describeSource(source: DocSource): string {
+  if (source.type === "file") return source.path;
+  if (source.type === "url") return source.url;
+  if (source.type === "text") return t("doc.pastedSource");
+  // The whole way in, so a document three archives deep says which three.
+  return [describeSource(source.root), ...source.entries.map((entry) => entry.name)].join(" → ");
+}
+
+/**
+ * Whether two sources name the same document.
+ *
+ * Structural, because a source is a value and holds no id: two chains are the
+ * same when they start at the same place and take the same numbered steps. The
+ * names are not compared — they are display text, and an archive re-read under
+ * a different guess at its encoding would carry different ones for the same
+ * entries.
+ */
+function sameSource(a: DocSource, b: DocSource): boolean {
+  if (a.type === "file" && b.type === "file") return a.path === b.path;
+  if (a.type === "url" && b.type === "url") return a.url === b.url;
+  if (a.type === "archiveEntry" && b.type === "archiveEntry") {
+    return (
+      sameSource(a.root, b.root) &&
+      a.entries.length === b.entries.length &&
+      a.entries.every((step, at) => step.index === b.entries[at].index)
+    );
+  }
+  return false;
+}
+
+/** The chain naming `entry` of the document `source` belongs to. */
+function chainOf(source: DocSource, entry: ArchiveEntry): DocSource | null {
+  const step = { index: entry.index, name: entry.name };
+  if (source.type === "file" || source.type === "url") {
+    return { type: "archiveEntry", root: source, entries: [step] };
+  }
+  if (source.type === "archiveEntry") {
+    return { type: "archiveEntry", root: source.root, entries: [...source.entries, step] };
+  }
+  // Pasted text is a string and was never an archive.
+  return null;
 }
 
 /**

@@ -1000,6 +1000,25 @@ await writeFile(
 );
 console.log("  korean-names.zip");
 
+// One document in an archive is a wrapper rather than a choice, so opening this
+// lands straight on the JSON and the list is never drawn.
+await writeFile(
+  path.join(OUT, "single.zip"),
+  archiveOf([
+    { name: "only/report.json", body: JSON.stringify({ unwrapped: true }, null, 2), utf8: true },
+  ]),
+);
+console.log("  single.zip");
+
+// And the other side of that: one document, refused. The unwrap cannot happen,
+// so the list is what appears — with a banner saying why it is there at all,
+// which is the part that would otherwise look like an ordinary one-row archive.
+await writeFile(
+  path.join(OUT, "single-locked.zip"),
+  archiveOf([{ name: "only/secret.txt", body: "not actually encrypted", flags: 1, utf8: true }]),
+);
+console.log("  single-locked.zip");
+
 // Small, but written with the zip64 end record. A reader that only knows the
 // classic one finds 0xFFFF entries where there are two.
 await writeFile(

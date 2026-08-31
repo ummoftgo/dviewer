@@ -262,6 +262,7 @@ export const en: Messages = {
   "archive.label": "Contents of {title}",
   "archive.empty": "The archive is empty.",
   "archive.locked": "Password-protected",
+  "archive.open": "Open {name}",
   "archive.status.entries": "{count} entries",
   "archive.status.hidden": "{count} not listed",
   "archive.status.names": "Names read as {encoding}",

@@ -262,6 +262,7 @@ export const ja: Messages = {
   "archive.label": "{title} の内容",
   "archive.empty": "空のアーカイブです。",
   "archive.locked": "パスワードで保護されています",
+  "archive.open": "{name} を開く",
   "archive.status.entries": "項目 {count} 件",
   "archive.status.hidden": "{count} 件は一覧にありません",
   "archive.status.names": "名前のエンコーディング {encoding}",

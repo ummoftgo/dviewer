@@ -95,6 +95,13 @@ pub struct ArchiveListing {
     pub names_guessed: bool,
     /// Entries past `MAX_ENTRIES`, which the list does not show.
     pub hidden: usize,
+    /// Why the one document this archive holds was not opened directly.
+    ///
+    /// An archive with a single entry is unwrapped on the way in, so a list
+    /// with one row means that entry could not be opened — locked, too large,
+    /// or a format that is read through a path. Without this the fallback
+    /// looks like an archive that merely happens to hold one thing.
+    pub refused: Option<Error>,
 }
 
 /// An open archive: its central directory, and a reader kept beside it.
@@ -125,6 +132,16 @@ impl ArchiveDoc {
 
     pub fn listing(&self) -> &ArchiveListing {
         &self.listing
+    }
+
+    /// Record why the single entry this archive holds was not opened directly.
+    ///
+    /// Consuming rather than a setter because there is exactly one moment it
+    /// can happen — between reading the directory and handing the archive to
+    /// the document — and after that the listing is shared and read-only.
+    pub fn refusing(mut self, error: Error) -> Self {
+        self.listing.refused = Some(error);
+        self
     }
 
     /// The entry at `index`, or nothing when the archive has no such row.
@@ -239,6 +256,7 @@ fn list(archive: &mut ZipArchive<Reader>) -> Result<ArchiveListing> {
         name_encoding: guess.map_or_else(|| "CP437".to_owned(), crate::encoding::label),
         names_guessed: guess.is_some(),
         hidden: total - shown,
+        refused: None,
     })
 }
 
@@ -274,22 +292,29 @@ fn guess_name_encoding(names: &[RawName]) -> Option<&'static encoding_rs::Encodi
     (guess != encoding_rs::WINDOWS_1252).then_some(guess)
 }
 
+/// Archives built byte by byte, for the tests here and for the ones over the
+/// pipeline that opens what is inside them.
+///
+/// Hand-written because the parts under test are the ones a writing library
+/// hides: the raw name bytes, the flag that says whether they are UTF-8, the
+/// sizes the central directory claims, and which of the two end records the
+/// archive closes with.
 #[cfg(test)]
-mod tests {
+pub(crate) mod fixtures {
     use super::*;
 
     /// A zip built byte by byte, because the parts under test are the ones a
     /// writing library hides: the raw name bytes, the flag that says whether
     /// they are UTF-8, and the sizes the central directory claims.
-    struct Entry {
-        name: Vec<u8>,
-        body: Vec<u8>,
-        raw_len: u32,
-        method: u16,
-        flags: u16,
+    pub(crate) struct Entry {
+        pub(crate) name: Vec<u8>,
+        pub(crate) body: Vec<u8>,
+        pub(crate) raw_len: u32,
+        pub(crate) method: u16,
+        pub(crate) flags: u16,
     }
 
-    fn stored(name: &[u8], content: &[u8], flags: u16) -> Entry {
+    pub(crate) fn stored(name: &[u8], content: &[u8], flags: u16) -> Entry {
         Entry {
             name: name.to_vec(),
             body: content.to_vec(),
@@ -299,7 +324,7 @@ mod tests {
         }
     }
 
-    fn deflated(name: &[u8], content: &[u8]) -> Entry {
+    pub(crate) fn deflated(name: &[u8], content: &[u8]) -> Entry {
         use flate2::{write::DeflateEncoder, Compression};
         use std::io::Write;
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
@@ -313,7 +338,7 @@ mod tests {
         }
     }
 
-    fn crc32(bytes: &[u8]) -> u32 {
+    pub(crate) fn crc32(bytes: &[u8]) -> u32 {
         let mut crc = 0xffff_ffffu32;
         for byte in bytes {
             crc ^= *byte as u32;
@@ -328,7 +353,7 @@ mod tests {
         !crc
     }
 
-    fn zip_of(entries: &[(Entry, u32)]) -> Arc<DocBytes> {
+    pub(crate) fn zip_of(entries: &[(Entry, u32)]) -> Arc<DocBytes> {
         zip_of_with(entries, false)
     }
 
@@ -336,7 +361,7 @@ mod tests {
     /// classic record left holding the escape values that say to look there.
     /// The numbers still fit in the classic one, which is what makes this a
     /// test of the parser rather than of the arithmetic.
-    fn zip_of_with(entries: &[(Entry, u32)], zip64: bool) -> Arc<DocBytes> {
+    pub(crate) fn zip_of_with(entries: &[(Entry, u32)], zip64: bool) -> Arc<DocBytes> {
         let mut locals: Vec<u8> = Vec::new();
         let mut central: Vec<u8> = Vec::new();
         let mut offsets: Vec<u32> = Vec::new();
@@ -413,7 +438,12 @@ mod tests {
 
     /// The checksum is over what went in, which for a stored entry is also what
     /// came out and for a deflated one is not.
-    fn archive_of(entries: Vec<Entry>) -> ArchiveDoc {
+    /// The bytes of an archive holding `entries`.
+    ///
+    /// The checksum is over what went in, which for a stored entry is also what
+    /// came out and for a deflated one is not — so the deflated helper leaves it
+    /// at zero and its readers are the tests that never get that far.
+    pub(crate) fn zip_bytes(entries: Vec<Entry>) -> Arc<DocBytes> {
         let with_crc: Vec<(Entry, u32)> = entries
             .into_iter()
             .map(|entry| {
@@ -425,8 +455,18 @@ mod tests {
                 (entry, crc)
             })
             .collect();
-        ArchiveDoc::open(zip_of(&with_crc)).expect("open")
+        zip_of(&with_crc)
     }
+
+    pub(crate) fn archive_of(entries: Vec<Entry>) -> ArchiveDoc {
+        ArchiveDoc::open(zip_bytes(entries)).expect("open")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixtures::*;
+    use super::*;
 
     /// The flag says UTF-8, so the names are taken at their word.
     #[test]

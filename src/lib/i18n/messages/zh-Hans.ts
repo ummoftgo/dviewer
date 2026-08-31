@@ -262,6 +262,7 @@ export const zhHans: Messages = {
   "archive.label": "{title} 的内容",
   "archive.empty": "压缩包是空的。",
   "archive.locked": "有密码保护",
+  "archive.open": "打开 {name}",
   "archive.status.entries": "{count} 个条目",
   "archive.status.hidden": "{count} 个未列出",
   "archive.status.names": "名称编码 {encoding}",

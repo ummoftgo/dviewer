@@ -136,6 +136,7 @@ pub fn run() {
             commands::grid_row_text,
             commands::grid_search,
             commands::archive_entries,
+            commands::open_entry,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

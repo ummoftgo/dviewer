@@ -20,6 +20,7 @@ pub async fn open_path(
     path: String,
 ) -> Result<DocMeta> {
     let path = PathBuf::from(path);
+    let id = state.next_id();
     // Opening touches the disk. On a cold or remote file that blocks for as
     // long as the volume takes to answer, and a sync command would spend that
     // time holding the UI thread.
@@ -31,25 +32,32 @@ pub async fn open_path(
             // its encoding or its format until it is open.
             let (bytes, title) = source::ungzip(bytes, &title)?;
             let bytes = Arc::new(bytes);
-            // Decoding comes first: a UTF-16 document does not even begin with
-            // the character that would say what format it is.
-            //
-            // A database and a workbook are the exceptions. Their bytes are not
-            // text in any encoding, so running the detector over them would
-            // only produce a confident wrong answer — and the pages it would
-            // guess from are not what the reader is going to be shown anyway.
             let kind = source::detect_kind(&title, &bytes);
+            let source = DocSource::File {
+                path: path.to_string_lossy().into_owned(),
+            };
+            // An archive is a list of other documents, and one that holds a
+            // single document is unwrapped into it — so what comes back from
+            // here may be the entry rather than the zip. See `open_archive`.
+            if kind == DocKind::Zip {
+                return super::open_archive(id, bytes, title, source);
+            }
+            // A database and a workbook do not go through the detector. Their
+            // bytes are not text in any encoding, so it would only produce a
+            // confident wrong answer — and the pages it would guess from are
+            // not what the reader is going to be shown anyway.
             let decoded = if kind.reads_bytes() {
                 encoding::decode(Arc::clone(&bytes))
             } else {
                 encoding::verbatim(Arc::clone(&bytes))
             };
-            Ok::<_, Error>((bytes, decoded, title, base_dir, kind))
+            Ok::<_, Error>(Document::new(
+                id, title, source, base_dir, kind, bytes, decoded,
+            ))
         }
     })
     .await
     .map_err(Error::internal)??;
-    let (bytes, decoded, title, base_dir, kind) = opened;
 
     // Images in a markdown file are relative to it, so the webview needs to
     // reach that directory. Nothing else does: a tree or a table never resolves
@@ -61,26 +69,8 @@ pub async fn open_path(
     // be undone, so revoking on close would make that directory unopenable for
     // the rest of the session; keeping the grant narrow is the part that can
     // actually be controlled.
-    if kind.view() == crate::state::DocView::Prose {
-        if let Some(dir) = &base_dir {
-            if state.grant_asset_dir(dir) {
-                let _ = app.asset_protocol_scope().allow_directory(dir, true);
-            }
-        }
-    }
-    Ok(state
-        .insert(window.label(), Document::new(
-            state.next_id(),
-            title,
-            DocSource::File {
-                path: path.to_string_lossy().into_owned(),
-            },
-            base_dir,
-            kind,
-            bytes,
-            decoded,
-        ))
-        .meta())
+    super::grant_assets(&app, &state, &opened);
+    Ok(state.insert(window.label(), opened).meta())
 }
 
 #[tauri::command]
@@ -101,22 +91,39 @@ pub async fn open_url(
     // already undone by the HTTP client, so this only sees the former.
     let (bytes, title) = source::ungzip(DocBytes::from(fetched.bytes), &fetched.title)?;
     let bytes = Arc::new(bytes);
-    let decoded = encoding::decode(Arc::clone(&bytes));
-    let kind = source::kind_from_response(
-        &title,
-        fetched.content_type.as_deref(),
-        &decoded.bytes,
-    );
+    let id = state.next_id();
+
+    // The formats that are not text at all are recognised before the detector
+    // runs, by name and magic, which is all they need. For everything else the
+    // order is the other way round — a UTF-16 document does not begin with the
+    // character that says what format it is — so those are decoded first and
+    // the server's content type is consulted over the result.
+    let kind = source::detect_kind(&title, &bytes);
+    let (kind, decoded) = if kind.reads_bytes() {
+        let decoded = encoding::decode(Arc::clone(&bytes));
+        let kind =
+            source::kind_from_response(&title, fetched.content_type.as_deref(), &decoded.bytes);
+        (kind, decoded)
+    } else {
+        (kind, encoding::verbatim(Arc::clone(&bytes)))
+    };
+
     // See `Error::NeedsFile`. Writing the download to a temporary file would
     // make this work, and would leave the reader with a copy of a database they
-    // did not ask to keep, in a place they did not choose.
-    if !kind.reads_bytes() {
+    // did not ask to keep, in a place they did not choose. An archive is not
+    // among them — its reader takes the bytes — so a zip at a URL opens, and
+    // the entries under it name that URL as their root.
+    if kind.needs_file() {
         return Err(Error::NeedsFile);
+    }
+    if kind == DocKind::Zip {
+        let opened = super::open_archive(id, bytes, title, DocSource::Url { url })?;
+        return Ok(state.insert(window.label(), opened).meta());
     }
 
     Ok(state
         .insert(window.label(), Document::new(
-            state.next_id(),
+            id,
             title,
             DocSource::Url { url },
             None,

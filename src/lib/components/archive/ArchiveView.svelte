@@ -14,7 +14,8 @@
    */
   import Icon from "../Icon.svelte";
   import { formatBytes } from "../../format";
-  import { archiveEntries, errorMessage, kindBadge, kindLabel } from "../../ipc";
+  import { archiveEntries, errorMessage, kindBadge, kindLabel, type ArchiveEntry } from "../../ipc";
+  import { workspace } from "../../state/docs.svelte";
   import { n, t } from "../../i18n";
   import { anchorRow, rowTop, spacerHeight, type ScrollMetrics } from "../../virtual";
   import type { DocTab } from "../../state/docs.svelte";
@@ -58,7 +59,9 @@
         tab.nameEncoding = listing.nameEncoding;
         tab.namesGuessed = listing.namesGuessed;
         tab.hiddenEntries = listing.hidden;
-        tab.error = null;
+        // An archive with one row is one whose single document was refused on
+        // the way in. The list is the fallback, and this is what says why.
+        tab.error = listing.refused ? errorMessage(listing.refused) : null;
       })
       // The archive tab is where this failure belongs. `workspace.notice` is
       // only ever drawn by the start pane, so a message sent there from a tab
@@ -69,6 +72,16 @@
 
   function onScroll() {
     if (viewport) tab.archiveScrollTop = viewport.scrollTop;
+  }
+
+  /**
+   * A locked entry is not clickable, because the list already says it cannot be
+   * opened and a refusal the reader was told about in advance is not news.
+   * Everything else is tried, and whatever comes back is said out loud.
+   */
+  function open(entry: ArchiveEntry) {
+    if (entry.encrypted) return;
+    void workspace.openEntry(tab, entry);
   }
 </script>
 
@@ -85,7 +98,7 @@
   {:else}
     <div
       class="viewport"
-      role="list"
+      role="group"
       aria-label={t("archive.label", { title: tab.meta.title })}
       bind:this={viewport}
       bind:clientHeight={viewportHeight}
@@ -93,18 +106,22 @@
     >
       <div class="spacer" style:height="{spacerHeight(metrics)}px">
         {#each visible as entry, offset (entry.index)}
-          <div
+          <button
             class="row"
-            role="listitem"
+            type="button"
+            disabled={entry.encrypted}
+            class:busy={tab.openingEntry === entry.index}
+            title={entry.encrypted ? t("archive.locked") : t("archive.open", { name: entry.name })}
             style:top="{rowTop(metrics, tab.archiveScrollTop, first + offset)}px"
+            onclick={() => open(entry)}
           >
             <span class="badge" title={kindLabel(entry.kind)}>{kindBadge(entry.kind)}</span>
             <span class="name">{entry.name}</span>
             {#if entry.encrypted}
-              <span class="locked" title={t("archive.locked")}>🔒</span>
+              <span class="locked">🔒</span>
             {/if}
             <span class="size">{formatBytes(entry.size)}</span>
-          </div>
+          </button>
         {/each}
       </div>
     </div>
@@ -154,12 +171,33 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0 0.7rem;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
     font-size: 0.9em;
+    text-align: left;
     white-space: nowrap;
+    cursor: pointer;
   }
 
-  .row:hover {
+  .row:hover:not(:disabled) {
     background: var(--bg-hover);
+  }
+
+  .row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  /* A locked entry is shown and not offered — the list said so in advance. */
+  .row:disabled {
+    cursor: default;
+    color: var(--text-muted);
+  }
+
+  .row.busy {
+    background: var(--bg-active);
   }
 
   .badge {
