@@ -14,7 +14,6 @@
    * dependency cache or a build output reaches that — and a plain list of them
    * would build a hundred thousand DOM nodes to show forty.
    */
-  import { SvelteSet } from "svelte/reactivity";
   import Icon from "../Icon.svelte";
   import { formatBytes } from "../../format";
   import { archiveEntries, errorMessage, kindBadge, kindLabel, type ArchiveEntry } from "../../ipc";
@@ -55,8 +54,17 @@
   let filter = $state("");
   let debounce: ReturnType<typeof setTimeout> | undefined;
 
-  /** Directories the reader has collapsed. Open is the default; see `flatten`. */
-  const closed = new SvelteSet<string>();
+  /**
+   * Directories the reader has collapsed. Open is the default; see `flatten`.
+   *
+   * Replaced rather than mutated. A reactive set would work, but only if the
+   * dependency survives being read inside `flatten` rather than here — and a
+   * collapse that quietly redraws nothing is the kind of failure that looks
+   * like a dead button. Reassignment has no such question, and the set holds
+   * directories rather than entries, so copying it is not a cost worth having
+   * an argument about.
+   */
+  let closed = $state(new Set<string>());
 
   const tree = $derived(buildTree(tab.entries));
   const rows = $derived(flatten(tree, closed, filter));
@@ -110,8 +118,9 @@
   }
 
   function toggle(path: string) {
-    if (closed.has(path)) closed.delete(path);
-    else closed.add(path);
+    const next = new Set(closed);
+    if (!next.delete(path)) next.add(path);
+    closed = next;
   }
 
   /**
