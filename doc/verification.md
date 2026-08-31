@@ -3,7 +3,7 @@
 ← [README](../README.md)
 
 ```bash
-cd src-tauri && cargo test          # 332개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 아카이브, 표시/복사, 정화
+cd src-tauri && cargo test          # 335개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 아카이브, 표시/복사, 정화
 ```
 
 성능은 창 없이 직접 잽니다:
@@ -105,5 +105,21 @@ Parquet 픽스처만 생성기 밖에 있습니다. thrift 로 인코딩된 푸�
 cd src-tauri && cargo run --release --example parquet -- write ../fixtures [--huge]
 ```
 
-`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
+압축 파일 쪽은 목록 만들기와 항목 하나 꺼내기를 잽니다:
+
+```bash
+cd src-tauri && cargo run --release --example archive -- ../fixtures/archive.zip 5
+```
+
+이 저장소를 만든 기계에서 목록 만들기 — 여는 값이 파일 크기가 아니라 항목 수를 따라간다는 것이 여기서 보입니다:
+
+| 압축 파일 | 목록 |
+|---|---|
+| 1GB, 5,000 항목 (로컬 헤더가 기가바이트에 흩어짐) | 8.9ms |
+| 8MB, 65,000 항목 | 52ms |
+| 1GB, 65,000 항목 | 110ms |
+
+프론트의 트리와 거르기는 10만 항목에서 만들기 78ms, 거르기 12ms 입니다 (거르기 입력에는 120ms 디바운스가 있습니다).
+
+`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), `archive.zip`(json·log·md·csv·`.log.gz`·중첩 zip·잠김 플래그), `korean-names.zip`(플래그 없는 CP949 이름), `zip64.zip`(작지만 zip64 끝 레코드), `single.zip`·`single-locked.zip`(투명 해제가 되는 쪽과 목록으로 후퇴하는 쪽), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
 

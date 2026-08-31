@@ -600,6 +600,30 @@ mod tests {
         assert_eq!(doc.read_entry(1).expect("read"), b"second\n");
     }
 
+    /// The exact JSON a listing crosses as. Same reason as the source chain:
+    /// the view reads these names apart and a rename fails quietly.
+    #[test]
+    fn a_listing_crosses_as_the_names_the_view_reads() {
+        const ENCRYPTED: u16 = 1;
+        let doc = archive_of(vec![stored(b"a.json", b"{}", ENCRYPTED)]);
+        assert_eq!(
+            serde_json::to_value(doc.listing()).expect("serialise"),
+            serde_json::json!({
+                "entries": [{
+                    "index": 0,
+                    "name": "a.json",
+                    "size": 2,
+                    "encrypted": true,
+                    "kind": "json",
+                }],
+                "nameEncoding": "CP437",
+                "namesGuessed": false,
+                "hidden": 0,
+                "refused": null,
+            })
+        );
+    }
+
     /// A list is a snapshot, and the file it was taken from can be rewritten.
     #[test]
     fn an_entry_that_is_not_there_is_said_out_loud() {

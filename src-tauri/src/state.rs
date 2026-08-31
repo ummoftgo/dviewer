@@ -763,6 +763,57 @@ mod tests {
         assert_eq!(state.panels_opened_by("panel-1"), ["panel-2"]);
     }
 
+    /// The exact JSON an entry's source crosses as.
+    ///
+    /// Pinned because the frontend decides whether two tabs show the same
+    /// document by reading these names apart — and unlike a type error, a
+    /// renamed field fails silently: the comparison stops matching, and every
+    /// click opens one more copy of something already on screen. There is no
+    /// test runner on that side of the boundary, so this is the half of the
+    /// contract that can be locked from here.
+    #[test]
+    fn an_entry_source_crosses_as_the_names_the_frontend_reads() {
+        let source = DocSource::File {
+            path: "C:/docs/bundle.zip".to_owned(),
+        }
+        .entry(2, "inner.zip".to_owned())
+        .expect("first step")
+        .entry(7, "logs/app.log".to_owned())
+        .expect("second step");
+
+        assert_eq!(
+            serde_json::to_value(&source).expect("serialise"),
+            serde_json::json!({
+                "type": "archiveEntry",
+                "root": { "type": "file", "path": "C:/docs/bundle.zip" },
+                "entries": [
+                    { "index": 2, "name": "inner.zip" },
+                    { "index": 7, "name": "logs/app.log" },
+                ],
+            })
+        );
+    }
+
+    /// The other three, for the same reason: `describeSource` and the tab
+    /// deduplication both branch on `type`.
+    #[test]
+    fn every_source_names_its_own_shape() {
+        let cases = [
+            (
+                DocSource::File { path: "a.json".to_owned() },
+                serde_json::json!({ "type": "file", "path": "a.json" }),
+            ),
+            (
+                DocSource::Url { url: "https://example.test/a".to_owned() },
+                serde_json::json!({ "type": "url", "url": "https://example.test/a" }),
+            ),
+            (DocSource::Text, serde_json::json!({ "type": "text" })),
+        ];
+        for (source, expected) in cases {
+            assert_eq!(serde_json::to_value(&source).expect("serialise"), expected);
+        }
+    }
+
     #[test]
     fn a_window_that_opened_nothing_has_nothing_to_close() {
         let state = AppState::default();

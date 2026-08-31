@@ -18,6 +18,7 @@ import type {
   TableStats,
   TocEntry,
 } from "../ipc";
+import { chainOf, opensAs, sameSource } from "../source";
 import { forgetDoc } from "../components/tree/actions";
 import { NodeHistory } from "./history.svelte";
 import { recents } from "./recents.svelte";
@@ -244,28 +245,9 @@ class Workspace {
     this.activeId = id;
   }
 
-  /**
-   * Re-focus an already-open file instead of loading a second copy.
-   *
-   * An archive holding one document is unwrapped on the way in, so opening
-   * `a.zip` twice would otherwise make two tabs: the first is not a file tab at
-   * all by the time the second is asked for, it is that single entry. Which is
-   * exactly what the second clause recognises — an entry one step deep whose
-   * root is this file is the tab that opening this file produces.
-   */
+  /** Re-focus an already-open file instead of loading a second copy. */
   private findByPath(path: string): DocTab | null {
-    return (
-      this.tabs.find((tab) => {
-        const source = tab.meta.source;
-        if (source.type === "file") return source.path === path;
-        return (
-          source.type === "archiveEntry" &&
-          source.entries.length === 1 &&
-          source.root.type === "file" &&
-          source.root.path === path
-        );
-      }) ?? null
-    );
+    return this.tabs.find((tab) => opensAs(tab.meta.source, path)) ?? null;
   }
 
   /** Re-focus the tab already showing an entry, rather than unpacking it twice. */
@@ -474,48 +456,19 @@ class Workspace {
   }
 }
 
-/** How a source reads in the tab's tooltip. */
+/**
+ * How a source reads in the tab's tooltip.
+ *
+ * Here rather than in `source.ts` because it is the one question about a source
+ * that needs the message catalogue — and the only one whose being wrong is
+ * visible the moment it happens.
+ */
 function describeSource(source: DocSource): string {
   if (source.type === "file") return source.path;
   if (source.type === "url") return source.url;
   if (source.type === "text") return t("doc.pastedSource");
-  // The whole way in, so a document three archives deep says which three.
+  // The whole way in, so a document two archives deep says which two.
   return [describeSource(source.root), ...source.entries.map((entry) => entry.name)].join(" → ");
-}
-
-/**
- * Whether two sources name the same document.
- *
- * Structural, because a source is a value and holds no id: two chains are the
- * same when they start at the same place and take the same numbered steps. The
- * names are not compared — they are display text, and an archive re-read under
- * a different guess at its encoding would carry different ones for the same
- * entries.
- */
-function sameSource(a: DocSource, b: DocSource): boolean {
-  if (a.type === "file" && b.type === "file") return a.path === b.path;
-  if (a.type === "url" && b.type === "url") return a.url === b.url;
-  if (a.type === "archiveEntry" && b.type === "archiveEntry") {
-    return (
-      sameSource(a.root, b.root) &&
-      a.entries.length === b.entries.length &&
-      a.entries.every((step, at) => step.index === b.entries[at].index)
-    );
-  }
-  return false;
-}
-
-/** The chain naming `entry` of the document `source` belongs to. */
-function chainOf(source: DocSource, entry: ArchiveEntry): DocSource | null {
-  const step = { index: entry.index, name: entry.name };
-  if (source.type === "file" || source.type === "url") {
-    return { type: "archiveEntry", root: source, entries: [step] };
-  }
-  if (source.type === "archiveEntry") {
-    return { type: "archiveEntry", root: source.root, entries: [...source.entries, step] };
-  }
-  // Pasted text is a string and was never an archive.
-  return null;
 }
 
 /**
@@ -537,6 +490,7 @@ const EXTENSIONS: [RegExp, DocKind][] = [
   [/\.(xml|xhtml|svg|rss|atom|xsd|xslt?|plist|kml|gpx|opml|wsdl|pom)$/i, "xml"],
   [/\.csv$/i, "csv"],
   [/\.(tsv|tab)$/i, "tsv"],
+  [/\.(txt|log)$/i, "text"],
   [/\.zip$/i, "zip"],
 ];
 

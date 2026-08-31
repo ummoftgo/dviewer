@@ -261,7 +261,7 @@
         {:else if active.view === "table"}
           <TableView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "archive"}
-          <ArchiveView tab={active} />
+          <ArchiveView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.mode === "raw"}
           <RawView tab={active} />
         {:else}

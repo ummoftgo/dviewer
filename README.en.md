@@ -2,9 +2,9 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-A desktop viewer for Markdown, JSON, JSONC, JSONL, YAML, TOML, XML, CSV, TSV, plain text or logs, SQLite, Excel, and Parquet. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
+A desktop viewer for Markdown, JSON, JSONC, JSONL, YAML, TOML, XML, CSV, TSV, plain text or logs, SQLite, Excel, Parquet, and ZIP. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
 
-Thirteen formats, but only **four** ways of reading. Build a screen per format and you maintain thirteen of them — twelve of which are always behind.
+Fourteen formats, but only **five** ways of reading. Build a screen per format and you maintain fourteen of them — thirteen of which are always behind.
 
 | View | Formats | What it does |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ Thirteen formats, but only **four** ways of reading. Build a screen per format a
 | Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy |
 | Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy. **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
+| Archive | ZIP | What the archive holds, as a list. Pick one and it opens in a tab of its own, **as whichever of the four above it is** — the only view that does not end on screen but leads to another document |
 
 - Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
@@ -25,6 +26,7 @@ Thirteen formats, but only **four** ways of reading. Build a screen per format a
 - **Opening a Parquet file does not follow its size.** Only the index at the end is read, and only the row groups the screen reaches are decoded: 0.19ms at 52MB, 0.61ms at 311MB — what grows is the number of row groups, not the bytes. That is why it has none of the ceilings the other formats carry.
 - **Excel workbooks open.** Pick a sheet and read it as a table. Columns are named `A`, `B`, `AA` and row 1 is row 1, so the coordinates match the spreadsheet you are checking against. Dates are ISO 8601, and a toggle shows the formulas instead of the values. It is converted rather than mapped, so there is a 64MB ceiling.
 - **SQLite is read by querying.** The first format that is not a run of bytes. The file is opened read-only, its tables and views are listed, and the chosen one is drawn in the **same grid** the CSVs use. A position is written down every 1,024 rows, so the three-millionth row is one seek away.
+- **Archives open as a list to pick from.** Opening a `.zip` shows what is inside it; picking one opens it in a new tab under its own format — less a fourteenth format than a multiplier over the other thirteen. Opening costs only the table of contents at the end of the file, so a gigabyte takes a tenth of a second, and nothing is unpacked but the entry you pick. An archive holding a single document skips the list and opens it. **Names that are not UTF-8 are read too** — every undeclared name in the archive is weighed together to guess the encoding, and the status bar says when that is what happened.
 - **gzip files just open.** `access.log.gz` is decompressed and read under its inner name (`access.log`). The raw view shows the decompressed content.
 - Dark/light (auto by default), interface scale, separate interface and content font sizes, and content/code fonts picked from the fonts installed on the system.
 
@@ -111,4 +113,13 @@ The technical documentation lives in `doc/` (Korean).
 - A Parquet file with a row group over four million rows does not open. A row group cannot be half-decoded, so a larger one would freeze the window for seconds the moment it is reached. Writers use 100k to 1M, so few files are affected.
 - Excel workbooks are converted into memory, so they are read up to 64MB. The values are larger than the file — measured, a 9.7MB workbook becomes 51MB. A formula cell shows the value Excel **last computed** — a file saved without recalculating can show a stale one. Cell display formats are not reproduced (dates are ISO 8601). `.xls`, the older binary format, is not read.
 - SQLite is opened read-only. A database left with a rollback journal (`-journal`) by an interrupted transaction cannot have that journal replayed read-only, so the first query fails. The program that wrote it has to open it once and settle it first.
+- Only zip is read. A `tar.gz` has no table of contents, so listing one means decompressing all of it — a different cost model entirely.
+- An entry decompresses up to 512MB. The limit is on **what actually comes out**, not on the size the archive claims: that number is whatever whoever wrote the file put there.
+- Password-protected entries are marked with a lock and not opened. This viewer neither asks for passwords nor unlocks them.
+- SQLite, Excel and Parquet entries inside an archive are not opened. All three are read through a library that opens a path, and something unpacked from an archive has none. Extract it first and open that file.
+- Markdown inside an archive does not show its relative images. They live inside the archive, which is not somewhere the webview can reach.
+- Archives nest three deep (a document inside `a.zip → b.zip → c.zip`). Each level stays in memory whole for as long as the one below it is open.
+- An archive that holds the same name twice shows only the last of them. The table of contents is keyed by name, so the shadowed entry cannot be reached by any number — and drawing two rows that open the same bytes would misrepresent what is there.
+- Entries do not appear in recent documents. That list reopens things by file path, and an entry has none.
+- The encoding of names inside an archive is a guess. Being wrong costs nothing: entries are identified by their number in the table of contents, not by their name.
 - No editing or saving. This is a read-only viewer.

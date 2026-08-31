@@ -261,6 +261,10 @@ export const zhHans: Messages = {
   // --- 压缩包 / archive --------------------------------------------------------
   "archive.label": "{title} 的内容",
   "archive.empty": "压缩包是空的。",
+  "archive.filter": "按名称筛选",
+  "archive.noMatches": "没有匹配 {filter} 的条目。",
+  "archive.holds": "{count} 个条目",
+  "archive.status.matching": "{total} 个中的 {count} 个",
   "archive.locked": "有密码保护",
   "archive.open": "打开 {name}",
   "archive.status.entries": "{count} 个条目",

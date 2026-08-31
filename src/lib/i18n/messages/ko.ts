@@ -266,6 +266,10 @@ export const ko = {
   // --- 압축 파일 / archive ---------------------------------------------------
   "archive.label": "{title} 압축 파일 목록",
   "archive.empty": "빈 압축 파일입니다.",
+  "archive.filter": "이름으로 거르기",
+  "archive.noMatches": "{filter} 와 맞는 항목이 없습니다.",
+  "archive.holds": "항목 {count}개",
+  "archive.status.matching": "{total}개 중 {count}개",
   "archive.locked": "암호가 걸려 있습니다",
   "archive.open": "{name} 열기",
   "archive.status.entries": "항목 {count}개",
