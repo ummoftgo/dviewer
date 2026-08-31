@@ -292,7 +292,7 @@
   }
 
   .banner.error {
-    background: var(--danger-subtle);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
     color: var(--danger);
   }
 
