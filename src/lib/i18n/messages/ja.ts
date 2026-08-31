@@ -27,6 +27,7 @@ export const ja: Messages = {
   "format.sqlite": "SQLite",
   "format.xlsx": "Excel",
   "format.parquet": "Parquet",
+  "format.zip": "ZIP",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "カンマ",
@@ -257,6 +258,15 @@ export const ja: Messages = {
   "files.table": "表 (CSV · TSV)",
   "files.all": "すべてのファイル",
 
+  // --- アーカイブ / archive ----------------------------------------------------
+  "archive.label": "{title} の内容",
+  "archive.empty": "空のアーカイブです。",
+  "archive.locked": "パスワードで保護されています",
+  "archive.status.entries": "項目 {count} 件",
+  "archive.status.hidden": "{count} 件は一覧にありません",
+  "archive.status.names": "名前のエンコーディング {encoding}",
+  "archive.status.namesGuessed": "名前のエンコーディング {encoding} — 推測",
+
   // --- 무엇에 대한 이야기인가 / error subjects -------------------------------------
   "subject.document": "文書",
   "subject.markdown": "Markdown のレンダリング",
@@ -270,6 +280,8 @@ export const ja: Messages = {
   "subject.decompressed": "展開後の内容",
   "subject.database": "データベース",
   "subject.workbook": "ブック",
+  "subject.columnar": "カラムナファイル",
+  "subject.archive": "アーカイブ",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "値の後に解釈できない内容があります",
@@ -311,6 +323,8 @@ export const ja: Messages = {
   "error.noSuchNode": "該当する項目が見つかりません。",
   "error.noSuchCell": "該当するセルが見つかりません。",
   "error.noSuchRow": "該当する行が見つかりません。",
+  "error.noSuchEntry": "{index} 番の項目がありません。アーカイブが変更された可能性があります。",
+  "error.entryEncrypted": "パスワード付きの項目です。このビューアはパスワードを尋ねも解除もしません。",
   "error.notUtf8": "{subject} 文書が UTF-8 ではありません。",
   "error.jsonEmpty": "内容が空です。",
   "error.jsonSyntax": "{line}行{column}列: {reason}",

@@ -27,6 +27,7 @@ export const zhHans: Messages = {
   "format.sqlite": "SQLite",
   "format.xlsx": "Excel",
   "format.parquet": "Parquet",
+  "format.zip": "ZIP",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "逗号",
@@ -257,6 +258,15 @@ export const zhHans: Messages = {
   "files.table": "表格 (CSV · TSV)",
   "files.all": "所有文件",
 
+  // --- 压缩包 / archive --------------------------------------------------------
+  "archive.label": "{title} 的内容",
+  "archive.empty": "压缩包是空的。",
+  "archive.locked": "有密码保护",
+  "archive.status.entries": "{count} 个条目",
+  "archive.status.hidden": "{count} 个未列出",
+  "archive.status.names": "名称编码 {encoding}",
+  "archive.status.namesGuessed": "名称编码 {encoding} — 推测",
+
   // --- 무엇에 대한 이야기인가 / error subjects -------------------------------------
   "subject.document": "文档",
   "subject.markdown": "Markdown 渲染",
@@ -270,6 +280,8 @@ export const zhHans: Messages = {
   "subject.decompressed": "解压后的内容",
   "subject.database": "数据库",
   "subject.workbook": "工作簿",
+  "subject.columnar": "列式文件",
+  "subject.archive": "压缩包",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "值之后有无法解析的内容",
@@ -311,6 +323,8 @@ export const zhHans: Messages = {
   "error.noSuchNode": "找不到该项目。",
   "error.noSuchCell": "找不到该单元格。",
   "error.noSuchRow": "找不到该行。",
+  "error.noSuchEntry": "没有第 {index} 个条目。压缩包可能已经改变。",
+  "error.entryEncrypted": "该条目有密码保护。本查看器既不询问密码也不解密。",
   "error.notUtf8": "{subject} 文档不是 UTF-8。",
   "error.jsonEmpty": "内容为空。",
   "error.jsonSyntax": "第 {line} 行第 {column} 列：{reason}",

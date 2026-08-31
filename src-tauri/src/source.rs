@@ -40,6 +40,10 @@ const SQLITE_EXTS: &[&str] = &["db", "sqlite", "sqlite3", "db3"];
 /// text and the date handling below are written against the modern shapes.
 const XLSX_EXTS: &[&str] = &["xlsx", "xlsm"];
 const PARQUET_EXTS: &[&str] = &["parquet", "pq"];
+/// Only `.zip`. Every other container that happens to be a zip — `.xlsx`,
+/// `.docx`, `.jar`, `.epub` — is that other thing, and reading it as an archive
+/// would show its plumbing instead of its content.
+const ZIP_EXTS: &[&str] = &["zip"];
 
 /// The sixteen bytes every SQLite database begins with.
 ///
@@ -53,6 +57,17 @@ const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
 /// the front *and* the back — a text file starting with `PAR1` is possible, one
 /// that also ends with it is not worth worrying about.
 const PARQUET_MAGIC: &[u8] = b"PAR1";
+
+/// The two bytes every zip member and every zip directory header begins with.
+///
+/// The one piece of magic here that is *not* trusted on its own, and the
+/// asymmetry is deliberate. `.xlsx` is a zip. So is `.docx`, `.jar`, `.epub`
+/// and an Android package. Worse, the magic below is tested before the
+/// extension table — a rule that reads `PK` as an archive would therefore
+/// swallow xlsx whole, because `detect_kind` never reaches `XLSX_EXTS` to
+/// rescue it. So this only ever confirms a name that already said `zip`, and a
+/// PK file with no extension is left alone.
+const ZIP_MAGIC: &[u8] = b"PK";
 
 /// Every format the viewer knows, paired with the extensions that name it.
 const BY_EXTENSION: &[(DocKind, &[&str])] = &[
@@ -69,6 +84,7 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Sqlite, SQLITE_EXTS),
     (DocKind::Xlsx, XLSX_EXTS),
     (DocKind::Parquet, PARQUET_EXTS),
+    (DocKind::Zip, ZIP_EXTS),
 ];
 
 /// Decide how to read a document: extension first, then a peek at the content.
@@ -108,18 +124,51 @@ pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
 
     for (kind, extensions) in BY_EXTENSION {
         if extensions.contains(&ext.as_str()) {
-            // `.db` names a dozen unrelated formats. Without the magic above,
-            // the name alone is not enough to promise a database.
             // `.db` names a dozen unrelated formats, and `.pq` is not much
             // better. Without the magic above, the name alone is not enough to
             // promise either.
             if matches!(kind, DocKind::Sqlite | DocKind::Parquet) {
                 break;
             }
+            // `.zip` is the other direction: the name is what nominates the
+            // format, and the magic is what confirms it. A file called `.zip`
+            // that does not begin with `PK` is something else misnamed, and
+            // falls through to be read as whatever it actually is.
+            if matches!(kind, DocKind::Zip) {
+                if bytes.starts_with(ZIP_MAGIC) {
+                    return DocKind::Zip;
+                }
+                break;
+            }
             return *kind;
         }
     }
     sniff(bytes).unwrap_or(DocKind::Text)
+}
+
+/// What the name alone says a document is.
+///
+/// For the archive list, where a badge has to be drawn before anything has been
+/// unpacked. Weaker than `detect_kind` in exactly two ways, both unavoidable
+/// without the bytes: a name that declares nothing is text rather than whatever
+/// its first character would have said, and `.db` and `.pq` are text because
+/// only their magic can promise otherwise. `.zip` is the reverse case and is
+/// taken at its word — the list describes what a click would attempt, and a
+/// click on a misnamed `.zip` finds out the way opening one does.
+pub fn kind_from_name(name: &str) -> DocKind {
+    let ext = Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    for (kind, extensions) in BY_EXTENSION {
+        if extensions.contains(&ext.as_str()) {
+            if matches!(kind, DocKind::Sqlite | DocKind::Parquet) {
+                break;
+            }
+            return *kind;
+        }
+    }
+    DocKind::Text
 }
 
 fn sniff(bytes: &[u8]) -> Option<DocKind> {
@@ -457,6 +506,48 @@ mod tests {
         for text in prose {
             assert_eq!(detect_kind("untitled", text), DocKind::Text);
         }
+    }
+
+
+    /// The one magic that only ever confirms, never nominates.
+    ///
+    /// `PK` starts a zip, and it also starts every xlsx, docx, jar and epub in
+    /// existence. The magic tests above run before the extension table, so a
+    /// rule that read `PK` as an archive would swallow those whole — the loop
+    /// that rescues `.xlsx` would never be reached. So the name has to say
+    /// `zip` first, and the magic only agrees.
+    #[test]
+    fn pk_confirms_a_zip_and_never_nominates_one() {
+        let pk = b"PK\x03\x04rest of the archive";
+        assert_eq!(detect_kind("bundle.zip", pk), DocKind::Zip);
+
+        // The formats that are zips underneath stay themselves.
+        assert_eq!(detect_kind("book.xlsx", pk), DocKind::Xlsx);
+        // And one with no extension at all is not an archive on the strength
+        // of two bytes.
+        assert_eq!(detect_kind("bundle", pk), DocKind::Text);
+    }
+
+    /// A `.zip` that does not begin with `PK` is something else misnamed, and
+    /// is read as whatever it actually is.
+    #[test]
+    fn a_zip_without_the_magic_falls_through() {
+        assert_eq!(detect_kind("notes.zip", b"{\"a\":1}"), DocKind::Json);
+        assert_eq!(detect_kind("notes.zip", b"plain text"), DocKind::Text);
+    }
+
+    /// The badge in an archive list is drawn before anything is unpacked, so it
+    /// has only the name to go on — and says so where the name says nothing.
+    #[test]
+    fn the_name_alone_answers_for_an_entry() {
+        assert_eq!(kind_from_name("logs/app.log"), DocKind::Text);
+        assert_eq!(kind_from_name("data/report.json"), DocKind::Json);
+        assert_eq!(kind_from_name("inner.zip"), DocKind::Zip);
+        // Only their magic can promise these, and there is none to read yet.
+        assert_eq!(kind_from_name("app.db"), DocKind::Text);
+        assert_eq!(kind_from_name("part.parquet"), DocKind::Text);
+        // A name that declares nothing cannot borrow the content's voice here.
+        assert_eq!(kind_from_name("LICENSE"), DocKind::Text);
     }
 
     #[test]

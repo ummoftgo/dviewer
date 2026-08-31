@@ -27,6 +27,7 @@ export const en: Messages = {
   "format.sqlite": "SQLite",
   "format.xlsx": "Excel",
   "format.parquet": "Parquet",
+  "format.zip": "ZIP",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "comma",
@@ -257,6 +258,15 @@ export const en: Messages = {
   "files.table": "Table (CSV · TSV)",
   "files.all": "All files",
 
+  // --- archive ---------------------------------------------------------------
+  "archive.label": "Contents of {title}",
+  "archive.empty": "The archive is empty.",
+  "archive.locked": "Password-protected",
+  "archive.status.entries": "{count} entries",
+  "archive.status.hidden": "{count} not listed",
+  "archive.status.names": "Names read as {encoding}",
+  "archive.status.namesGuessed": "Names read as {encoding} — a guess",
+
   // --- 무엇에 대한 이야기인가 / error subjects -------------------------------------
   "subject.document": "document",
   "subject.markdown": "Markdown rendering",
@@ -270,6 +280,8 @@ export const en: Messages = {
   "subject.decompressed": "the decompressed content",
   "subject.database": "the database",
   "subject.workbook": "workbook",
+  "subject.columnar": "the columnar file",
+  "subject.archive": "the archive",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "there is unreadable content after the value",
@@ -311,6 +323,8 @@ export const en: Messages = {
   "error.noSuchNode": "No such entry.",
   "error.noSuchCell": "No such cell.",
   "error.noSuchRow": "No such row.",
+  "error.noSuchEntry": "There is no entry {index}. The archive may have changed since.",
+  "error.entryEncrypted": "That entry is password-protected. This viewer neither asks for passwords nor unlocks them.",
   "error.notUtf8": "The {subject} document is not UTF-8.",
   "error.jsonEmpty": "The content is empty.",
   "error.jsonSyntax": "line {line}, column {column}: {reason}",

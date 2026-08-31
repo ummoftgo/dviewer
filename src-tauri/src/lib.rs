@@ -1,5 +1,6 @@
 // Public so `examples/scan.rs` can drive the indexer directly — measuring the
 // scanner without a window is the only honest way to check the size claims.
+pub mod archive;
 pub mod bytes;
 pub mod cli;
 pub mod convert;
@@ -134,6 +135,7 @@ pub fn run() {
             commands::grid_cell_text,
             commands::grid_row_text,
             commands::grid_search,
+            commands::archive_entries,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

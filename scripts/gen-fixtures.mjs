@@ -859,4 +859,159 @@ if (wantHuge) {
   }
 }
 
+
+// --- archives ----------------------------------------------------------------
+// The three shapes an archive reader has to get right, and none of them is what
+// a zip library's defaults produce: names in a code page with nothing saying
+// which, the zip64 end record, and the flag that says an entry is locked. The
+// writer below is `zipOf` with those three things exposed.
+
+/**
+ * A zip from a list of `{ name, body, flags, utf8 }`.
+ *
+ * `name` may be a Buffer, which is the whole point: a name written by a Korean
+ * Windows machine is CP949 bytes, and a string would be UTF-8 before it ever
+ * reached here. `zip64` writes the end record in its 64-bit form — the values
+ * still fit in the classic one, which is exactly what makes it a test of the
+ * parser rather than of the arithmetic.
+ */
+const { gzipSync } = await import("node:zlib");
+
+function archiveOf(entries, { zip64 = false } = {}) {
+  const locals = [];
+  const central = [];
+  let offset = 0;
+  let centralSize = 0;
+
+  for (const entry of entries) {
+    const nameBytes = Buffer.isBuffer(entry.name) ? entry.name : Buffer.from(entry.name, "utf8");
+    const raw = Buffer.isBuffer(entry.body) ? entry.body : Buffer.from(entry.body ?? "", "utf8");
+    const body = deflateRawSync(raw, { level: 6 });
+    const crc = crc32(raw);
+    // Bit 11 says the name is UTF-8. Left off by default here, because the
+    // archives worth testing are the ones that do not set it.
+    const flags = (entry.flags ?? 0) | (entry.utf8 ? 0x800 : 0);
+
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(flags, 6);
+    header.writeUInt16LE(8, 8);
+    header.writeUInt16LE(0, 10);
+    header.writeUInt16LE(0x21, 12);
+    header.writeUInt32LE(crc, 14);
+    header.writeUInt32LE(body.length, 18);
+    header.writeUInt32LE(raw.length, 22);
+    header.writeUInt16LE(nameBytes.length, 26);
+    header.writeUInt16LE(0, 28);
+    locals.push(header, nameBytes, body);
+
+    const record = Buffer.alloc(46);
+    record.writeUInt32LE(0x02014b50, 0);
+    record.writeUInt16LE(20, 4);
+    record.writeUInt16LE(20, 6);
+    record.writeUInt16LE(flags, 8);
+    record.writeUInt16LE(8, 10);
+    record.writeUInt16LE(0, 12);
+    record.writeUInt16LE(0x21, 14);
+    record.writeUInt32LE(crc, 16);
+    record.writeUInt32LE(body.length, 20);
+    record.writeUInt32LE(raw.length, 24);
+    record.writeUInt16LE(nameBytes.length, 28);
+    record.writeUInt32LE(offset, 42);
+    central.push(record, nameBytes);
+    centralSize += record.length + nameBytes.length;
+    offset += header.length + nameBytes.length + body.length;
+  }
+
+  const parts = [...locals, ...central];
+
+  if (zip64) {
+    const record = Buffer.alloc(56);
+    record.writeUInt32LE(0x06064b50, 0);
+    record.writeBigUInt64LE(44n, 4); // size of the rest of this record
+    record.writeUInt16LE(45, 12); // made by
+    record.writeUInt16LE(45, 14); // needed
+    record.writeBigUInt64LE(BigInt(entries.length), 24);
+    record.writeBigUInt64LE(BigInt(entries.length), 32);
+    record.writeBigUInt64LE(BigInt(centralSize), 40);
+    record.writeBigUInt64LE(BigInt(offset), 48);
+
+    const locator = Buffer.alloc(20);
+    locator.writeUInt32LE(0x07064b50, 0);
+    locator.writeBigUInt64LE(BigInt(offset + centralSize), 8);
+    locator.writeUInt32LE(1, 16); // total disks
+    parts.push(record, locator);
+  }
+
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  // The classic record's fields are the escape values when a zip64 one is
+  // present: the real numbers are only in the record above.
+  end.writeUInt16LE(zip64 ? 0xffff : entries.length, 8);
+  end.writeUInt16LE(zip64 ? 0xffff : entries.length, 10);
+  end.writeUInt32LE(zip64 ? 0xffffffff : centralSize, 12);
+  end.writeUInt32LE(zip64 ? 0xffffffff : offset, 16);
+  parts.push(end);
+
+  return Buffer.concat(parts);
+}
+
+const nested = archiveOf([
+  { name: "inner/deep.json", body: JSON.stringify({ depth: 2, note: "안쪽 문서" }, null, 2), utf8: true },
+  { name: "inner/notes.md", body: "# 안쪽\n\n압축 안의 압축입니다.\n", utf8: true },
+]);
+
+await writeFile(
+  path.join(OUT, "archive.zip"),
+  archiveOf([
+    { name: "report.json", body: JSON.stringify({ ok: true, rows: [1, 2, 3] }, null, 2), utf8: true },
+    { name: "logs/app.log", body: Array.from({ length: 40 }, (_, i) => `2026-08-31 12:00:${String(i).padStart(2, "0")} INFO  line ${i}`).join("\n") + "\n", utf8: true },
+    { name: "docs/readme.md", body: "# 압축 안의 문서\n\n항목을 고르면 새 탭으로 열립니다.\n", utf8: true },
+    { name: "data/sales.csv", body: "지역,매출\n서울,120\n부산,80\n", utf8: true },
+    // A `.gz` inside a zip: two layers of compression, which the open pipeline
+    // already undoes in the right order without anything new.
+    { name: "logs/old.log.gz", body: gzipSync(Buffer.from("2026-08-30 archived line\n")), utf8: true },
+    { name: "inner.zip", body: nested, utf8: true },
+    // Only the flag, not real encryption — what is under test is that the list
+    // marks it and the open refuses it, neither of which reads the body.
+    { name: "secret.txt", body: "not actually encrypted", flags: 1, utf8: true },
+  ]),
+);
+console.log("  archive.zip");
+
+// Names in CP949 with no flag to say so — a zip from a Korean Windows machine.
+// Read as CP437 every one of these comes out as line-drawing characters.
+//
+// The bytes are written out rather than encoded, because Node has no CP949
+// encoder and this script takes no dependencies. Each key says what it spells.
+const CP949 = {
+  "보고서.json": [0xba, 0xb8, 0xb0, 0xed, 0xbc, 0xad, 0x2e, 0x6a, 0x73, 0x6f, 0x6e],
+  "자료/매출.csv": [0xc0, 0xda, 0xb7, 0xe1, 0x2f, 0xb8, 0xc5, 0xc3, 0xe2, 0x2e, 0x63, 0x73, 0x76],
+  "읽어보기.txt": [0xc0, 0xd0, 0xbe, 0xee, 0xba, 0xb8, 0xb1, 0xe2, 0x2e, 0x74, 0x78, 0x74],
+};
+await writeFile(
+  path.join(OUT, "korean-names.zip"),
+  archiveOf([
+    { name: Buffer.from(CP949["보고서.json"]), body: '{"제목":"분기 보고"}' },
+    { name: Buffer.from(CP949["자료/매출.csv"]), body: "지역,매출\n서울,120\n" },
+    { name: Buffer.from(CP949["읽어보기.txt"]), body: "안녕하세요.\n" },
+  ]),
+);
+console.log("  korean-names.zip");
+
+// Small, but written with the zip64 end record. A reader that only knows the
+// classic one finds 0xFFFF entries where there are two.
+await writeFile(
+  path.join(OUT, "zip64.zip"),
+  archiveOf(
+    [
+      { name: "first.json", body: '{"a":1}', utf8: true },
+      { name: "second.txt", body: "second\n", utf8: true },
+    ],
+    { zip64: true },
+  ),
+);
+console.log("  zip64.zip");
+
 console.log("완료");

@@ -6,12 +6,14 @@
 //! `commands::open_path` working as a path, so `lib.rs` does not have to know
 //! which file anything lives in.
 
+mod archive;
 mod document;
 mod markdown;
 mod panel;
 mod table;
 mod tree;
 
+pub use archive::*;
 pub use document::*;
 pub use markdown::*;
 pub use panel::*;

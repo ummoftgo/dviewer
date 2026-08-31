@@ -2,6 +2,7 @@ import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
 import { t } from "../i18n";
 import type {
+  ArchiveEntry,
   Collection,
   GridStats,
   Interpretation,
@@ -168,6 +169,17 @@ export class DocTab {
   gridStats = $state<GridStats | null>(null);
   schema = $state<string | null>(null);
 
+  // Archive (zip)
+  /** What the archive holds; empty until the central directory is read. */
+  entries = $state<ArchiveEntry[]>([]);
+  /** Which encoding the entry names were read in, and whether that was a guess.
+   *  Shown in the status line, and only worth reading when it was a guess. */
+  nameEncoding = $state<string | null>(null);
+  namesGuessed = $state(false);
+  /** Entries the list left out, when the archive holds more than it shows. */
+  hiddenEntries = $state(0);
+  archiveScrollTop = $state(0);
+
   constructor(meta: DocMeta) {
     this.meta = meta;
   }
@@ -180,7 +192,7 @@ export class DocTab {
     return this.meta.kind;
   }
 
-  /** Which of the three views renders this tab. */
+  /** Which of the five views renders this tab. */
   get view(): DocView {
     return this.meta.view;
   }
@@ -425,6 +437,7 @@ const EXTENSIONS: [RegExp, DocKind][] = [
   [/\.(xml|xhtml|svg|rss|atom|xsd|xslt?|plist|kml|gpx|opml|wsdl|pom)$/i, "xml"],
   [/\.csv$/i, "csv"],
   [/\.(tsv|tab)$/i, "tsv"],
+  [/\.zip$/i, "zip"],
 ];
 
 function guessKind(name: string): DocKind {

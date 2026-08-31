@@ -3,7 +3,7 @@
 ← [README](../README.md)
 
 ```bash
-cd src-tauri && cargo test          # 309개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 표시/복사, 정화
+cd src-tauri && cargo test          # 321개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 아카이브, 표시/복사, 정화
 ```
 
 성능은 창 없이 직접 잽니다:
@@ -19,6 +19,7 @@ cargo run --release --example table -- ../fixtures/huge.jsonl "항목 1999999"
 cargo run --release --example sqlite -- ../fixtures/huge.sqlite events
 cargo run --release --example parquet -- read ../fixtures/huge.parquet "항목 1999999"
 cargo run --release --example xlsx -- ../fixtures/huge.xlsx "9928527"
+cargo run --release --example archive -- ../fixtures/archive.zip
 ```
 
 이 저장소를 만든 기계(Windows 11)에서:

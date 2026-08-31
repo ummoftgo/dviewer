@@ -48,9 +48,13 @@ pub enum DocKind {
     /// row groups with an index at the end, so it is read a group at a time and
     /// never as a whole.
     Parquet,
+    /// A zip archive. Not one more format so much as the other thirteen
+    /// multiplied: what it holds is documents, and picking one opens it the
+    /// way a file from disk is opened.
+    Zip,
 }
 
-/// How a document is presented. Seven formats, but only three ways to read
+/// How a document is presented. Fourteen formats, but only five ways to read
 /// one — which is what the frontend routes on, and what stops the view layer
 /// from growing a branch per format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -73,6 +77,13 @@ pub enum DocView {
     /// collection, read it in the grid. A database's tables and a workbook's
     /// sheets are the same choice.
     Collection,
+    /// The list of what an archive holds, so one of them can be opened.
+    ///
+    /// The only view that does not end on screen: the four above are ways of
+    /// looking at one document, and this one is a way of reaching another. The
+    /// collection view was the near miss — it also picks — but what it picks is
+    /// always the same grid, and an archive entry is any of the thirteen.
+    Archive,
 }
 
 impl DocKind {
@@ -84,7 +95,10 @@ impl DocKind {
     /// those the whole pipeline is not wrong so much as inapplicable, and a
     /// control that acts on it would have nothing to act on.
     pub fn reads_bytes(self) -> bool {
-        !matches!(self, DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet)
+        !matches!(
+            self,
+            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet | DocKind::Zip
+        )
     }
 
     pub fn view(self) -> DocView {
@@ -95,6 +109,7 @@ impl DocKind {
             }
             DocKind::Csv | DocKind::Tsv | DocKind::Text | DocKind::Jsonl => DocView::Table,
             DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet => DocView::Collection,
+            DocKind::Zip => DocView::Archive,
         }
     }
 }
@@ -170,6 +185,10 @@ struct DocInner {
     /// another is chosen: a checkpoint index describes one collection's rows
     /// and means nothing for the next.
     collection: Option<Arc<crate::sqlite::SqliteGrid>>,
+    /// An open archive, held for the same reason the database connection is:
+    /// reading the central directory again for every entry someone opens would
+    /// re-parse a hundred thousand headers to answer one click.
+    archive: Option<Arc<crate::archive::ArchiveDoc>>,
 }
 
 impl Document {
@@ -201,6 +220,7 @@ impl Document {
                 workbook: None,
                 sheet: None,
                 columnar: None,
+                archive: None,
             }),
         }
     }
@@ -278,6 +298,14 @@ impl Document {
 
     pub fn sheet(&self) -> Option<Arc<crate::xlsx::XlsxGrid>> {
         self.inner.read().sheet.clone()
+    }
+
+    pub fn archive(&self) -> Option<Arc<crate::archive::ArchiveDoc>> {
+        self.inner.read().archive.clone()
+    }
+
+    pub fn set_archive(&self, archive: Arc<crate::archive::ArchiveDoc>) {
+        self.inner.write().archive = Some(archive);
     }
 
     pub fn columnar(&self) -> Option<Arc<crate::parquet::ParquetDoc>> {

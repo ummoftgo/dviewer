@@ -32,6 +32,7 @@ export const ko = {
   "format.sqlite": "SQLite",
   "format.xlsx": "Excel",
   "format.parquet": "Parquet",
+  "format.zip": "ZIP",
 
   // --- 구분자 / delimiters --------------------------------------------------
   "delimiter.comma": "쉼표",
@@ -262,6 +263,15 @@ export const ko = {
   "files.table": "표 (CSV · TSV)",
   "files.all": "모든 파일",
 
+  // --- 압축 파일 / archive ---------------------------------------------------
+  "archive.label": "{title} 압축 파일 목록",
+  "archive.empty": "빈 압축 파일입니다.",
+  "archive.locked": "암호가 걸려 있습니다",
+  "archive.status.entries": "항목 {count}개",
+  "archive.status.hidden": "{count}개는 목록에 없습니다",
+  "archive.status.names": "이름 인코딩 {encoding}",
+  "archive.status.namesGuessed": "이름 인코딩 {encoding} — 추측",
+
   // --- 무엇에 대한 이야기인가 / error subjects -------------------------------------
   "subject.document": "문서",
   "subject.markdown": "마크다운 렌더링",
@@ -275,6 +285,8 @@ export const ko = {
   "subject.decompressed": "압축을 푼 내용",
   "subject.database": "데이터베이스",
   "subject.workbook": "통합 문서",
+  "subject.columnar": "컬럼 파일",
+  "subject.archive": "압축 파일",
 
   // --- JSON 구문 오류 이유 / syntax reasons ------------------------------------
   "syntax.trailingContent": "값 뒤에 해석할 수 없는 내용이 있습니다",
@@ -316,6 +328,8 @@ export const ko = {
   "error.noSuchNode": "해당 항목을 찾을 수 없습니다.",
   "error.noSuchCell": "해당 칸을 찾을 수 없습니다.",
   "error.noSuchRow": "해당 행을 찾을 수 없습니다.",
+  "error.noSuchEntry": "{index}번 항목이 없습니다. 압축 파일이 그 사이 바뀌었을 수 있습니다.",
+  "error.entryEncrypted": "암호가 걸린 항목입니다. 이 뷰어는 암호를 묻지도 풀지도 않습니다.",
   "error.notUtf8": "{subject} 문서가 UTF-8이 아닙니다.",
   "error.jsonEmpty": "내용이 비어 있습니다.",
   "error.jsonSyntax": "{line}행 {column}열: {reason}",

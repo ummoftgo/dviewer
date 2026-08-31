@@ -11,6 +11,7 @@
   import TreeView from "./lib/components/tree/TreeView.svelte";
   import TableView from "./lib/components/table/TableView.svelte";
   import CollectionView from "./lib/components/collection/CollectionView.svelte";
+  import ArchiveView from "./lib/components/archive/ArchiveView.svelte";
   import MarkdownView from "./lib/components/markdown/MarkdownView.svelte";
   import RawView from "./lib/components/markdown/RawView.svelte";
   import * as ipc from "./lib/ipc";
@@ -259,6 +260,8 @@
           <CollectionView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "table"}
           <TableView tab={active} bind:focusSearch={searchBarFocus} />
+        {:else if active.view === "archive"}
+          <ArchiveView tab={active} />
         {:else if active.mode === "raw"}
           <RawView tab={active} />
         {:else}

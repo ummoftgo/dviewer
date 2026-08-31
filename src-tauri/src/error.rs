@@ -35,6 +35,8 @@ pub enum Subject {
     Database,
     Workbook,
     Columnar,
+    /// A zip, and anything asked of it.
+    Archive,
 }
 
 /// Why the JSON scanner stopped. Ten fixed reasons, so they are codes rather
@@ -122,6 +124,18 @@ pub enum Error {
     NoSuchNode,
     NoSuchCell,
     NoSuchRow,
+    /// The archive has no entry with that number.
+    ///
+    /// Reachable when a tab outlives the file it was listed from — the list is
+    /// a snapshot, and the archive on disk can be rewritten under it.
+    NoSuchEntry { index: u32 },
+    /// The entry is password-protected.
+    ///
+    /// A refusal and not a prompt. Asking for a password would mean holding
+    /// one, and reading encrypted archives is a different program from reading
+    /// documents. The list marks these before they are clicked, so this is the
+    /// answer to a click made anyway.
+    EntryEncrypted,
 
     // --- reading the document ------------------------------------------------
     NotUtf8 { subject: Subject },
@@ -201,6 +215,8 @@ impl Error {
             Error::NoSuchNode => "noSuchNode",
             Error::NoSuchCell => "noSuchCell",
             Error::NoSuchRow => "noSuchRow",
+            Error::NoSuchEntry { .. } => "noSuchEntry",
+            Error::EntryEncrypted => "entryEncrypted",
             Error::NotUtf8 { .. } => "notUtf8",
             Error::JsonEmpty => "jsonEmpty",
             Error::JsonSyntax { .. } => "jsonSyntax",
@@ -227,6 +243,7 @@ impl std::fmt::Display for Error {
             | Error::BadQuery { detail }
             | Error::FontsFailed { detail } => write!(f, ": {detail}"),
             Error::NoSuchDoc { id } => write!(f, ": {id}"),
+            Error::NoSuchEntry { index } => write!(f, ": {index}"),
             Error::UnknownEncoding { name } => write!(f, ": {name}"),
             Error::BadUrl { url } => write!(f, ": {url}"),
             Error::HttpStatus { status } => write!(f, ": {status}"),

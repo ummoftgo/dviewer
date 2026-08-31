@@ -22,20 +22,22 @@ export type DocKind =
   | "csv"
   | "tsv"
   | "text"
-  | "sqlite";
+  | "sqlite"
+  | "zip";
 
 /**
- * How a document is read. Thirteen formats, four views — routing on the view is
+ * How a document is read. Fourteen formats, five views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
-export type DocView = "prose" | "tree" | "table" | "collection";
+export type DocView = "prose" | "tree" | "table" | "collection" | "archive";
 
 /**
  * Menu order for the format switcher. `label` is a message key, not text.
  *
- * `sqlite` is deliberately absent. Every entry here is a way of reading one run
- * of bytes, and a database is not read as bytes at all — offering it would be
- * offering a switch the backend refuses (`notInterchangeable`).
+ * `sqlite` and `zip` are deliberately absent. Every entry here is a way of
+ * reading one run of bytes; a database is queried instead, and an archive is a
+ * list of other documents. Offering either would be offering a switch the
+ * backend refuses (`notInterchangeable`).
  */
 export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "markdown", label: "format.markdown" },
@@ -58,7 +60,7 @@ export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
  * than shown and refused.
  */
 export function readsBytes(kind: DocKind): boolean {
-  return kind !== "sqlite" && kind !== "xlsx" && kind !== "parquet";
+  return kind !== "sqlite" && kind !== "xlsx" && kind !== "parquet" && kind !== "zip";
 }
 
 export function viewOf(kind: DocKind): DocView {
@@ -74,6 +76,8 @@ export function viewOf(kind: DocKind): DocView {
     case "xlsx":
     case "parquet":
       return "collection";
+    case "zip":
+      return "archive";
     default:
       return "tree";
   }
@@ -83,6 +87,7 @@ export function kindLabel(kind: DocKind): string {
   if (kind === "sqlite") return t("format.sqlite");
   if (kind === "xlsx") return t("format.xlsx");
   if (kind === "parquet") return t("format.parquet");
+  if (kind === "zip") return t("format.zip");
   const entry = DOC_KINDS.find((candidate) => candidate.kind === kind);
   return entry ? t(entry.label) : kind;
 }
@@ -106,6 +111,7 @@ const BADGES: Record<DocKind, string> = {
   sqlite: "DB",
   xlsx: "XLS",
   parquet: "PQ",
+  zip: "ZIP",
 };
 
 export function kindBadge(kind: DocKind): string {
@@ -496,6 +502,36 @@ export const sqliteSchema = (docId: number, name: string) =>
   invoke<string | null>("sqlite_schema", { docId, name });
 export const sqliteSelect = (docId: number, name: string) =>
   invoke<GridStats>("sqlite_select", { docId, name });
+
+// --- archive --------------------------------------------------------------
+
+/** One document inside an archive, as the list draws it. */
+export interface ArchiveEntry {
+  /**
+   * The entry's identity, and what a row is keyed on. Not the name: an archive
+   * may carry the same one twice, and a name whose encoding was guessed wrong
+   * still opens what it belongs to.
+   */
+  index: number;
+  name: string;
+  /** What the archive claims the entry weighs unpacked. */
+  size: number;
+  encrypted: boolean;
+  /** What the name alone says it would be read as, for the badge. */
+  kind: DocKind;
+}
+
+export interface ArchiveListing {
+  entries: ArchiveEntry[];
+  nameEncoding: string;
+  /** Only a guessed encoding is worth the reader's attention. */
+  namesGuessed: boolean;
+  /** Entries the list left out, when the archive holds more than it shows. */
+  hidden: number;
+}
+
+export const archiveEntries = (docId: number) =>
+  invoke<ArchiveListing>("archive_entries", { docId });
 
 // --- xlsx -----------------------------------------------------------------
 

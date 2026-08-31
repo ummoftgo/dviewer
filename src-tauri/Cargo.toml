@@ -63,6 +63,12 @@ parquet = { version = "59", default-features = false, features = [
 # Only to read the date calamine hands back. Same crate calamine already pulls,
 # with the one feature that makes its accessors usable.
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+# Already in the tree — calamine reads an xlsx by unzipping one — so naming it
+# here adds no dependency at all, which is why the wide and subtle surface of
+# the format is worth borrowing rather than writing. Deflate only: it is what
+# real archives are written with, and the other codecs would each pull a
+# compressor for a format almost nobody produces.
+zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
 
 # Serves the frontend from the binary instead of a dev server. The Tauri CLI
 # turns this on for `tauri build`; without it — a plain `cargo build`, whatever
