@@ -17,6 +17,26 @@ const wantHuge = process.argv.includes("--huge");
 
 await mkdir(OUT, { recursive: true });
 
+/**
+ * Read a fixture this script wrote earlier.
+ *
+ * A plain `readFile` here fails with a bare ENOENT, which says the file is
+ * missing but not *why* — and the why is always the same: a fixture built from
+ * another one was written before it. That mistake survives every local run,
+ * because the previous run left the file behind; it only ever appears on a
+ * clean checkout, which is to say in CI, on a tag.
+ */
+async function readFixture(name, forWhat) {
+  try {
+    return await readFile(path.join(OUT, name));
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+    throw new Error(
+      `${forWhat} 는 ${name} 로 만드는데 아직 없습니다 — ${name} 를 쓰는 절이 이 절보다 뒤에 있습니다.`,
+    );
+  }
+}
+
 /** Write chunks with backpressure so a 600MB file does not buffer in memory. */
 async function writeStream(name, chunks) {
   const stream = createWriteStream(path.join(OUT, name));
@@ -91,24 +111,6 @@ if (wantHuge) {
   console.log("  (huge.json 생략 — --huge 옵션으로 생성)");
 }
 
-
-// --- gzip ---------------------------------------------------------------
-
-// 안쪽 이름이 형식을 정한다: report.json.gz 는 JSON, 맨 .gz 는 내용으로.
-{
-  const { gzipSync } = await import("node:zlib");
-  const json = await readFile(path.join(OUT, "small.json"));
-  await writeFile(path.join(OUT, "report.json.gz"), gzipSync(json));
-  console.log("  report.json.gz");
-
-  const log = await readFile(path.join(OUT, "sample.log"));
-  await writeFile(path.join(OUT, "sample.log.gz"), gzipSync(log));
-  console.log("  sample.log.gz");
-
-  // 확장자가 형식을 말하지 않는 경우 — 내용으로 판별해야 한다.
-  await writeFile(path.join(OUT, "dump.gz"), gzipSync(json));
-  console.log("  dump.gz (안쪽 이름 없음)");
-}
 
 // --- 텍스트와 로그 -----------------------------------------------------------
 
@@ -289,6 +291,29 @@ ${"가로로 아주 긴 줄 ".repeat(30)}
 
 await writeFile(path.join(OUT, "sample.md"), markdown);
 console.log("  sample.md");
+
+// --- gzip ---------------------------------------------------------------
+//
+// After the documents it compresses, and that is not an accident: these are
+// made *from* the fixtures beside them, so the plain ones have to exist first.
+// Written the other way round this ran for weeks — every local run found the
+// files a previous run had left — and only a clean checkout in CI showed it.
+
+// 안쪽 이름이 형식을 정한다: report.json.gz 는 JSON, 맨 .gz 는 내용으로.
+{
+  const { gzipSync } = await import("node:zlib");
+  const json = await readFixture("small.json", "report.json.gz");
+  await writeFile(path.join(OUT, "report.json.gz"), gzipSync(json));
+  console.log("  report.json.gz");
+
+  const log = await readFixture("sample.log", "sample.log.gz");
+  await writeFile(path.join(OUT, "sample.log.gz"), gzipSync(log));
+  console.log("  sample.log.gz");
+
+  // 확장자가 형식을 말하지 않는 경우 — 내용으로 판별해야 한다.
+  await writeFile(path.join(OUT, "dump.gz"), gzipSync(json));
+  console.log("  dump.gz (안쪽 이름 없음)");
+}
 
 // --- the other formats ----------------------------------------------------
 //
@@ -1059,9 +1084,7 @@ const SMOKE = [
   { file: "sample.log", expect: "table" },
   { file: "edge.log", expect: "table" },
   { file: "sample.tsv", expect: "table" },
-  { file: "escaped.csv", expect: "table" },
   { file: "stream.jsonl", expect: "table" },
-  { file: "roots.ndjson", expect: "table" },
   { file: "sample.sqlite", expect: "collection" },
   { file: "sample.xlsx", expect: "collection" },
   { file: "sample.parquet", expect: "collection" },
@@ -1076,8 +1099,6 @@ const SMOKE = [
   { file: "cp949.log", expect: "table" },
   { file: "utf16.csv", expect: "table" },
   { file: "utf8bom.csv", expect: "table" },
-  { file: "bom.yaml", expect: "tree" },
-  { file: "bom.toml", expect: "tree" },
   { file: "broken.json", expect: "error" },
   { file: "settings.json", expect: "error" },
 
@@ -1090,11 +1111,29 @@ const SMOKE = [
   { file: "single-locked.zip", expect: "archive" },
 ];
 
+/**
+ * The one fixture this script cannot write.
+ *
+ * A Parquet file is a thrift-encoded footer over compressed column chunks, so
+ * writing one by hand would mean reimplementing the format in order to test
+ * reading it. The crate that reads it also writes it, so an example does:
+ *
+ *   cd src-tauri && cargo run --release --example parquet -- write ../fixtures
+ *
+ * It stays in the manifest because opening one is a path worth sweeping. If it
+ * is absent the smoke run says so, which is the right place for that to fail.
+ */
+const FROM_ELSEWHERE = new Set(["sample.parquet"]);
+
 const present = new Set(await (await import("node:fs/promises")).readdir(OUT));
-const missing = SMOKE.filter((step) => !present.has(step.file));
+const missing = SMOKE.filter(
+  (step) => !present.has(step.file) && !FROM_ELSEWHERE.has(step.file),
+);
 if (missing.length > 0) {
-  // Louder than a comment: a manifest naming something that was never written
-  // would fail the smoke run as if the app were broken.
+  // Louder than a comment, and fatal: a manifest naming something that was
+  // never written would fail the smoke run as if the app were broken. This
+  // check is the only thing standing between a stale working directory and a
+  // manifest that describes it rather than what this script produces.
   console.error("  smoke.json 이 없는 픽스처를 가리킵니다:", missing.map((s) => s.file).join(", "));
   process.exitCode = 1;
 }

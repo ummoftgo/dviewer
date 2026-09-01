@@ -142,6 +142,13 @@ jobs:
       - name: Generate fixtures
         run: node scripts/gen-fixtures.mjs
 
+      # The one fixture the generator cannot write: a Parquet file is a
+      # thrift-encoded footer over compressed chunks, so the crate that reads
+      # it writes it. See `scripts/gen-fixtures.mjs`.
+      - name: Generate the Parquet fixture
+        working-directory: src-tauri
+        run: cargo run --release --example parquet -- write ../fixtures
+
       # A Linux runner has no display, and a window that cannot be created is
       # not a defect in the app.
       - name: Install xvfb
