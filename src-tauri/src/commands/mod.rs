@@ -10,6 +10,7 @@ mod archive;
 mod document;
 mod markdown;
 mod panel;
+mod smoke;
 mod table;
 mod tree;
 
@@ -17,6 +18,7 @@ pub use archive::*;
 pub use document::*;
 pub use markdown::*;
 pub use panel::*;
+pub use smoke::*;
 pub use table::*;
 pub use tree::*;
 

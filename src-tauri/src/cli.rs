@@ -13,6 +13,13 @@
 //! Unknown flags are ignored rather than refused. A GUI process on Windows has
 //! nowhere to print a complaint, so failing would just mean a window that never
 //! appears.
+//!
+//! The `--smoke*` flags are the self-check the smoke harness drives. They are
+//! parsed here with everything else so there is one parser: `lib.rs` peeks at
+//! the raw arguments before building the app, but only far enough to know that
+//! a smoke run is happening — what it *is* is decided here.
+
+use std::path::PathBuf;
 
 use serde::Serialize;
 
@@ -30,21 +37,53 @@ impl LaunchRequest {
     }
 }
 
+/// What a self-check run is being asked to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmokeMode {
+    /// Open everything the manifest lists, and report on each.
+    Run { manifest: PathBuf },
+    /// Open nothing, and wait for a request another process delivers.
+    ///
+    /// The other half of the single-instance round trip: a second `dviewer`
+    /// hands its arguments to this one and exits, and only this process can say
+    /// whether they arrived.
+    Listen,
+}
+
+/// A self-check run: what to do, and where to write what happened.
+///
+/// Both flags are required and neither has a default. The mode ships in the
+/// released binary — testing something other than what is shipped would give up
+/// half the reason this harness exists — so it must not be possible to start
+/// one by accident, or to have it write somewhere nobody asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Smoke {
+    pub mode: SmokeMode,
+    pub out: PathBuf,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Launch {
     pub request: LaunchRequest,
     /// `--new`: open a window of its own instead of a tab in the running one.
     pub new_window: bool,
+    pub smoke: Option<Smoke>,
 }
 
 /// Parse the arguments after the executable's own name.
 pub fn parse<S: AsRef<str>>(args: &[S]) -> Launch {
     let mut launch = Launch::default();
     let mut rest = args.iter().map(AsRef::as_ref);
+    let mut manifest: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut listen = false;
 
     while let Some(arg) = rest.next() {
         match arg {
             "--new" => launch.new_window = true,
+            "--smoke-listen" => listen = true,
+            "--smoke" => manifest = rest.next().map(str::to_owned),
+            "--smoke-out" => out = rest.next().map(str::to_owned),
             // `--open path` and `--open=path` are both common enough that
             // supporting one and not the other reads as a bug.
             "--open" => {
@@ -62,6 +101,10 @@ pub fn parse<S: AsRef<str>>(args: &[S]) -> Launch {
                     push(&mut launch.request.files, value);
                 } else if let Some(value) = arg.strip_prefix("--open-url=") {
                     push(&mut launch.request.urls, value);
+                } else if let Some(value) = arg.strip_prefix("--smoke=") {
+                    manifest = Some(value.to_owned());
+                } else if let Some(value) = arg.strip_prefix("--smoke-out=") {
+                    out = Some(value.to_owned());
                 } else if !arg.starts_with('-') {
                     // A bare path, so `dviewer report.md` works and so does a
                     // file association.
@@ -70,7 +113,33 @@ pub fn parse<S: AsRef<str>>(args: &[S]) -> Launch {
             }
         }
     }
+
+    // Both halves or neither. A run with nowhere to write its results would
+    // report by exit code alone, which is the one thing this harness must not
+    // do: the exit code cannot say *which* document went wrong.
+    launch.smoke = out.filter(|path| !path.is_empty()).and_then(|out| {
+        let mode = if listen {
+            SmokeMode::Listen
+        } else {
+            SmokeMode::Run {
+                manifest: unquote(&manifest?).into(),
+            }
+        };
+        Some(Smoke {
+            mode,
+            out: unquote(&out).into(),
+        })
+    });
     launch
+}
+
+/// The same unwrapping `push` does, for values that are not document paths.
+fn unquote(value: &str) -> String {
+    value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value)
+        .to_owned()
 }
 
 /// Shells vary in how much quoting survives, so a value that arrives still
@@ -143,6 +212,66 @@ mod tests {
         assert_eq!(
             parsed(&["--open=\"C:/My Files/a.json\""]).request.files,
             ["C:/My Files/a.json"]
+        );
+    }
+
+    #[test]
+    fn a_self_check_needs_both_a_plan_and_somewhere_to_write() {
+        let launch = parsed(&["--smoke=fixtures/smoke.json", "--smoke-out=out.jsonl"]);
+        assert_eq!(
+            launch.smoke,
+            Some(Smoke {
+                mode: SmokeMode::Run {
+                    manifest: "fixtures/smoke.json".into()
+                },
+                out: "out.jsonl".into(),
+            })
+        );
+        assert_eq!(
+            parsed(&["--smoke", "fixtures/smoke.json", "--smoke-out", "out.jsonl"]).smoke,
+            launch.smoke,
+        );
+    }
+
+    /// Half a request is not a request. A run with nowhere to write could only
+    /// report by exit code, and an exit code cannot name the document that
+    /// went wrong.
+    #[test]
+    fn half_a_self_check_is_no_self_check() {
+        assert!(parsed(&["--smoke=fixtures/smoke.json"]).smoke.is_none());
+        assert!(parsed(&["--smoke-out=out.jsonl"]).smoke.is_none());
+        assert!(parsed(&["--smoke-out="]).smoke.is_none());
+        assert!(parsed(&["--smoke-listen"]).smoke.is_none());
+    }
+
+    /// The listening half of the single-instance round trip opens nothing, so
+    /// it has no manifest to be given.
+    #[test]
+    fn listening_needs_no_plan() {
+        let launch = parsed(&["--smoke-listen", "--smoke-out=out.jsonl"]);
+        assert_eq!(
+            launch.smoke,
+            Some(Smoke {
+                mode: SmokeMode::Listen,
+                out: "out.jsonl".into()
+            })
+        );
+    }
+
+    /// Ordinary launches must not grow a self-check by accident — the mode
+    /// ships in the released binary.
+    #[test]
+    fn nothing_else_starts_a_self_check() {
+        assert!(parsed(&["a.json", "--new"]).smoke.is_none());
+        assert!(parsed(&[]).smoke.is_none());
+    }
+
+    #[test]
+    fn a_quoted_result_path_is_unwrapped_like_a_document_path() {
+        let launch = parsed(&["--smoke=\"a b/smoke.json\"", "--smoke-out=\"c d/out.jsonl\""]);
+        assert_eq!(
+            launch.smoke.expect("smoke").out,
+            std::path::PathBuf::from("c d/out.jsonl")
         );
     }
 

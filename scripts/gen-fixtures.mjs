@@ -1033,4 +1033,73 @@ await writeFile(
 );
 console.log("  zip64.zip");
 
+// --- the smoke manifest ------------------------------------------------------
+// What each fixture is *for*, which is knowledge only this file has. The
+// harness opens the list and checks each against `expect`, so a fixture added
+// without a line here is a fixture nothing exercises — and that omission is
+// visible right where it happens.
+//
+// `expect` is a view name, or `error` where refusing is the correct outcome.
+// One field is enough to separate the two archive behaviours: `single.zip`
+// holds one document and must unwrap into it (`tree`), while `single-locked.zip`
+// holds one that cannot be opened and must fall back to its list (`archive`).
+
+const SMOKE = [
+  // Every reading, at least once.
+  { file: "sample.md", expect: "prose" },
+  { file: "small.json", expect: "tree" },
+  { file: "strict.json", expect: "tree" },
+  { file: "sample.jsonc", expect: "tree" },
+  { file: "deep.json", expect: "tree" },
+  { file: "sample.yaml", expect: "tree" },
+  { file: "sample.toml", expect: "tree" },
+  { file: "sample.xml", expect: "tree" },
+  { file: "sample.csv", expect: "table", then: "toggleHeader" },
+  { file: "semicolon.csv", expect: "table" },
+  { file: "sample.log", expect: "table" },
+  { file: "edge.log", expect: "table" },
+  { file: "sample.tsv", expect: "table" },
+  { file: "escaped.csv", expect: "table" },
+  { file: "stream.jsonl", expect: "table" },
+  { file: "roots.ndjson", expect: "table" },
+  { file: "sample.sqlite", expect: "collection" },
+  { file: "sample.xlsx", expect: "collection" },
+  { file: "sample.parquet", expect: "collection" },
+
+  // The paths that are not a plain read: compression, and the encodings that
+  // are not UTF-8 — a document read as the wrong one still opens, so these
+  // check that it opens at all rather than what it says.
+  { file: "report.json.gz", expect: "tree" },
+  { file: "dump.gz", expect: "tree" },
+  { file: "sample.log.gz", expect: "table" },
+  { file: "cp949.csv", expect: "table" },
+  { file: "cp949.log", expect: "table" },
+  { file: "utf16.csv", expect: "table" },
+  { file: "utf8bom.csv", expect: "table" },
+  { file: "bom.yaml", expect: "tree" },
+  { file: "bom.toml", expect: "tree" },
+  { file: "broken.json", expect: "error" },
+  { file: "settings.json", expect: "error" },
+
+  // Archives. `archive.zip` also exercises the real entry-opening command
+  // rather than the click that calls it.
+  { file: "archive.zip", expect: "archive", then: "openEntry" },
+  { file: "korean-names.zip", expect: "archive" },
+  { file: "zip64.zip", expect: "archive" },
+  { file: "single.zip", expect: "tree" },
+  { file: "single-locked.zip", expect: "archive" },
+];
+
+const present = new Set(await (await import("node:fs/promises")).readdir(OUT));
+const missing = SMOKE.filter((step) => !present.has(step.file));
+if (missing.length > 0) {
+  // Louder than a comment: a manifest naming something that was never written
+  // would fail the smoke run as if the app were broken.
+  console.error("  smoke.json 이 없는 픽스처를 가리킵니다:", missing.map((s) => s.file).join(", "));
+  process.exitCode = 1;
+}
+
+await writeFile(path.join(OUT, "smoke.json"), JSON.stringify(SMOKE, null, 2) + "\n");
+console.log(`  smoke.json  ${SMOKE.length}개 항목`);
+
 console.log("완료");

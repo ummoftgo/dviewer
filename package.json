@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json && node scripts/check-i18n.ts",
     "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs",
     "tauri": "tauri"
   },
   "license": "MIT",

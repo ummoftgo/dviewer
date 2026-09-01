@@ -134,6 +134,28 @@ jobs:
           # appimagetool cannot mount its own image on a runner without FUSE.
           APPIMAGE_EXTRACT_AND_RUN: 1
 
+      # The release binary, against every fixture, in a real window. This is
+      # the build the smoke harness was written for: the defects it targets —
+      # a crash only the release profile produces, an event loop that blocks on
+      # itself, a capability that was never wired — do not appear in a debug
+      # build or under a unit test. `tauri build` has already produced it.
+      - name: Generate fixtures
+        run: node scripts/gen-fixtures.mjs
+
+      # A Linux runner has no display, and a window that cannot be created is
+      # not a defect in the app.
+      - name: Install xvfb
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y xvfb
+
+      - name: Smoke (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run smoke -- --release
+
+      - name: Smoke
+        if: runner.os != 'Linux'
+        run: npm run smoke -- --release
+
       - name: Collect (Linux)
         if: runner.os == 'Linux'
         run: |

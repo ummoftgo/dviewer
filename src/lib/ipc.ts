@@ -401,6 +401,29 @@ export interface LaunchRequest {
   urls: string[];
 }
 
+// --- the self-check -------------------------------------------------------
+//
+// Only reachable when the process was started with `--smoke`. See `smoke.ts`.
+
+export interface SmokeStatus {
+  active: boolean;
+  /** `main`, or `doc-N` for a window built to answer a `--new`. */
+  window: string;
+}
+
+export interface SmokeStep {
+  file: string;
+  path: string;
+  expect: string;
+  then?: string | null;
+}
+
+export const smokeStatus = () => invoke<SmokeStatus>("smoke_status");
+export const smokePlan = () => invoke<SmokeStep[]>("smoke_plan");
+export const smokeReport = (result: unknown, ok: boolean) =>
+  invoke<void>("smoke_report", { result, ok });
+export const smokeDone = () => invoke<void>("smoke_done");
+
 export const setDocEncoding = (docId: number, encodingName: string) =>
   invoke<DocMeta>("set_doc_encoding", { docId, encodingName });
 export const startupRequest = () => invoke<LaunchRequest>("startup_request");

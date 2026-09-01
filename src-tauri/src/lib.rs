@@ -25,6 +25,7 @@ mod window;
 
 // Public for the same reason as the modules above: `examples/table.rs` decides
 // how to read a file exactly as the app does, and that decision lives here.
+pub mod smoke;
 pub mod source;
 pub mod state;
 
@@ -34,27 +35,59 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // First, as the plugin requires: a second `dviewer` must hand over its
-        // arguments and exit before anything else in it starts up.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let launch = cli::parse(argv.get(1..).unwrap_or_default());
-            if launch.new_window {
-                // Off the event-loop thread, for the same reason `open_panel`
-                // is async: building a window here would wait on the very loop
-                // this callback is running inside. The frame appears, the
-                // webview never attaches, and the second `dviewer` never gets
-                // its answer either — so it does not exit.
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = window::open(&app, launch.request);
-                });
-            } else {
-                window::deliver(app, launch.request);
-            }
-        }))
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let launch = cli::parse(&args);
+
+    // Two plugins are handled specially for a self-check, and both would be
+    // found the hard way.
+    //
+    // `window-state` saves the window geometry on exit, so any smoke run would
+    // overwrite where the reader keeps their window. It is left out of both.
+    //
+    // `single-instance` is the interesting one, because the two smoke modes
+    // want opposite things from it. A sweep must *not* have it: with dviewer
+    // already open, the run would hand its arguments to that window, exit, and
+    // leave the reader's app opening fixtures. The listening half must *have*
+    // it — being the single instance is the entire thing it is checking.
+    //
+    // The decision is made from the parse above, not from a second reading of
+    // the arguments — one parser, or the two drift.
+    let smoke = launch.smoke.clone();
+    let sweeping = matches!(
+        smoke.as_ref().map(|s| &s.mode),
+        Some(crate::cli::SmokeMode::Run { .. })
+    );
+    let mut builder = tauri::Builder::default();
+
+    if !sweeping {
+        builder = builder
+            // First, as the plugin requires: a second `dviewer` must hand over
+            // its arguments and exit before anything else in it starts up.
+            .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+                let launch = cli::parse(argv.get(1..).unwrap_or_default());
+                if launch.new_window {
+                    // Off the event-loop thread, for the same reason
+                    // `open_panel` is async: building a window here would wait
+                    // on the very loop this callback is running inside. The
+                    // frame appears, the webview never attaches, and the second
+                    // `dviewer` never gets its answer either — so it does not
+                    // exit.
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = window::open(&app, launch.request);
+                    });
+                } else {
+                    window::deliver(app, launch.request);
+                }
+            }));
+    }
+
+    if smoke.is_none() {
         // Restores size, position and maximised state, and saves them on exit.
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    }
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -78,12 +111,26 @@ pub fn run() {
                 }
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
+            if let Some(smoke) = &smoke {
+                // A harness that cannot write its results has nothing to say,
+                // and saying it by opening a window would be worse than not
+                // starting: the runner outside would wait for a file that is
+                // never coming.
+                match smoke::SmokeRun::start(smoke) {
+                    Ok(run) => {
+                        app.manage(run);
+                    }
+                    Err(why) => {
+                        eprintln!("smoke: {why}");
+                        app.handle().exit(smoke::BROKEN);
+                    }
+                }
+                return Ok(());
+            }
             // The window from tauri.conf.json is called "main"; it collects
             // this the moment its frontend mounts.
-            let args: Vec<String> = std::env::args().skip(1).collect();
-            app.state::<AppState>()
-                .queue("main", cli::parse(&args).request);
+            app.state::<AppState>().queue("main", launch.request.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -137,6 +184,10 @@ pub fn run() {
             commands::grid_search,
             commands::archive_entries,
             commands::open_entry,
+            commands::smoke_status,
+            commands::smoke_plan,
+            commands::smoke_report,
+            commands::smoke_done,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -48,6 +48,7 @@ src-tauri/src/
   xlsx.rs                시트를 메모리 행렬로, 시트 좌표 그대로, 수식은 요청할 때만
   parquet.rs             푸터만 읽고, 닿는 행 그룹만 풀고, 둘까지 들고 있기
   archive.rs             중앙 디렉터리만 읽기, 이름 인코딩 추측, 항목 하나 꺼내기
+  smoke.rs               자기 점검 — 계획 읽기, 결과를 한 줄씩 flush, 종료 코드
   source.rs              확장자·MIME·내용으로 형식 판별
   markdown.rs            comrak + syntect + ammonia
   highlight.rs           코드 블록 구문 강조 테마
@@ -57,6 +58,8 @@ scripts/gen-fixtures.mjs 검증용 문서 생성 (fixtures/ 는 저장소에 없
 src/**/*.test.ts       프론트 테스트 — 검사하는 코드 옆에 (npm test, vitest)
 vitest.config.ts       러너 설정 — vite.config.ts 를 합쳐 앱과 같게 컴파일
 test/setup.ts          persist.ts 가 찾는 localStorage 스텁, 그것 하나뿐
+scripts/smoke.mjs      앱을 띄워 픽스처를 전부 열게 하는 러너 (npm run smoke)
+src/lib/smoke.ts       그 안에서 여는 쪽 — 정상 파이프라인을 그대로 지납니다
 ```
 
 ## 설계 요약

@@ -3,6 +3,7 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import Icon from "./lib/components/Icon.svelte";
   import SettingsPanel from "./lib/components/SettingsPanel.svelte";
+  import { reportDelivery, reportNewWindow, runSmoke } from "./lib/smoke";
   import StartPane from "./lib/components/StartPane.svelte";
   import TabBar from "./lib/components/TabBar.svelte";
   import Toast from "./lib/components/Toast.svelte";
@@ -45,12 +46,33 @@
     applySettings();
   });
 
+  /**
+   * True when this process was started with `--smoke`, in which case the
+   * harness drives instead of the reader. Read once on mount, and used by the
+   * delivery listener below as well — a self-check has to report what arrives
+   * rather than open it.
+   */
+  let smoking = $state(false);
+
   onMount(() => {
     void settings.load();
     void recents.load();
     void ipc
-      .startupRequest()
-      .then((request) => workspace.openLaunch(request))
+      .smokeStatus()
+      .then((status) => {
+        smoking = status.active;
+        if (!status.active) {
+          return ipc
+            .startupRequest()
+            .then((request) => workspace.openLaunch(request));
+        }
+        // A window that is not `main` was built to answer a `--new`, and its
+        // existence is the thing being checked. It reports and the process ends.
+        if (status.window !== "main") {
+          return ipc.startupRequest().then((request) => reportNewWindow(status.window, request));
+        }
+        return runSmoke();
+      })
       .catch((err) => console.warn("[dviewer] could not handle the startup arguments:", err));
   });
 
@@ -117,7 +139,11 @@
       }),
       // A second `dviewer` handed its arguments to this window.
       ipc.on("open-request", (request) => {
-        void workspace.openLaunch(request);
+        // In a self-check the arrival *is* the thing being checked — only this
+        // process can say the hand-off worked, because the other one has
+        // already exited.
+        if (smoking) void reportDelivery(request);
+        else void workspace.openLaunch(request);
       }),
     ];
 
