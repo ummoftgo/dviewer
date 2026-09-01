@@ -133,7 +133,10 @@ export async function runSmoke(): Promise<void> {
   // request, and what it has to report is whether that arrived. It waits, and
   // if nothing comes the runner outside kills it — a results file with no
   // summary line is what says so.
-  if (plan.length === 0) return;
+  if (plan.length === 0) {
+    await ipc.smokeReport({ step: "listening" }, true);
+    return;
+  }
 
   for (const step of plan) {
     const started = Date.now();
@@ -175,6 +178,11 @@ export async function runSmoke(): Promise<void> {
  * This is the whole single-instance contract from the receiving side: the other
  * process handed its arguments over and exited, and only this one can say they
  * arrived. A defect here is invisible until someone opens a file from a shell.
+ *
+ * The arrival is an **event**, and an event nobody is listening for is simply
+ * lost. That is why the process writes a `listening` line first and the runner
+ * waits for it: a fixed pause before handing over is a guess about how long a
+ * webview takes to boot, and on a cold runner it is the wrong guess.
  */
 export async function reportDelivery(request: LaunchRequest): Promise<void> {
   const arrived = request.files.length + request.urls.length;

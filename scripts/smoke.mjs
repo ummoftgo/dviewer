@@ -50,8 +50,16 @@ const exe = candidates.find((candidate) => existsSync(candidate));
 const SWEEP_TIMEOUT_MS = 10 * 60_000;
 /** One hand-off. If it has not arrived by now it is not going to. */
 const HANDOFF_TIMEOUT_MS = 60_000;
-/** Long enough for a window to exist before something is handed to it. */
-const BOOT_MS = 4_000;
+/**
+ * How long to wait for the listening process to say it is listening.
+ *
+ * It says so rather than being assumed ready after a pause. The request is
+ * handed over as an event, and an event nobody is listening for yet is lost
+ * without a sound — so a pause here is a guess about webview boot time, and the
+ * guess is wrong on exactly the machine that matters: a cold CI runner starting
+ * a release build under a virtual display.
+ */
+const READY_TIMEOUT_MS = 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -98,6 +106,23 @@ async function results(file) {
     .map((line) => JSON.parse(line));
   const summary = lines.at(-1)?.summary ?? null;
   return { lines: summary ? lines.slice(0, -1) : lines, summary };
+}
+
+/**
+ * Wait until the listening process has said it is listening.
+ *
+ * `gone` means it ended before it got there, which on this check means
+ * something else already held the single-instance lock.
+ */
+async function waitForListening(file, ended) {
+  const deadline = Date.now() + READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const { lines } = await results(file);
+    if (lines.some((line) => line.step === "listening")) return "ready";
+    if (ended()) return "gone";
+    await sleep(100);
+  }
+  return "timeout";
 }
 
 function report(lines) {
@@ -171,13 +196,17 @@ for (const [label, extra] of [
       return ended;
     },
   );
-  await sleep(BOOT_MS);
 
-  // The listener holds the single-instance lock, so it must still be running.
-  // If it is not, something else already held it — an open dviewer — and this
-  // check would be measuring that instead.
-  if (listenerEnded) {
+  const ready = await waitForListening(out, () => listenerEnded);
+  if (ready === "gone") {
+    // The listener holds the single-instance lock, so it must still be running.
+    // If it is not, something else already held it — an open dviewer — and this
+    // check would be measuring that instead.
     fail(`${label}: dviewer 가 이미 떠 있습니다. 닫고 다시 돌려 주세요.`);
+    continue;
+  }
+  if (ready === "timeout") {
+    fail(`${label}: 듣는 프로세스가 ${READY_TIMEOUT_MS / 1000}초 안에 준비되지 않았습니다`);
     continue;
   }
 

@@ -153,11 +153,14 @@ jobs:
       # not a defect in the app.
       - name: Install xvfb
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y xvfb
+        run: sudo apt-get install -y xvfb dbus
 
+      # `dbus-run-session` as well as a display: the single-instance plugin
+      # finds the running process over the session bus on Linux, and `xvfb-run`
+      # supplies an X display and nothing else.
       - name: Smoke (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run smoke -- --release
+        run: xvfb-run -a dbus-run-session -- npm run smoke -- --release
 
       - name: Smoke
         if: runner.os != 'Linux'
