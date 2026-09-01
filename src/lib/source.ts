@@ -4,11 +4,10 @@
  * Separate from the tab state because none of this is state: a source is a
  * value the backend sent, and these are three questions asked of it.
  *
- * Kept free of every import but types, which is what lets
- * `scripts/check-archive.ts` run these under plain `node`. The tab state is
- * built on runes and does not load outside a component — and these three are
- * the ones worth running, because all three fail quietly: a wrong answer opens
- * a second copy of something already on screen and says nothing.
+ * Separate from the tab state for a second reason too: all three fail quietly.
+ * A wrong answer here throws nothing and looks like nothing — it just opens one
+ * more copy of what is already on screen. `source.test.ts` is where that is
+ * held down.
  */
 import type { ArchiveEntry, DocSource } from "./ipc";
 

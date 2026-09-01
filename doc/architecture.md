@@ -54,7 +54,9 @@ src-tauri/src/
   fonts.rs               설치된 글꼴 목록
   examples/              창 없이 성능을 재는 측정 도구
 scripts/gen-fixtures.mjs 검증용 문서 생성 (fixtures/ 는 저장소에 없음)
-scripts/check-archive.ts 조용히 실패하는 프론트 로직만 골라 검사 (npm run check)
+src/**/*.test.ts       프론트 테스트 — 검사하는 코드 옆에 (npm test, vitest)
+vitest.config.ts       러너 설정 — vite.config.ts 를 합쳐 앱과 같게 컴파일
+test/setup.ts          persist.ts 가 찾는 localStorage 스텁, 그것 하나뿐
 ```
 
 ## 설계 요약

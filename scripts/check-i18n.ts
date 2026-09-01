@@ -65,6 +65,11 @@ console.log(`i18n 검사 통과 — ${Object.keys(LOCALES).length}개 로케일 
 // can. Anything genuinely meant to be literal — the font preview, which exists
 // to show several scripts at once — says so with an `i18n-ignore` comment on
 // the same line.
+//
+// Tests are skipped. What this looks for is text a reader would see, and a
+// `*.test.ts` shows nobody anything: the Korean in one is a fixture under
+// test — a CP949 archive name, a column measured in Hangul — and demanding a
+// dictionary key for it would mean testing the encoding paths in English.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -77,6 +82,8 @@ function sources(dir: string): string[] {
     if (statSync(path).isDirectory()) {
       if (name === "i18n") continue;
       out.push(...sources(path));
+    } else if (name.endsWith(".test.ts")) {
+      continue;
     } else if (name.endsWith(".svelte") || name.endsWith(".ts")) {
       out.push(path);
     }
