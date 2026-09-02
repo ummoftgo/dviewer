@@ -1,8 +1,13 @@
 use std::fs::File;
+use std::io::Cursor;
 use std::ops::Deref;
 use std::path::Path;
+use std::sync::Arc;
 
+use bytes::Bytes;
 use memmap2::Mmap;
+use parquet::errors::{ParquetError, Result as ParquetResult};
+use parquet::file::reader::{ChunkReader, Length};
 
 use crate::error::Result;
 
@@ -71,4 +76,68 @@ impl From<Vec<u8>> for DocBytes {
 pub fn decode_utf8(bytes: &[u8]) -> String {
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     String::from_utf8_lossy(body).into_owned()
+}
+
+/// The document's bytes, in the shape a reader that wants to own them takes.
+///
+/// Two of the libraries here read from something they hold rather than from a
+/// path: calamine wants `Read + Seek`, and parquet wants a `ChunkReader`. Both
+/// are satisfied by the buffer the document already has, but neither can be
+/// handed an `Arc<DocBytes>` — `Cursor` needs `AsRef<[u8]>`, which a foreign
+/// smart pointer around a foreign type cannot be given. Hence a newtype, here
+/// rather than in either format's module, because both formats use it.
+#[derive(Clone)]
+pub struct SharedBytes(Arc<DocBytes>);
+
+impl SharedBytes {
+    pub fn new(bytes: Arc<DocBytes>) -> Self {
+        Self(bytes)
+    }
+
+    fn slice(&self, start: u64, length: usize) -> ParquetResult<&[u8]> {
+        let all: &[u8] = &self.0;
+        let start = usize::try_from(start).map_err(|_| past_end(start, all.len()))?;
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| past_end(start as u64, all.len()))?;
+        all.get(start..end)
+            .ok_or_else(|| past_end(end as u64, all.len()))
+    }
+}
+
+fn past_end(at: u64, len: usize) -> ParquetError {
+    ParquetError::EOF(format!("read past the end of {len} bytes at {at}"))
+}
+
+impl AsRef<[u8]> for SharedBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Length for SharedBytes {
+    fn len(&self) -> u64 {
+        self.0.len() as u64
+    }
+}
+
+impl ChunkReader for SharedBytes {
+    type T = Cursor<SharedBytes>;
+
+    fn get_read(&self, start: u64) -> ParquetResult<Self::T> {
+        self.slice(start, 0)?;
+        let mut cursor = Cursor::new(self.clone());
+        cursor.set_position(start);
+        Ok(cursor)
+    }
+
+    /// Copied rather than borrowed.
+    ///
+    /// `Bytes` cannot point into a map it does not own, and the file
+    /// implementation this replaces read into a fresh buffer too — so the copy
+    /// is the same one parquet was already paying for, and what comes back is
+    /// a column chunk that is about to be decoded anyway.
+    fn get_bytes(&self, start: u64, length: usize) -> ParquetResult<Bytes> {
+        Ok(Bytes::copy_from_slice(self.slice(start, length)?))
+    }
 }

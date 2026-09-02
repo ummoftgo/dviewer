@@ -286,8 +286,50 @@ mod tests {
         assert_eq!(doc.title, "report.json", "the inner name is what it is called");
     }
 
-    /// A database is queried through a path, and what came out of an archive
-    /// has none. The same refusal a downloaded one gets, for the same reason.
+    /// A workbook out of an archive opens where it is, as the entry it is.
+    ///
+    /// It used to be refused alongside the database, because this code opened a
+    /// workbook by handing calamine a path. It hands it the bytes now, and the
+    /// bytes are right here. Nothing is read yet — the sheets come when the tab
+    /// asks — so what is under test is the decision, not the reader.
+    #[test]
+    fn a_workbook_entry_opens_from_the_bytes_it_came_out_as() {
+        // An xlsx is a zip, so the name is what tells the two apart.
+        let mut body = b"PK".to_vec();
+        body.extend_from_slice(b"the rest of a workbook");
+        let doc = entry_document(
+            1,
+            body,
+            "quarter.xlsx",
+            file_source().entry(0, "quarter.xlsx".to_owned()).expect("chain"),
+        )
+        .expect("open");
+
+        assert_eq!(doc.kind(), DocKind::Xlsx);
+        assert!(
+            matches!(doc.meta().source, DocSource::ArchiveEntry { .. }),
+            "it stays an entry rather than becoming a file somewhere",
+        );
+    }
+
+    /// And the same for a columnar file, whose reader also took a path once.
+    #[test]
+    fn a_columnar_entry_opens_from_the_bytes_it_came_out_as() {
+        let doc = entry_document(
+            1,
+            b"PAR1and the rest of a columnar filePAR1".to_vec(),
+            "events.parquet",
+            file_source().entry(0, "events.parquet".to_owned()).expect("chain"),
+        )
+        .expect("open");
+
+        assert_eq!(doc.kind(), DocKind::Parquet);
+        assert!(matches!(doc.meta().source, DocSource::ArchiveEntry { .. }));
+    }
+
+    /// The one refusal that stays, and the reason it stays: a database is
+    /// queried through a path, and what came out of an archive has none. The
+    /// same refusal a downloaded one gets, for the same reason.
     #[test]
     fn a_database_entry_is_refused_rather_than_unpacked_to_disk() {
         let magic = b"SQLite format 3\0and the rest of a header".to_vec();
@@ -298,6 +340,18 @@ mod tests {
             file_source().entry(0, "app.sqlite".to_owned()).expect("chain"),
         );
         assert!(matches!(result, Err(Error::NeedsFile)));
+    }
+
+    /// The whole way through, not only the last step: a zip holding one
+    /// workbook opens as that workbook.
+    #[test]
+    fn an_archive_holding_one_workbook_opens_it() {
+        let mut body = b"PK".to_vec();
+        body.extend_from_slice(b"the rest of a workbook");
+        let doc = open(vec![stored(b"quarter.xlsx", &body, 0)], file_source()).expect("open");
+
+        assert_eq!(doc.kind(), DocKind::Xlsx);
+        assert_eq!(doc.title, "quarter.xlsx");
     }
 
     /// An archive at the limit would be a tab whose every row is refused, so it

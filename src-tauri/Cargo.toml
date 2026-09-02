@@ -69,6 +69,10 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 # real archives are written with, and the other codecs would each pull a
 # compressor for a format almost nobody produces.
 zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
+# Named only to spell the type `ChunkReader::get_bytes` must return. `parquet`
+# already pulls it and does not re-export it, so this line adds a dependency
+# edge and no crate.
+bytes = "1"
 
 # Serves the frontend from the binary instead of a dev server. The Tauri CLI
 # turns this on for `tauri build`; without it — a plain `cargo build`, whatever

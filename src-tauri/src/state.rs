@@ -103,16 +103,21 @@ impl DocKind {
 
     /// Whether reading this needs a file on disk rather than a buffer.
     ///
-    /// Three of the four formats that are not runs of bytes are read through a
-    /// library that opens a path: a database is queried, a workbook converted,
-    /// a columnar file seeked. A download or an unpacked entry has no path to
-    /// give them, and writing one to a temporary file would leave the reader
-    /// with a copy they did not ask to keep, somewhere they did not choose.
+    /// Only a database does. It is *queried*: SQLite opens the file, reads the
+    /// pages a statement asks for, and journals beside it. A download or an
+    /// unpacked entry has no file to query, and writing one to a temporary file
+    /// would leave the reader with a copy they did not ask to keep, somewhere
+    /// they did not choose.
     ///
-    /// An archive is the one that is not, because its reader takes the bytes.
-    /// So a zip can be opened from a URL, and out of another zip.
+    /// The other three take their bytes. That was always true of an archive,
+    /// and it turned out to be true of a workbook and a columnar file as well:
+    /// calamine reads from anything `Read + Seek` and parquet from any
+    /// `ChunkReader`, so the only reason those two were listed here was that
+    /// this code handed them a path — a *second* opening of a file it had
+    /// already mapped. Now they are handed the map, and a zip, a workbook and a
+    /// Parquet file all open from a URL and out of another archive.
     pub fn needs_file(self) -> bool {
-        matches!(self, DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet)
+        matches!(self, DocKind::Sqlite)
     }
 
     pub fn view(self) -> DocView {
@@ -819,5 +824,29 @@ mod tests {
         let state = AppState::default();
         assert!(state.panels_opened_by("main").is_empty());
         assert!(state.panels_showing(1).is_empty());
+    }
+
+    /// Only a database is queried through a path. A workbook and a columnar
+    /// file were listed here once, back when this code opened them a second
+    /// time by path after already mapping them; they are handed the map now,
+    /// and putting either back on this list is what would shut a zip entry or
+    /// a download out again.
+    #[test]
+    fn a_database_is_the_only_thing_that_still_needs_a_file() {
+        assert!(DocKind::Sqlite.needs_file());
+        for kind in [DocKind::Xlsx, DocKind::Parquet, DocKind::Zip] {
+            assert!(!kind.needs_file(), "{kind:?} reads from bytes it is given");
+        }
+    }
+
+    /// A different question, and the answer did not move with the other one:
+    /// none of these four is a run of bytes someone could read, so none of them
+    /// gets the encoding picker or the "read this as" list.
+    #[test]
+    fn what_needs_a_file_and_what_reads_as_bytes_are_not_the_same_question() {
+        for kind in [DocKind::Sqlite, DocKind::Xlsx, DocKind::Parquet, DocKind::Zip] {
+            assert!(!kind.reads_bytes(), "{kind:?} is not read as a run of bytes");
+        }
+        assert!(DocKind::Json.reads_bytes());
     }
 }
