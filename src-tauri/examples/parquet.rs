@@ -17,6 +17,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 
+use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::grid::Grid;
 use dviewer_lib::query::Interpretation;
 use dviewer_lib::parquet::ParquetDoc;
@@ -234,7 +235,10 @@ fn column<W: std::io::Write + Send>(
 
 fn read(path: &Path, query: Option<&str>) {
     let started = Instant::now();
-    let doc = ParquetDoc::open(path).expect("open");
+    // The same two steps the app takes: map the file, then read the footer out
+    // of the map.
+    let bytes = Arc::new(DocBytes::map_file(path).expect("map"));
+    let doc = ParquetDoc::open(bytes).expect("open");
     println!(
         "열기      {:>8.1?}  (푸터만)  {} 행 × {} 열, 행 그룹 {}",
         started.elapsed(),

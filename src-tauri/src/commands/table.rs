@@ -478,16 +478,11 @@ pub async fn parquet_open(state: State<'_, AppState>, doc_id: DocId) -> Result<C
         });
     }
 
-    let DocSource::File { path } = &doc.meta().source else {
-        // A row group is read by seeking to it, which a downloaded buffer
-        // cannot be asked to do.
-        return Err(Error::NeedsFile);
-    };
-    let path = std::path::PathBuf::from(path);
-    // Reading the footer touches the disk twice and parses thrift; small, but
-    // not something to do on the event loop.
+    let bytes = doc.bytes();
+    // Reading the footer seeks twice and parses thrift; small, but not
+    // something to do on the event loop.
     let columnar =
-        tauri::async_runtime::spawn_blocking(move || crate::parquet::ParquetDoc::open(&path))
+        tauri::async_runtime::spawn_blocking(move || crate::parquet::ParquetDoc::open(bytes))
             .await
             .map_err(Error::internal)??;
 

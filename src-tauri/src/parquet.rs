@@ -17,8 +17,6 @@
 //! showing a hundred rows of it — and it doubles the dependency footprint to
 //! get there.
 
-use std::fs::File;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -29,6 +27,7 @@ use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::{Field, Row};
 use parquet::schema::types::Type;
 
+use crate::bytes::{DocBytes, SharedBytes};
 use crate::error::{Error, Result, Subject};
 use crate::grid::{hex_cell, Grid};
 use crate::table::{
@@ -60,11 +59,14 @@ const CACHED_GROUPS: usize = 2;
 
 /// What the grid needs to know about a file, read from its footer.
 pub struct ParquetDoc {
-    path: PathBuf,
+    /// The document's own bytes, kept because a search opens a second reader
+    /// over them. Shared, not copied: a file is the map `open_path` made, an
+    /// archive entry is the buffer it was unpacked into.
+    bytes: Arc<DocBytes>,
     /// Held open so a page does not pay for the footer again. Behind a lock
-    /// because decoding needs `&mut` access to the file underneath, and the
+    /// because decoding needs `&mut` access to what is underneath, and the
     /// state every window shares has to be `Sync`.
-    reader: Mutex<SerializedFileReader<File>>,
+    reader: Mutex<SerializedFileReader<SharedBytes>>,
     columns: Vec<String>,
     /// The schema as the file declares it — physical type, logical type and
     /// repetition. A grid cannot show that a column is `TIMESTAMP(MILLIS)`
@@ -78,8 +80,15 @@ pub struct ParquetDoc {
 }
 
 impl ParquetDoc {
-    pub fn open(path: &Path) -> Result<Self> {
-        let reader = SerializedFileReader::new(File::open(path)?).map_err(failed)?;
+    /// parquet reads through a `ChunkReader`, and the bytes are one.
+    ///
+    /// A file never had to be a file here: the reader wants a length and a way
+    /// to get a range, which is what a mapped buffer is. So a columnar file
+    /// opens from a download or out of an archive on the same code as from
+    /// disk, and still without reading past the footer.
+    pub fn open(bytes: Arc<DocBytes>) -> Result<Self> {
+        let reader =
+            SerializedFileReader::new(SharedBytes::new(Arc::clone(&bytes))).map_err(failed)?;
         let metadata = reader.metadata();
         let file = metadata.file_metadata();
 
@@ -105,7 +114,7 @@ impl ParquetDoc {
         let schema = describe(file.schema());
         let name = file.schema().name().to_owned();
         Ok(Self {
-            path: path.to_path_buf(),
+            bytes,
             reader: Mutex::new(reader),
             columns,
             schema,
@@ -192,7 +201,7 @@ impl ParquetDoc {
 /// The whole group, because that is the unit Parquet is written in — its pages
 /// are compressed together and a single row cannot be pulled out of the middle
 /// without reading up to it.
-fn decode(reader: &SerializedFileReader<File>, index: usize) -> Result<Vec<Row>> {
+fn decode(reader: &SerializedFileReader<SharedBytes>, index: usize) -> Result<Vec<Row>> {
     let group = reader.get_row_group(index).map_err(failed)?;
     let iterator = group.get_row_iter(None).map_err(failed)?;
     let mut rows = Vec::new();
@@ -298,8 +307,8 @@ impl Grid for ParquetDoc {
         // Its own reader, so a search over a large file does not hold the lock
         // the viewport needs — and its own decoding, so the two groups the
         // reader is looking at are not evicted by the ones being searched.
-        let searching =
-            SerializedFileReader::new(File::open(&self.path)?).map_err(failed)?;
+        let searching = SerializedFileReader::new(SharedBytes::new(Arc::clone(&self.bytes)))
+            .map_err(failed)?;
 
         let mut hits = Vec::new();
         let mut capped = false;
@@ -581,8 +590,17 @@ mod tests {
     // assert, so these step aside rather than fail.
 
     fn fixture() -> Option<ParquetDoc> {
-        let path = std::path::Path::new("../fixtures/sample.parquet");
-        path.exists().then(|| ParquetDoc::open(path).expect("open"))
+        Some(ParquetDoc::open(Arc::new(mapped()?)).expect("open"))
+    }
+
+    fn fixture_path() -> Option<std::path::PathBuf> {
+        let path = std::path::PathBuf::from("../fixtures/sample.parquet");
+        path.exists().then_some(path)
+    }
+
+    /// Mapped, which is how a file arrives.
+    fn mapped() -> Option<DocBytes> {
+        Some(DocBytes::map_file(&fixture_path()?).expect("map"))
     }
 
     fn text_of(doc: &ParquetDoc, row: u32, column: u32) -> String {
@@ -724,5 +742,37 @@ mod tests {
             Err(Error::Cancelled)
         ));
         assert!(doc.search("", false, Interpretation::Literal, &idle).expect("search").hits.is_empty());
+    }
+
+    /// A columnar file read out of a buffer is the same file.
+    ///
+    /// `Owned` is the variant an archive entry and a download arrive as, and
+    /// the only one either can be, so this is the path those two actually take.
+    /// The assertions are the ones seeking has to get right: where each row
+    /// group starts, what is in the one after a boundary, and that a search —
+    /// which opens a second reader over the same bytes — finds the same cell.
+    #[test]
+    fn a_columnar_file_read_from_a_buffer_is_the_same_file() {
+        let Some(path) = fixture_path() else { return };
+        let owned = Arc::new(DocBytes::Owned(std::fs::read(&path).expect("read")));
+        let doc = ParquetDoc::open(owned).expect("open");
+
+        assert_eq!(doc.row_count(), 6);
+        assert_eq!(doc.group_count(), 3);
+
+        // The first row of the second group: the one a wrong offset would miss.
+        assert_eq!(text_of(&doc, 2, 0), "2");
+        assert_eq!(text_of(&doc, 0, 1), "가나다");
+        assert_eq!(text_of(&doc, 1, 3), "2026-08-29T10:40:00.500");
+
+        let idle = AtomicBool::new(false);
+        let hits = doc
+            .search("2026-08-29T10:40:04", false, Interpretation::Literal, &idle)
+            .expect("search")
+            .hits;
+        assert_eq!(
+            hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
+            [(4, 3), (5, 3)]
+        );
     }
 }
