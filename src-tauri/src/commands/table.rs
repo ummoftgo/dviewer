@@ -370,13 +370,11 @@ pub async fn xlsx_sheets(state: State<'_, AppState>, doc_id: DocId) -> Result<Co
         });
     }
 
-    let DocSource::File { path } = &doc.meta().source else {
-        // The same reason a database cannot be opened from a URL: the reader
-        // works from a file, and a downloaded buffer is not one.
-        return Err(Error::NeedsFile);
-    };
-    let path = std::path::PathBuf::from(path);
-    let workbook = tauri::async_runtime::spawn_blocking(move || crate::xlsx::XlsxDoc::open(&path))
+    // Whatever the document was opened from, its bytes are here — a mapped
+    // file, a download, an entry unpacked out of an archive. calamine reads a
+    // workbook out of any of them.
+    let bytes = doc.bytes();
+    let workbook = tauri::async_runtime::spawn_blocking(move || crate::xlsx::XlsxDoc::open(bytes))
         .await
         .map_err(Error::internal)??;
 

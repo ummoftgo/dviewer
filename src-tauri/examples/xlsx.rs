@@ -9,8 +9,10 @@
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Instant;
 
+use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::grid::Grid;
 use dviewer_lib::query::Interpretation;
 use dviewer_lib::xlsx::{XlsxDoc, XlsxGrid};
@@ -22,7 +24,10 @@ fn main() {
     let size = std::fs::metadata(path).expect("size").len();
 
     let started = Instant::now();
-    let book = XlsxDoc::open(path).expect("open");
+    // The same two steps the app takes: map the file, then read the workbook
+    // out of the map.
+    let bytes = Arc::new(DocBytes::map_file(path).expect("map"));
+    let book = XlsxDoc::open(bytes).expect("open");
     println!(
         "파일      {} ({:.1}MB)",
         path.display(),

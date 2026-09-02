@@ -12,12 +12,14 @@
 //! has to mean the same thing in both. That is also why the first row is not
 //! promoted to a header: it would shift every row number by one.
 
-use std::path::{Path, PathBuf};
+use std::io::Cursor;
+use std::sync::Arc;
 
 use calamine::{Data, Reader, Xlsx};
 use parking_lot::RwLock;
 use serde::Serialize;
 
+use crate::bytes::{DocBytes, SharedBytes};
 use crate::error::{Error, Result, Subject};
 use crate::grid::Grid;
 use crate::query::{Interpretation, Matcher};
@@ -48,19 +50,24 @@ pub struct Sheet {
     pub name: String,
 }
 
-/// An open workbook: the file, and the names of what is in it.
+/// An open workbook: its bytes, and the names of what is in it.
 ///
 /// Sheets are not read here. A workbook with forty sheets must not read forty
 /// sheets to show their names — the rows come later, and only for the one that
-/// is chosen.
+/// is chosen. Which is why the bytes are kept: choosing a sheet, and later
+/// asking for its formulas, each reads the workbook again.
+///
+/// They are the document's own bytes, shared rather than copied — for a file
+/// the map `open_path` already made, for an archive entry the buffer it was
+/// unpacked into. Nothing here is a second copy of the workbook.
 pub struct XlsxDoc {
-    path: PathBuf,
+    bytes: Arc<DocBytes>,
     sheets: Vec<Sheet>,
 }
 
 impl XlsxDoc {
-    pub fn open(path: &Path) -> Result<Self> {
-        let size = std::fs::metadata(path)?.len() as usize;
+    pub fn open(bytes: Arc<DocBytes>) -> Result<Self> {
+        let size = bytes.len();
         if size > MAX_INPUT_BYTES {
             return Err(Error::TooLarge {
                 subject: Subject::Workbook,
@@ -68,31 +75,34 @@ impl XlsxDoc {
                 limit_mb: MAX_INPUT_BYTES / 1024 / 1024,
             });
         }
-        let book = open(path)?;
+        let book = open(&bytes)?;
         let sheets = book
             .sheet_names()
             .iter()
             .map(|name| Sheet { name: name.clone() })
             .collect();
-        Ok(Self {
-            path: path.to_path_buf(),
-            sheets,
-        })
+        Ok(Self { bytes, sheets })
     }
 
     pub fn sheets(&self) -> &[Sheet] {
         &self.sheets
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn bytes(&self) -> &Arc<DocBytes> {
+        &self.bytes
     }
 }
 
-type Book = Xlsx<std::io::BufReader<std::fs::File>>;
+type Book = Xlsx<Cursor<SharedBytes>>;
 
-fn open(path: &Path) -> Result<Book> {
-    calamine::open_workbook::<Book, _>(path).map_err(|error| Error::ParseFailed {
+/// calamine asks for `Read + Seek`, which a cursor over the bytes already is.
+///
+/// It unzips a workbook out of whatever it is handed, so nothing here has to be
+/// a file — and when it is one, this reads the map the document already holds
+/// instead of opening the path a second time.
+fn open(bytes: &Arc<DocBytes>) -> Result<Book> {
+    let cursor = Cursor::new(SharedBytes::new(Arc::clone(bytes)));
+    calamine::open_workbook_from_rs::<Book, _>(cursor).map_err(|error| Error::ParseFailed {
         subject: Subject::Workbook,
         detail: error.to_string(),
     })
@@ -119,14 +129,14 @@ pub struct XlsxGrid {
     /// its own: the first formula is rarely the first value.
     formulas: RwLock<Option<(Vec<Vec<String>>, (usize, usize))>>,
     showing_formulas: RwLock<bool>,
-    path: PathBuf,
+    bytes: Arc<DocBytes>,
     name: String,
     truncated: bool,
 }
 
 impl XlsxGrid {
     pub fn open(document: &XlsxDoc, name: &str) -> Result<Self> {
-        let mut book = open(document.path())?;
+        let mut book = open(document.bytes())?;
         let range = book
             .worksheet_range(name)
             .map_err(|error| Error::ParseFailed {
@@ -149,7 +159,7 @@ impl XlsxGrid {
             columns,
             formulas: RwLock::new(None),
             showing_formulas: RwLock::new(false),
-            path: document.path().to_path_buf(),
+            bytes: Arc::clone(document.bytes()),
             name: name.to_owned(),
             truncated,
         })
@@ -189,7 +199,7 @@ impl XlsxGrid {
     /// the values, only for the formulas, and only the first time.
     pub fn set_formulas(&self, on: bool) -> Result<()> {
         if on && self.formulas.read().is_none() {
-            let mut book = open(&self.path)?;
+            let mut book = open(&self.bytes)?;
             let range = book
                 .worksheet_formula(&self.name)
                 .map_err(|error| Error::ParseFailed {
@@ -482,8 +492,17 @@ mod tests {
     // benchmark examples take with the huge files.
 
     fn fixture() -> Option<XlsxDoc> {
-        let path = std::path::Path::new("../fixtures/sample.xlsx");
-        path.exists().then(|| XlsxDoc::open(path).expect("open"))
+        Some(XlsxDoc::open(Arc::new(mapped()?)).expect("open"))
+    }
+
+    fn fixture_path() -> Option<std::path::PathBuf> {
+        let path = std::path::PathBuf::from("../fixtures/sample.xlsx");
+        path.exists().then_some(path)
+    }
+
+    /// Mapped, which is how a file arrives.
+    fn mapped() -> Option<DocBytes> {
+        Some(DocBytes::map_file(&fixture_path()?).expect("map"))
     }
 
     fn text_of(grid: &XlsxGrid, row: u32, column: u32) -> String {
@@ -585,5 +604,31 @@ mod tests {
         // And a row is a row: copying one gives the cells, tab separated.
         let row = sheet.row_text(2).expect("row").text;
         assert!(row.starts_with("라마바 유통\t10\t990.5\t9905\t"));
+    }
+
+    /// A workbook read out of a buffer is the same workbook.
+    ///
+    /// `Owned` is not another way of saying `Mapped`: it is the variant an
+    /// archive entry and a download arrive as, and the only one either of them
+    /// can be. So this is the path those two actually take, and it has to land
+    /// on the same sheets and the same cells — values and formulas both,
+    /// because the formulas are a second reading of the same bytes.
+    #[test]
+    fn a_workbook_read_from_a_buffer_is_the_same_workbook() {
+        let Some(path) = fixture_path() else { return };
+        let owned = Arc::new(DocBytes::Owned(std::fs::read(&path).expect("read")));
+        let book = XlsxDoc::open(owned).expect("open");
+
+        assert_eq!(
+            book.sheets().iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            ["매출", "비고"]
+        );
+
+        let sheet = XlsxGrid::open(&book, "매출").expect("sheet");
+        assert_eq!(text_of(&sheet, 0, 0), "이름");
+        assert_eq!(text_of(&sheet, 1, 4), "2026-08-31");
+
+        sheet.set_formulas(true).expect("formulas");
+        assert_eq!(text_of(&sheet, 1, 3), "=B2*C2");
     }
 }
