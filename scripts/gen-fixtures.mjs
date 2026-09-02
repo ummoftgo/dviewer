@@ -653,7 +653,15 @@ function sheetXml(rows) {
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
 }
 
-{
+/**
+ * The sample workbook, as bytes.
+ *
+ * Returned rather than written, because the same bytes are wanted twice: once
+ * as `sample.xlsx`, and once inside an archive — a workbook out of a zip is
+ * read from the entry's buffer, so what proves it is the *same* workbook
+ * arriving by the other road.
+ */
+function sampleWorkbook() {
   // Shared strings, which is what makes a small xlsx expand when it is read:
   // every repeat of a word is one index here and a whole string in memory.
   const strings = [
@@ -722,25 +730,25 @@ function sheetXml(rows) {
     [cellXml("C5", "s", 11), cellXml("D5", "n", 42)],
   ];
 
-  await writeFile(
-    path.join(OUT, "sample.xlsx"),
-    zipOf({
-      "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  return zipOf({
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
-      "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-      "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="매출" sheetId="1" r:id="rId1"/><sheet name="비고" sheetId="2" r:id="rId2"/></sheets></workbook>`,
-      "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
-      "xl/sharedStrings.xml": sharedStrings,
-      "xl/styles.xml": styles,
-      "xl/worksheets/sheet1.xml": sheetXml(sales),
-      "xl/worksheets/sheet2.xml": sheetXml(notes),
-    }),
-  );
-  console.log("  sample.xlsx");
+    "xl/sharedStrings.xml": sharedStrings,
+    "xl/styles.xml": styles,
+    "xl/worksheets/sheet1.xml": sheetXml(sales),
+    "xl/worksheets/sheet2.xml": sheetXml(notes),
+  });
 }
+
+const workbookBytes = sampleWorkbook();
+await writeFile(path.join(OUT, "sample.xlsx"), workbookBytes);
+console.log("  sample.xlsx");
 
 if (wantHuge) {
   // The same records the small stream has, at the size the row window exists
@@ -1001,9 +1009,23 @@ await writeFile(
     // Only the flag, not real encryption — what is under test is that the list
     // marks it and the open refuses it, neither of which reads the body.
     { name: "secret.txt", body: "not actually encrypted", flags: 1, utf8: true },
+    // Last, deliberately: `openEntry` in the smoke run opens the first entry,
+    // and that has to go on meaning `report.json`. This one is for the list —
+    // a workbook among the rows, with the badge and the click that opens it.
+    { name: "data/sales.xlsx", body: workbookBytes, utf8: true },
   ]),
 );
 console.log("  archive.zip");
+
+// One workbook and nothing else, so the single-entry unwrap opens it without a
+// list in between. The refusal this replaces was "압축 파일 안의 Excel 은 열지
+// 않습니다"; what makes it a regression test is that the tab must come up
+// showing the sheets, not the archive.
+await writeFile(
+  path.join(OUT, "workbook.zip"),
+  archiveOf([{ name: "quarter.xlsx", body: workbookBytes, utf8: true }]),
+);
+console.log("  workbook.zip");
 
 // Names in CP949 with no flag to say so — a zip from a Korean Windows machine.
 // Read as CP437 every one of these comes out as line-drawing characters.
@@ -1105,6 +1127,12 @@ const SMOKE = [
   // Archives. `archive.zip` also exercises the real entry-opening command
   // rather than the click that calls it.
   { file: "archive.zip", expect: "archive", then: "openEntry" },
+  // An archive holding one document opens that document, so what these two
+  // assert is the *inner* format — a workbook and a columnar file read out of
+  // a buffer rather than a path. `columnar.zip` comes from the Parquet example
+  // for the same reason `sample.parquet` does.
+  { file: "workbook.zip", expect: "collection" },
+  { file: "columnar.zip", expect: "collection" },
   { file: "korean-names.zip", expect: "archive" },
   { file: "zip64.zip", expect: "archive" },
   { file: "single.zip", expect: "tree" },
@@ -1123,7 +1151,7 @@ const SMOKE = [
  * It stays in the manifest because opening one is a path worth sweeping. If it
  * is absent the smoke run says so, which is the right place for that to fail.
  */
-const FROM_ELSEWHERE = new Set(["sample.parquet"]);
+const FROM_ELSEWHERE = new Set(["sample.parquet", "columnar.zip"]);
 
 const present = new Set(await (await import("node:fs/promises")).readdir(OUT));
 const missing = SMOKE.filter(

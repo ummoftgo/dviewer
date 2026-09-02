@@ -50,8 +50,11 @@ fn main() {
 
 fn write_all(dir: &Path, huge: bool, per_group: i64) {
     std::fs::create_dir_all(dir).expect("fixtures dir");
-    sample(&dir.join("sample.parquet"));
+    let path = dir.join("sample.parquet");
+    sample(&path);
     println!("  sample.parquet");
+    zipped(&path, &dir.join("columnar.zip"));
+    println!("  columnar.zip");
     if huge {
         let started = Instant::now();
         let path = dir.join("huge.parquet");
@@ -63,6 +66,23 @@ fn write_all(dir: &Path, huge: bool, per_group: i64) {
             started.elapsed()
         );
     }
+}
+
+/// The same file, inside an archive.
+///
+/// It belongs here rather than in `gen-fixtures.mjs` for the reason the Parquet
+/// fixtures do: the script cannot write the thing being wrapped. One entry, so
+/// the archive unwraps to it — what it proves is that a columnar file is read
+/// from the buffer it was unpacked into, having never been a path.
+fn zipped(source: &Path, into: &Path) {
+    use std::io::Write;
+    let bytes = std::fs::read(source).expect("read the sample back");
+    let mut writer = zip::ZipWriter::new(File::create(into).expect("create"));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    writer.start_file("sample.parquet", options).expect("entry");
+    writer.write_all(&bytes).expect("write");
+    writer.finish().expect("finish");
 }
 
 /// Every shape the reader has to get right, in a file small enough to read by
