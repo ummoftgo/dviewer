@@ -177,8 +177,9 @@ fn entry_document(
     let bytes = Arc::new(bytes);
     let kind = source::detect_kind(&title, &bytes);
 
-    // See `DocKind::needs_file`. A database, a workbook and a columnar file are
-    // read through a path, and what came out of an archive has none.
+    // See `DocKind::needs_file`. A database is queried through a path, and what
+    // came out of an archive has none. It is the only one left: a workbook and
+    // a columnar file are read out of these very bytes.
     if kind.needs_file() {
         return Err(Error::NeedsFile);
     }

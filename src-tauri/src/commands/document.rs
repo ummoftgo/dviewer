@@ -108,11 +108,13 @@ pub async fn open_url(
         (kind, encoding::verbatim(Arc::clone(&bytes)))
     };
 
-    // See `Error::NeedsFile`. Writing the download to a temporary file would
-    // make this work, and would leave the reader with a copy of a database they
-    // did not ask to keep, in a place they did not choose. An archive is not
-    // among them — its reader takes the bytes — so a zip at a URL opens, and
-    // the entries under it name that URL as their root.
+    // See `Error::NeedsFile`. A database and nothing else. Writing the download
+    // to a temporary file would make it work, and would leave the reader with a
+    // copy of a database they did not ask to keep, in a place they did not
+    // choose. Everything else that is not a run of bytes reads the buffer: a
+    // zip at a URL opens and the entries under it name that URL as their root,
+    // and so now do a workbook and a columnar file — for those two the 64MB and
+    // row-group ceilings are checked later, when the reader opens them.
     if kind.needs_file() {
         return Err(Error::NeedsFile);
     }
