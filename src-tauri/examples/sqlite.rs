@@ -1,28 +1,63 @@
 //! Timing the checkpoint index against a database too big to walk.
 //!
 //!   cargo run --release --example sqlite -- ../fixtures/huge.sqlite events
+//!   cargo run --release --example sqlite -- ../fixtures/huge.sqlite events --bytes
 //!
 //! Reports what opening a collection costs, what reaching a row deep in it
 //! costs — the two numbers the checkpoint index claims to have bought — and
 //! what a search over the whole thing costs.
+//!
+//! `--bytes` reads the same database the way an archive entry or a download
+//! arrives: the whole file in one buffer, handed to SQLite as an image. The
+//! interesting number is the first one, because that is where the two roads
+//! differ — a file is opened without being read, an image has to be there.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use std::sync::atomic::AtomicBool;
 
+use dviewer_lib::bytes::DocBytes;
 use dviewer_lib::grid::Grid;
 use dviewer_lib::query::Interpretation;
-use dviewer_lib::sqlite::{SqliteDoc, SqliteGrid};
+use dviewer_lib::sqlite::{adopt_image, SqliteDoc, SqliteGrid};
+
+/// The bytes an image is made of, if this run wants one.
+///
+/// Read up front and outside every timing below, because getting the bytes is
+/// the archive's cost and not SQLite's: an entry is already in memory by the
+/// time a database is made of it. On this machine `fs::read` of a 350MB file
+/// out of the OS cache is about 70ms, and counting it as "connect" would say
+/// the image road is a hundred times slower than the file road when what it
+/// actually is is differently shaped.
+fn image_of(path: &std::path::Path) -> Arc<DocBytes> {
+    Arc::new(adopt_image(DocBytes::Owned(
+        std::fs::read(path).expect("read"),
+    )))
+}
+
+/// The same database by either road.
+fn open(path: &str, image: Option<&Arc<DocBytes>>) -> SqliteDoc {
+    match image {
+        None => SqliteDoc::open(std::path::Path::new(path)).expect("open"),
+        Some(bytes) => SqliteDoc::open_bytes(Arc::clone(bytes)).expect("open the image"),
+    }
+}
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let path = args.next().expect("usage: sqlite <path.sqlite> <table>");
     let name = args.next().expect("usage: sqlite <path.sqlite> <table>");
+    let as_image = args.any(|arg| arg == "--bytes");
+    let image = as_image.then(|| image_of(std::path::Path::new(&path)));
 
     let started = Instant::now();
-    let database = Arc::new(SqliteDoc::open(std::path::Path::new(&path)).expect("open"));
-    println!("connect            {:>8.0?}", started.elapsed());
+    let database = Arc::new(open(&path, image.as_ref()));
+    println!(
+        "connect{:11}{:>8.0?}",
+        if as_image { " (image)" } else { "" },
+        started.elapsed()
+    );
 
     let started = Instant::now();
     let grid = SqliteGrid::open(database, &name).expect("grid");
@@ -36,7 +71,7 @@ fn main() {
     // The counterfactual: what the same row costs with no index to seek by,
     // which is the path a view and a WITHOUT ROWID table are on.
     {
-        let database = Arc::new(SqliteDoc::open(std::path::Path::new(&path)).expect("open"));
+        let database = Arc::new(open(&path, image.as_ref()));
         let deep = grid.row_count().saturating_sub(60) as i64;
         let started = Instant::now();
         let connection = database.connection();
