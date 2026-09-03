@@ -595,7 +595,7 @@ fn number_of(raw: &[u8]) -> Value<'static> {
 fn compare(left: &Value<'_>, op: Op, right: &Value<'_>) -> Result<bool> {
     if matches!(left, Value::Composite) || matches!(right, Value::Composite) {
         return Err(Error::BadPath {
-            detail: "comparing an object or an array is not supported yet;                      compare one of its values instead"
+            detail: "comparing an object or an array is not supported yet; compare one of its values instead"
                 .to_owned(),
         });
     }
@@ -854,9 +854,15 @@ mod tests {
     fn a_comparison_against_many_nodes_is_refused() {
         for source in ["@.items[*] == 1", "@..a == 1", "1 == @.items[0:2]"] {
             match parse_filter("$[?...]", source) {
-                Err(Error::BadPath { detail }) => {
-                    assert!(detail.contains("more than one node"), "{source} said {detail}")
-                }
+                // The whole sentence, not a word of it: this message is read
+                // by whoever wrote the query, and a line-continuation slip in
+                // it leaves a run of spaces that only a reader would notice.
+                Err(Error::BadPath { detail }) => assert!(
+                    detail.contains(
+                        "more than one node (a wildcard, a slice, a filter or `..` inside `[?...]`) are not supported yet"
+                    ),
+                    "{source} said {detail}"
+                ),
                 other => panic!("{source} gave {other:?}"),
             }
         }

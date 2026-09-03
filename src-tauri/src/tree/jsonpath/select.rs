@@ -686,9 +686,14 @@ mod against_the_rfc {
 
         let steps = parse("$..[?@.book == 1]").expect("parse");
         match select(&index, DOC.as_bytes(), &steps, &AtomicBool::new(false)) {
-            Err(crate::error::Error::BadPath { detail }) => {
-                assert!(detail.contains("object or an array"), "{detail}")
-            }
+            // The whole sentence. It goes to whoever wrote the query, so
+            // the spacing is part of what is under test.
+            Err(crate::error::Error::BadPath { detail }) => assert!(
+                detail.contains(
+                    "comparing an object or an array is not supported yet; compare one of its values instead"
+                ),
+                "{detail}"
+            ),
             other => panic!("{other:?}"),
         }
     }
