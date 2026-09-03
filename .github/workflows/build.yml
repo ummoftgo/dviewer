@@ -49,11 +49,12 @@ jobs:
           # test meaningful.
           sudo apt-get install -y fonts-dejavu-core
 
-      # The frontend builds identically on every runner, so the node half runs
-      # once and the other two legs stay pure Rust. `cargo test` does not need
-      # ../dist — only `tauri build` embeds it.
+      # Node runs on all three, because the fixtures below need it — but only
+      # the Linux leg installs the dependencies and builds the frontend. That
+      # half is identical on every runner, and `cargo test` does not need
+      # ../dist; only `tauri build` embeds it. 24, not the runner default:
+      # `gen-fixtures.mjs` uses `node:sqlite`, which arrived in 22.5.
       - uses: actions/setup-node@v4
-        if: runner.os == 'Linux'
         with:
           node-version: 24
           cache: npm
@@ -66,7 +67,25 @@ jobs:
       - if: runner.os == 'Linux'
         run: npm run build
 
+      # Eleven tests in `xlsx` and `parquet` read a generated fixture, and
+      # without one they step aside — so before these steps existed they
+      # reported success on every runner without asserting anything. The
+      # generator has no npm dependencies, so it runs without `npm ci`.
+      - name: Generate fixtures
+        run: node scripts/gen-fixtures.mjs
+
+      # The one fixture the generator cannot write; see the bundle job below.
+      # No `--release` here: this job has no release build to reuse, and the
+      # dev profile shares what `cargo test` is about to compile anyway.
+      - name: Generate the Parquet fixture
+        working-directory: src-tauri
+        run: cargo run --example parquet -- write ../fixtures
+
+      # And with the fixtures there, say that their absence would now be a
+      # failure rather than a quiet skip. See `src-tauri/src/testing.rs`.
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+        env:
+          DVIEWER_FIXTURES: required
 
   # Tags only. Manual runs can opt in with the `bundle` input to rehearse a
   # release without cutting one.
