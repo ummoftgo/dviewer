@@ -445,7 +445,14 @@ console.log("  sample.tsv");
 // It prints an experimental-feature warning; that is node's, not a problem here.
 // Shapes worth having: a plain table with a rowid, a table without one, a view,
 // a BLOB column, and text that is not ASCII.
-{
+/**
+ * The sample database, and its bytes.
+ *
+ * Written to a file because `node:sqlite` writes to files, then read back — so
+ * what goes into the archives below is byte-for-byte the fixture beside them.
+ * Same reason as `sampleWorkbook()`: one database, two roads in.
+ */
+async function sampleDatabase() {
   const { DatabaseSync } = await import("node:sqlite");
   const file = path.join(OUT, "sample.sqlite");
   await rm(file, { force: true });
@@ -490,7 +497,10 @@ console.log("  sample.tsv");
   setting.run("locale", "ko");
   db.close();
   console.log("  sample.sqlite");
+  return readFile(file);
 }
+
+const databaseBytes = await sampleDatabase();
 
 // A JSONC file with every shape the lenient reading has to walk past, and a
 // strict twin that differs only in having none of them — open the two side by
@@ -1013,6 +1023,7 @@ await writeFile(
     // and that has to go on meaning `report.json`. This one is for the list —
     // a workbook among the rows, with the badge and the click that opens it.
     { name: "data/sales.xlsx", body: workbookBytes, utf8: true },
+    { name: "data/app.sqlite", body: databaseBytes, utf8: true },
   ]),
 );
 console.log("  archive.zip");
@@ -1026,6 +1037,15 @@ await writeFile(
   archiveOf([{ name: "quarter.xlsx", body: workbookBytes, utf8: true }]),
 );
 console.log("  workbook.zip");
+
+// The last of the three that would not open out of an archive. A database is
+// read from an image of itself here rather than by querying a file, so what
+// this proves is that the image road works end to end.
+await writeFile(
+  path.join(OUT, "database.zip"),
+  archiveOf([{ name: "app.sqlite", body: databaseBytes, utf8: true }]),
+);
+console.log("  database.zip");
 
 // Names in CP949 with no flag to say so — a zip from a Korean Windows machine.
 // Read as CP437 every one of these comes out as line-drawing characters.
@@ -1133,6 +1153,7 @@ const SMOKE = [
   // for the same reason `sample.parquet` does.
   { file: "workbook.zip", expect: "collection" },
   { file: "columnar.zip", expect: "collection" },
+  { file: "database.zip", expect: "collection" },
   { file: "korean-names.zip", expect: "archive" },
   { file: "zip64.zip", expect: "archive" },
   { file: "single.zip", expect: "tree" },
