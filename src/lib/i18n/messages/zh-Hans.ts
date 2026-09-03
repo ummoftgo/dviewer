@@ -203,7 +203,7 @@ export const zhHans: Messages = {
   "search.regex": "正则",
   "search.regex.title": "以正则表达式查找 — 在单个键或单个值内匹配",
   "search.jsonPath": "表达式",
-  "search.jsonPath.title": "用 JSONPath 表达式选择节点 — $.items[0].name、$..title",
+  "search.jsonPath.title": "用 JSONPath 表达式选择节点 — $.items[0].name、$..title、$..book[?@.price<10]",
   "search.prev": "上一个结果 (Shift+Enter)",
   "search.prevLabel": "上一个结果",
   "search.next": "下一个结果 (Enter)",

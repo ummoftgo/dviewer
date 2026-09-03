@@ -203,7 +203,7 @@ export const ja: Messages = {
   "search.regex": "正規表現",
   "search.regex.title": "正規表現で探す — キーひとつ、値ひとつの中で照合します",
   "search.jsonPath": "式",
-  "search.jsonPath.title": "JSONPath 式でノードを選びます — $.items[0].name, $..title",
+  "search.jsonPath.title": "JSONPath 式でノードを選びます — $.items[0].name, $..title, $..book[?@.price<10]",
   "search.prev": "前の結果 (Shift+Enter)",
   "search.prevLabel": "前の結果",
   "search.next": "次の結果 (Enter)",

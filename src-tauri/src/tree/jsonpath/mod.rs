@@ -11,11 +11,20 @@
 //! bytes. Walking the index instead costs nothing extra, because the index
 //! already knows a node's children and its key.
 //!
-//! **A named subset, and the rest refused out loud.** `$`, `.key`, `["key"]`,
-//! `[n]`, `[*]`, `.*` and `..`. Filter expressions (`?()`), slices (`[1:3]`)
-//! and unions (`[0,2]`) are not here — and an expression that uses one is an
-//! error rather than a quietly different answer, because a wrong answer that
-//! looks like an answer is the worst thing this could do.
+//! **Every selector RFC 9535 defines**, and the rest refused out loud. `$`,
+//! `.key`, `["key"]`, `[n]` (from either end), `[start:end:step]`, `[a, b]`,
+//! `[?<expr>]`, `[*]`, `.*` and `..`. What is not here is the five function
+//! extensions — `length()`, `count()`, `match()`, `search()`, `value()` — and
+//! comparing whole objects or arrays.
+//!
+//! An expression that reaches for one of those is an error rather than a
+//! quietly different answer, because a wrong answer that looks like an answer
+//! is the worst thing this could do.
+//!
+//! One deliberate departure: the RFC lets a union hand back the same node
+//! twice (`[0, 0]`), and this does not. A viewer highlights nodes, and
+//! highlighting one twice says nothing — results are in document order with no
+//! repeats, the way every other step here already worked.
 
 //! Split by concern: `parse` turns the text into steps, `select` walks the
 //! index applying them. What is shared is here — the step type both sides
