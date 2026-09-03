@@ -118,7 +118,7 @@ pub fn search(
     // An expression selects nodes rather than matching text, so it is neither
     // a scan nor a walk that compares — it is an evaluation.
     if options.how == Interpretation::JsonPath {
-        return select_by_path(bytes, index, options, on_batch);
+        return select_by_path(bytes, index, options, cancel, on_batch);
     }
     // Paths are synthesised, so they need a tree walk rather than a byte scan.
     if options.scope == SearchScope::Paths {
@@ -272,14 +272,16 @@ fn room(
 
 /// Evaluate a JSONPath expression and report what it selected.
 ///
-/// No cancel flag is consulted, and it needs none: an expression narrows at
-/// every step, so the work is bounded by what it selects rather than by the
-/// size of the file. The one step that widens — `..` — takes a subtree as a
-/// range, because a subtree is contiguous in this index.
+/// Most of an expression narrows at every step, so the work is bounded by what
+/// it selects rather than by the size of the file — and `..`, the one step
+/// that widens, takes a subtree as a range because a subtree is contiguous in
+/// this index. A **filter** is the exception: `$..[?@.id > 1]` asks a question
+/// of every node there is, so the flag goes down with it.
 fn select_by_path(
     bytes: &[u8],
     index: &Arc<TreeIndex>,
     options: &SearchOptions,
+    cancel: &AtomicBool,
     mut on_batch: impl FnMut(&[SearchHit], usize),
 ) -> Result<SearchResult> {
     if index.syntax == Syntax::Xml {
@@ -288,7 +290,7 @@ fn select_by_path(
         });
     }
     let steps = jsonpath::parse(&options.query)?;
-    let selected = jsonpath::select(index, bytes, &steps);
+    let selected = jsonpath::select(index, bytes, &steps, cancel)?;
 
     let capped = selected.len() > MAX_HITS;
     let hits: Vec<SearchHit> = selected
@@ -1111,7 +1113,10 @@ mod tests {
     #[test]
     fn an_expression_this_does_not_do_is_refused() {
         let index = build(DOC);
-        for (query, expected) in [("$[?(@.price<10)]", "filter"), ("items", "start at `$`")] {
+        for (query, expected) in [
+            ("$[?length(@.title) > 2]", "length()"),
+            ("items", "start at `$`"),
+        ] {
             let options = SearchOptions {
                 query: query.to_owned(),
                 case_sensitive: false,

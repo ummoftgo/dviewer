@@ -21,16 +21,19 @@
 //! index applying them. What is shared is here — the step type both sides
 //! speak in, and the one error this module can raise.
 
-mod parse;
+mod filter;
+pub(crate) mod parse;
 mod select;
 
+pub use filter::Expr;
 pub use parse::parse;
 pub use select::select;
 
 use crate::error::Error;
 
 /// One step of an expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Not `Eq`: a filter may hold a floating-point literal, and `f64` is not.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Step {
     /// `.name` or `["name"]` — the children of an object under that key.
     Key(String),
@@ -47,6 +50,8 @@ pub enum Step {
     },
     /// `[*]` or `.*` — every child.
     Any,
+    /// `[?<expr>]` — the children the expression is true of.
+    Filter(Expr),
     /// `[a, b, …]` — everything any of the selectors inside names.
     ///
     /// Holds steps rather than a narrower type of its own, because the things

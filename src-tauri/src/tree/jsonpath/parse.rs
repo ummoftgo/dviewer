@@ -3,7 +3,8 @@
 //! One pass, left to right. Every refusal names what it found and where,
 //! because the reader is holding an expression they believe in.
 
-use super::{bad, unsupported, Step};
+use super::filter::parse_filter;
+use super::{bad, Step};
 use crate::error::Result;
 
 /// Parse an expression, or say why it cannot be one.
@@ -76,11 +77,17 @@ fn bracket(source: &str, chars: &mut Chars<'_>) -> Result<Step> {
     let mut inner = String::new();
     let mut closed = false;
     let mut quote: Option<char> = None;
+    let mut depth = 0usize;
     for (_, ch) in chars.by_ref() {
         match quote {
             Some(q) if ch == q => quote = None,
             Some(_) => {}
             None if ch == '\'' || ch == '"' => quote = Some(ch),
+            // A bracket may hold another one: a filter's query has brackets
+            // of its own (`[?@.items[0] == 1]`). Stopping at the first `]`
+            // would cut that filter in half.
+            None if ch == '[' => depth += 1,
+            None if ch == ']' && depth > 0 => depth -= 1,
             None if ch == ']' => {
                 closed = true;
                 break;
@@ -95,6 +102,14 @@ fn bracket(source: &str, chars: &mut Chars<'_>) -> Result<Step> {
         return Err(bad(source, "a `[` with no `]`"));
     }
 
+    bracket_step(source, &inner)
+}
+
+/// What one `[...]` means, for whoever has already found its contents.
+///
+/// Shared with `filter`, whose queries may hold brackets of their own — the
+/// two readings have to agree about what `['a']` and `[-1]` are.
+pub(crate) fn bracket_step(source: &str, inner: &str) -> Result<Step> {
     let trimmed = inner.trim();
     let parts = split_selectors(trimmed);
     if parts.len() > 1 {
@@ -118,8 +133,8 @@ fn selector(source: &str, trimmed: &str) -> Result<Step> {
     }
     // The parts of the syntax this does not do. Naming them is the point: a
     // reader who wrote one gets told, rather than getting a shorter answer.
-    if trimmed.starts_with('?') {
-        return Err(unsupported(source, "filter expressions `[?(...)]`"));
+    if let Some(body) = trimmed.strip_prefix('?') {
+        return parse_filter(source, body).map(Step::Filter);
     }
     if trimmed.contains(':') {
         return slice(source, trimmed);
@@ -349,7 +364,12 @@ mod tests {
     /// filter should be told it is not there, not handed a shorter answer.
     #[test]
     fn what_is_not_supported_is_refused_by_name() {
-        for (source, expected) in [("$[?(@.a==1)]", "filter")] {
+        for (source, expected) in [
+            ("$[?length(@.a) > 2]", "length()"),
+            ("$[?count(@.a[*]) == 1]", "count()"),
+            ("$[?match(@.a, 'x')]", "match()"),
+            ("$[?@.items[*] == 1]", "more than one node"),
+        ] {
             match parse(source) {
                 Err(Error::BadPath { detail }) => {
                     assert!(detail.contains(expected), "{source} said {detail}")

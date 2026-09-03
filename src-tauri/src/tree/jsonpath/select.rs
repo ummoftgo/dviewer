@@ -4,7 +4,11 @@
 //! Nothing here builds a document — a step is a question about the index,
 //! and the index already knows a node's children and its key.
 
+use std::sync::atomic::AtomicBool;
+
+use super::filter::{matches, Budget};
 use super::Step;
+use crate::error::{Error, Result};
 use crate::tree::index::TreeIndex;
 use crate::tree::text;
 
@@ -13,11 +17,31 @@ use crate::tree::text;
 /// The root is where the document starts — node 0, or its children when the
 /// scanner wrapped several top-level values in a synthetic array, because in
 /// that case `$` means the file rather than the wrapper this app invented.
-pub fn select(index: &TreeIndex, bytes: &[u8], steps: &[Step]) -> Vec<u32> {
+pub fn select(
+    index: &TreeIndex,
+    bytes: &[u8],
+    steps: &[Step],
+    cancel: &AtomicBool,
+) -> Result<Vec<u32>> {
     if index.nodes.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    let mut current = vec![0u32];
+    select_from(index, bytes, vec![0u32], steps, &mut Budget::new(cancel))
+}
+
+/// The same, starting somewhere other than the root.
+///
+/// A filter's own query starts at the node being asked about, and shares this
+/// walk rather than having one of its own — `@.a.b` inside a filter has to
+/// mean what `.a.b` means outside it.
+pub(crate) fn select_from(
+    index: &TreeIndex,
+    bytes: &[u8],
+    from: Vec<u32>,
+    steps: &[Step],
+    budget: &mut Budget<'_>,
+) -> Result<Vec<u32>> {
+    let mut current = from;
     let mut at = 0usize;
 
     while at < steps.len() {
@@ -32,7 +56,7 @@ pub fn select(index: &TreeIndex, bytes: &[u8], steps: &[Step]) -> Vec<u32> {
             // called `name` is by definition a child of its parent, so the
             // answer is a pass over the subtree testing keys — not the children
             // of every node in it, which would allocate a list per node.
-            Step::Descend if matches!(steps.get(at + 1), Some(Step::Key(_))) => {
+            Step::Descend if matches_key(steps.get(at + 1)) => {
                 let Some(Step::Key(name)) = steps.get(at + 1) else {
                     unreachable!("just matched")
                 };
@@ -48,18 +72,22 @@ pub fn select(index: &TreeIndex, bytes: &[u8], steps: &[Step]) -> Vec<u32> {
             }
             // `..*` is every node under here except the one we started from,
             // since every other node in a subtree is some node's child.
-            Step::Descend if matches!(steps.get(at + 1), Some(Step::Any)) => {
+            Step::Descend if std::matches!(steps.get(at + 1), Some(Step::Any)) => {
                 for &id in &current {
                     let Some(node) = index.node(id) else { continue };
                     next.extend(id + 1..id + node.subtree_size);
                 }
                 at += 2;
             }
+            // Everything else after `..`, filters included. The step is
+            // applied at each node of the subtree as the walk reaches it, so
+            // nothing is collected only to be thrown away: `next` grows by
+            // what matched, not by what was considered.
             Step::Descend if at + 1 < steps.len() => {
                 for &id in &current {
                     let Some(node) = index.node(id) else { continue };
                     for descendant in id..id + node.subtree_size {
-                        apply(index, bytes, &steps[at + 1], descendant, &mut next);
+                        apply(index, bytes, &steps[at + 1], descendant, &mut next, budget)?;
                     }
                 }
                 at += 2;
@@ -74,10 +102,16 @@ pub fn select(index: &TreeIndex, bytes: &[u8], steps: &[Step]) -> Vec<u32> {
             }
             step => {
                 for &id in &current {
-                    apply(index, bytes, step, id, &mut next);
+                    apply(index, bytes, step, id, &mut next, budget)?;
                 }
                 at += 1;
             }
+        }
+        // The steps that only narrow are bounded by what they select, but `..`
+        // is bounded by the file, so one look between steps costs nothing and
+        // keeps a `$..` over 38 million nodes answerable.
+        if budget.cancelled() {
+            return Err(Error::Cancelled);
         }
         next.sort_unstable();
         next.dedup();
@@ -86,11 +120,24 @@ pub fn select(index: &TreeIndex, bytes: &[u8], steps: &[Step]) -> Vec<u32> {
             break;
         }
     }
-    current
+    Ok(current)
+}
+
+/// Whether the next step is a name, spelled out because `matches!` is shadowed
+/// here by the filter's own `matches`.
+fn matches_key(step: Option<&Step>) -> bool {
+    std::matches!(step, Some(Step::Key(_)))
 }
 
 /// One step, applied to one node, appending what it selects.
-fn apply(index: &TreeIndex, bytes: &[u8], step: &Step, id: u32, out: &mut Vec<u32>) {
+fn apply(
+    index: &TreeIndex,
+    bytes: &[u8],
+    step: &Step,
+    id: u32,
+    out: &mut Vec<u32>,
+    budget: &mut Budget<'_>,
+) -> Result<()> {
     match step {
         Step::Any => out.extend(children(index, id)),
         Step::Index(nth) => {
@@ -103,7 +150,17 @@ fn apply(index: &TreeIndex, bytes: &[u8], step: &Step, id: u32, out: &mut Vec<u3
         // `[0,0]` and `[1,0]` both give one node and document order.
         Step::Union(selectors) => {
             for selector in selectors {
-                apply(index, bytes, selector, id, out);
+                apply(index, bytes, selector, id, out, budget)?;
+            }
+        }
+        // The question is asked of the children, one at a time, and only the
+        // answers are kept. No list of candidates is built — over `$..[?...]`
+        // that list would be every node in the document.
+        Step::Filter(expr) => {
+            for child in children(index, id) {
+                if matches(index, bytes, expr, child, budget)? {
+                    out.push(child);
+                }
             }
         }
         Step::Slice { start, end, step } => {
@@ -129,6 +186,7 @@ fn apply(index: &TreeIndex, bytes: &[u8], step: &Step, id: u32, out: &mut Vec<u3
             }
         }
     }
+    Ok(())
 }
 
 /// Which child a `[n]` means, or none if it is past either end.
@@ -331,24 +389,22 @@ mod against_a_real_shape {
     /// Descent followed by two keys, which is what a reader actually types.
     #[test]
     fn descent_then_two_keys() {
-        let index = index();
         let steps = parse("$..owner.team").expect("parse");
         assert_eq!(
             steps,
             [Step::Descend, Step::Key("owner".into()), Step::Key("team".into())]
         );
-        let found = select(&index, DOC.as_bytes(), &steps);
+        let found = ids("$..owner.team");
         assert_eq!(found.len(), 2, "one team per item");
 
         // And the long way round gives the same nodes.
-        let spelled = parse("$.items[*].meta.owner.team").expect("parse");
-        assert_eq!(select(&index, DOC.as_bytes(), &spelled), found);
+        assert_eq!(ids("$.items[*].meta.owner.team"), found);
     }
 
     fn ids(source: &str) -> Vec<u32> {
         let index = index();
         let steps = parse(source).expect("parse");
-        select(&index, DOC.as_bytes(), &steps)
+        select(&index, DOC.as_bytes(), &steps, &AtomicBool::new(false)).expect("select")
     }
 
     /// Over a real array, and against the long way round: `[-1]` and `[1:2]`
@@ -401,5 +457,229 @@ mod against_a_real_shape {
 
         // A union may hold a slice, and the answer is the same either way.
         assert_eq!(ids("$.items[0:1,1:2]"), both);
+    }
+}
+
+/// The example document from RFC 9535 §1.5, and the answers its own tables
+/// give — plus `expensive`, which §2.3.5.3 uses to show a filter reaching
+/// outside the run it is filtering.
+#[cfg(test)]
+mod against_the_rfc {
+    use super::super::parse;
+    use super::*;
+    use crate::tree::index::{Syntax, TreeIndex};
+    use crate::tree::scanner::{scan, ScanLimits};
+    use crate::tree::text;
+    use std::sync::Arc;
+
+    const DOC: &str = r#"{
+        "store": {
+            "book": [
+                { "category": "reference",
+                  "author": "Nigel Rees",
+                  "title": "Sayings of the Century",
+                  "price": 8.95 },
+                { "category": "fiction",
+                  "author": "Evelyn Waugh",
+                  "title": "Sword of Honour",
+                  "price": 12.99 },
+                { "category": "fiction",
+                  "author": "Herman Melville",
+                  "title": "Moby Dick",
+                  "isbn": "0-553-21311-3",
+                  "price": 8.99 },
+                { "category": "fiction",
+                  "author": "J. R. R. Tolkien",
+                  "title": "The Lord of the Rings",
+                  "isbn": "0-395-19395-8",
+                  "price": 22.99 }
+            ],
+            "bicycle": { "color": "red", "price": 399 }
+        },
+        "expensive": 10
+    }"#;
+
+    fn index() -> Arc<TreeIndex> {
+        let scanned =
+            scan(DOC.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).expect("scan");
+        Arc::new(TreeIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json))
+    }
+
+    /// What an expression selects, as the values a reader would see.
+    fn values(source: &str) -> Vec<String> {
+        let index = index();
+        let steps = parse(source).expect(source);
+        let found = select(&index, DOC.as_bytes(), &steps, &AtomicBool::new(false)).expect(source);
+        found
+            .iter()
+            .map(|id| {
+                let node = index.node(*id).expect("node");
+                text::decode_scalar(DOC.as_bytes(), node).0
+            })
+            .collect()
+    }
+
+    /// The titles of what an expression selected, for the queries that select
+    /// whole books.
+    fn titles(source: &str) -> Vec<String> {
+        values(&format!("{source}.title"))
+    }
+
+    #[test]
+    fn the_filters_from_the_rfc() {
+        // §2.3.5.3: every book cheaper than ten.
+        assert_eq!(
+            titles("$..book[?@.price<10]"),
+            ["Sayings of the Century", "Moby Dick"]
+        );
+        // The idiomatic spelling of the same thing.
+        assert_eq!(titles("$..book[?(@.price < 10)]"), titles("$..book[?@.price<10]"));
+
+        // Existence: the two books that have an ISBN.
+        assert_eq!(titles("$..book[?@.isbn]"), ["Moby Dick", "The Lord of the Rings"]);
+        // And the two that do not.
+        assert_eq!(
+            titles("$..book[?!@.isbn]"),
+            ["Sayings of the Century", "Sword of Honour"]
+        );
+
+        // A string comparison.
+        assert_eq!(
+            titles("$.store.book[?@.author == 'Nigel Rees']"),
+            ["Sayings of the Century"]
+        );
+
+        // Reaching outside the run being filtered. The bicycle is in here too,
+        // because `$..` visits it: everything priced above `$.expensive`.
+        assert_eq!(
+            values("$..[?@.price > $.expensive].price"),
+            ["12.99", "22.99", "399"]
+        );
+
+        // Logic, and both spellings of grouping.
+        assert_eq!(
+            titles("$..book[?@.price < 10 && @.category == 'fiction']"),
+            ["Moby Dick"]
+        );
+        assert_eq!(
+            titles("$..book[?@.isbn || @.price < 9]"),
+            ["Sayings of the Century", "Moby Dick", "The Lord of the Rings"]
+        );
+        assert_eq!(titles("$..book[?!(@.price < 20)]"), ["The Lord of the Rings"]);
+    }
+
+    #[test]
+    fn the_other_selectors_over_the_same_document() {
+        // §2.3.3, §2.3.4, §2.3.6 against the book array.
+        assert_eq!(titles("$..book[-1]"), ["The Lord of the Rings"]);
+        assert_eq!(
+            titles("$..book[0,1]"),
+            ["Sayings of the Century", "Sword of Honour"]
+        );
+        assert_eq!(
+            titles("$..book[:2]"),
+            ["Sayings of the Century", "Sword of Honour"]
+        );
+        assert_eq!(
+            titles("$..book[::2]"),
+            ["Sayings of the Century", "Moby Dick"]
+        );
+        assert_eq!(titles("$..book[1:3]"), ["Sword of Honour", "Moby Dick"]);
+        // Reversed, and back in document order.
+        assert_eq!(titles("$..book[::-1]").len(), 4);
+        // A union of a name and an index over one book.
+        assert_eq!(
+            values("$..book[0]['author','category']"),
+            ["reference", "Nigel Rees"],
+            "in document order, which is where the keys are"
+        );
+    }
+
+    /// Numbers compare as numbers however each side was written, and a
+    /// comparison between two different kinds of thing is simply false.
+    #[test]
+    fn the_comparison_rules_the_rfc_lays_down() {
+        // 8.95 < 10 with one written whole and one not.
+        assert_eq!(titles("$..book[?@.price < 8.99]"), ["Sayings of the Century"]);
+        assert_eq!(titles("$..book[?@.price <= 8.99]").len(), 2);
+
+        // A string against a number: never equal, and never ordered.
+        assert!(titles("$..book[?@.title < 10]").is_empty());
+        assert!(titles("$..book[?@.title == 10]").is_empty());
+        assert_eq!(titles("$..book[?@.title != 10]").len(), 4, "and so all differ");
+
+        // A missing value equals a missing value and nothing else.
+        assert_eq!(titles("$..book[?@.isbn == @.nothing]").len(), 2, "the two without");
+        assert!(titles("$..book[?@.isbn == 'x']").is_empty());
+        assert!(titles("$..book[?@.nothing < 1]").is_empty(), "unordered");
+
+        // A filter asks its question of the *children* of where it is, so
+        // reaching the bicycle's colour means filtering `store`, not the
+        // bicycle — whose children are already the scalars.
+        assert_eq!(values("$.store[?@.color == 'red'].color"), ["red"]);
+        assert!(values("$.store.bicycle[?@.color == 'red']").is_empty());
+    }
+
+    /// A value longer than a row can show is still compared whole.
+    ///
+    /// This is the defect the test exists for: the display path cuts a scalar
+    /// at `VALUE_PREVIEW_CHARS`, and comparing the cut text would make two
+    /// strings that differ only after it come back equal.
+    #[test]
+    fn a_long_value_is_compared_to_its_end() {
+        let long = "x".repeat(text::VALUE_PREVIEW_CHARS + 200);
+        let other = format!("{long}-and-more");
+        let doc = format!(
+            r#"{{ "rows": [ {{ "v": "{long}" }}, {{ "v": "{other}" }} ] }}"#
+        );
+        let scanned =
+            scan(doc.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).expect("scan");
+        let index = Arc::new(TreeIndex::new(
+            scanned.nodes,
+            scanned.synthetic_root,
+            Syntax::Json,
+        ));
+        let idle = AtomicBool::new(false);
+
+        let hits = |source: &str| {
+            let steps = parse(source).expect(source);
+            select(&index, doc.as_bytes(), &steps, &idle).expect(source).len()
+        };
+
+        // Both strings share their first `VALUE_PREVIEW_CHARS` characters, so
+        // a comparison over the preview would find two of each of these.
+        assert_eq!(hits(&format!("$.rows[?@.v == '{long}']")), 1);
+        assert_eq!(hits(&format!("$.rows[?@.v == '{other}']")), 1);
+        assert_eq!(hits(&format!("$.rows[?@.v != '{long}']")), 1);
+    }
+
+    /// A filter is the one step whose cost follows the file, so it has to be
+    /// possible to give up on it.
+    #[test]
+    fn a_filter_can_be_cancelled() {
+        let index = index();
+        let steps = parse("$..[?@.price > 0]").expect("parse");
+        let cancelled = AtomicBool::new(true);
+        assert!(std::matches!(
+            select(&index, DOC.as_bytes(), &steps, &cancelled),
+            Err(crate::error::Error::Cancelled)
+        ));
+    }
+
+    /// Comparing whole objects is not here, and says so rather than answering
+    /// "no" to every node.
+    #[test]
+    fn comparing_two_objects_is_refused_rather_than_answered() {
+        let index = index();
+        let steps = parse("$..book[?@.price == @.nothing.deeper]").expect("parse");
+        assert!(select(&index, DOC.as_bytes(), &steps, &AtomicBool::new(false)).is_ok());
+
+        let steps = parse("$..[?@.book == 1]").expect("parse");
+        match select(&index, DOC.as_bytes(), &steps, &AtomicBool::new(false)) {
+            Err(crate::error::Error::BadPath { detail }) => {
+                assert!(detail.contains("object or an array"), "{detail}")
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }
