@@ -34,8 +34,17 @@ use crate::error::Error;
 pub enum Step {
     /// `.name` or `["name"]` — the children of an object under that key.
     Key(String),
-    /// `[n]` — the nth child, counted the way the file writes it.
-    Index(u32),
+    /// `[n]` — the nth child, counted the way the file writes it. Negative
+    /// counts from the end, so `[-1]` is the last child.
+    Index(i64),
+    /// `[start:end:step]` — a run of children. Any of the three may be left
+    /// out, and `step` may be negative; see `select::slice_stride` for what
+    /// the combinations mean.
+    Slice {
+        start: Option<i64>,
+        end: Option<i64>,
+        step: i64,
+    },
     /// `[*]` or `.*` — every child.
     Any,
     /// `..` — the node itself and everything under it, which the next step

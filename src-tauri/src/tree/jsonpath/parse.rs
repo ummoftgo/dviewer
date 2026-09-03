@@ -99,24 +99,61 @@ fn bracket(source: &str, chars: &mut Chars<'_>) -> Result<Step> {
     if trimmed == "*" {
         return Ok(Step::Any);
     }
+    // A quoted name is tested first, and that is not cosmetic: a key may hold
+    // any of the characters the shapes below are recognised by. `['a:b']` is a
+    // name, not a slice.
+    if let Some(name) = quoted(trimmed) {
+        return Ok(Step::Key(name));
+    }
     // The parts of the syntax this does not do. Naming them is the point: a
     // reader who wrote one gets told, rather than getting a shorter answer.
     if trimmed.starts_with('?') {
         return Err(unsupported(source, "filter expressions `[?(...)]`"));
     }
-    if trimmed.contains(':') {
-        return Err(unsupported(source, "slices `[1:3]`"));
-    }
     if trimmed.contains(',') {
         return Err(unsupported(source, "unions `[0,2]`"));
     }
-    if let Some(name) = quoted(trimmed) {
-        return Ok(Step::Key(name));
+    if trimmed.contains(':') {
+        return slice(source, trimmed);
     }
     trimmed
-        .parse::<u32>()
+        .parse::<i64>()
         .map(Step::Index)
         .map_err(|_| bad(source, &format!("`[{trimmed}]` is neither an index nor a name")))
+}
+
+/// `[start:end:step]`, with any of the three left out.
+///
+/// Only the shape is read here. What the numbers *mean* — which of them count
+/// from the end, what an absent one defaults to, which direction the run goes
+/// — depends on the length of the array, which is not known until a node is
+/// in hand. That belongs to `select::slice_stride`.
+fn slice(source: &str, trimmed: &str) -> Result<Step> {
+    let parts: Vec<&str> = trimmed.split(':').collect();
+    if parts.len() > 3 {
+        return Err(bad(
+            source,
+            &format!("`[{trimmed}]` has more than `start:end:step`"),
+        ));
+    }
+
+    let number = |part: &str| -> Result<Option<i64>> {
+        let part = part.trim();
+        if part.is_empty() {
+            return Ok(None);
+        }
+        part.parse::<i64>()
+            .map(Some)
+            .map_err(|_| bad(source, &format!("`{part}` in `[{trimmed}]` is not a whole number")))
+    };
+
+    Ok(Step::Slice {
+        start: number(parts[0])?,
+        end: number(parts[1])?,
+        // An absent step is 1. A step of 0 selects nothing rather than looping
+        // forever, which is what the RFC says and also the only safe reading.
+        step: parts.get(2).copied().map(number).transpose()?.flatten().unwrap_or(1),
+    })
 }
 
 fn quoted(text: &str) -> Option<String> {
@@ -145,6 +182,7 @@ mod tests {
         assert_eq!(steps("$[\"a b\"]"), [Step::Key("a b".into())]);
         assert_eq!(steps("$['a.b']"), [Step::Key("a.b".into())]);
         assert_eq!(steps("$[3]"), [Step::Index(3)]);
+        assert_eq!(steps("$[-1]"), [Step::Index(-1)]);
         assert_eq!(steps("$[*]"), [Step::Any]);
         assert_eq!(steps("$.*"), [Step::Any]);
         assert_eq!(steps("$..a"), [Step::Descend, Step::Key("a".into())]);
@@ -169,15 +207,57 @@ mod tests {
         );
     }
 
+    fn slice(source: &str) -> (Option<i64>, Option<i64>, i64) {
+        match parse(source).expect("parse").remove(0) {
+            Step::Slice { start, end, step } => (start, end, step),
+            other => panic!("{source} gave {other:?}"),
+        }
+    }
+
+    /// The shapes a slice can be written in. What they *mean* needs an array
+    /// to mean it against, and that is tested in `select`.
+    #[test]
+    fn a_slice_may_leave_any_of_its_three_out() {
+        assert_eq!(slice("$[1:3]"), (Some(1), Some(3), 1));
+        assert_eq!(slice("$[1:]"), (Some(1), None, 1));
+        assert_eq!(slice("$[:3]"), (None, Some(3), 1));
+        assert_eq!(slice("$[:]"), (None, None, 1));
+        assert_eq!(slice("$[::]"), (None, None, 1));
+        assert_eq!(slice("$[1:5:2]"), (Some(1), Some(5), 2));
+        assert_eq!(slice("$[::-1]"), (None, None, -1));
+        assert_eq!(slice("$[-3:-1]"), (Some(-3), Some(-1), 1));
+        assert_eq!(slice("$[ 1 : 3 ]"), (Some(1), Some(3), 1), "spaces are allowed");
+        // A step of zero parses. It selects nothing, which is the RFC's answer
+        // and the only one that ends.
+        assert_eq!(slice("$[::0]"), (None, None, 0));
+    }
+
+    /// A key may hold any of the characters a slice is recognised by, so the
+    /// quotes are what decide. This used to read `['a:b']` as a slice and
+    /// refuse it.
+    #[test]
+    fn a_quoted_name_is_a_name_whatever_is_in_it() {
+        assert_eq!(steps("$['a:b']"), [Step::Key("a:b".into())]);
+        assert_eq!(steps("$['1:3']"), [Step::Key("1:3".into())]);
+        assert_eq!(steps("$[\"-1\"]"), [Step::Key("-1".into())]);
+        assert_eq!(steps("$['*']"), [Step::Key("*".into())]);
+    }
+
+    #[test]
+    fn a_slice_that_is_not_numbers_is_refused() {
+        for source in ["$[1:x]", "$[a:]", "$[1:2:3:4]", "$[1.5:]"] {
+            assert!(
+                matches!(parse(source), Err(Error::BadPath { .. })),
+                "{source} should not parse"
+            );
+        }
+    }
+
     /// What the subset does not cover is refused by name. A reader who wrote a
     /// filter should be told it is not there, not handed a shorter answer.
     #[test]
     fn what_is_not_supported_is_refused_by_name() {
-        for (source, expected) in [
-            ("$[?(@.a==1)]", "filter"),
-            ("$[1:3]", "slice"),
-            ("$[0,2]", "union"),
-        ] {
+        for (source, expected) in [("$[?(@.a==1)]", "filter"), ("$[0,2]", "union")] {
             match parse(source) {
                 Err(Error::BadPath { detail }) => {
                     assert!(detail.contains(expected), "{source} said {detail}")

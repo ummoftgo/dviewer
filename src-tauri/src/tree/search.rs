@@ -1058,10 +1058,30 @@ mod tests {
         // A bracketed name is the same as a dotted one.
         assert_eq!(run_path(DOC, "$[\"store\"][\"bicycle\"][\"price\"]").len(), 1);
 
+        // From the end, and a run of them. Both reach the nodes the plain
+        // index reaches, through the whole search rather than just the parser.
+        let last = run_path(DOC, "$.store.book[1].title");
+        assert_eq!(value(&last[0]), "나");
+        assert_eq!(
+            run_path(DOC, "$.store.book[-1].title")
+                .iter()
+                .map(value)
+                .collect::<Vec<_>>(),
+            ["나"]
+        );
+        assert_eq!(
+            run_path(DOC, "$.store.book[:1].title")
+                .iter()
+                .map(value)
+                .collect::<Vec<_>>(),
+            ["가"]
+        );
+
         // A name nothing has selects nothing, which is an answer.
         assert!(run_path(DOC, "$.store.missing").is_empty());
         // And so does an index past the end.
         assert!(run_path(DOC, "$.store.book[9]").is_empty());
+        assert!(run_path(DOC, "$.store.book[-9]").is_empty());
     }
 
     /// `$` on its own is the document, and `..` on its own is everything.
@@ -1091,11 +1111,7 @@ mod tests {
     #[test]
     fn an_expression_this_does_not_do_is_refused() {
         let index = build(DOC);
-        for (query, expected) in [
-            ("$[?(@.price<10)]", "filter"),
-            ("$.store.book[0:1]", "slice"),
-            ("items", "start at `$`"),
-        ] {
+        for (query, expected) in [("$[?(@.price<10)]", "filter"), ("items", "start at `$`")] {
             let options = SearchOptions {
                 query: query.to_owned(),
                 case_sensitive: false,
