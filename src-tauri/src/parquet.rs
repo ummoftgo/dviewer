@@ -585,17 +585,17 @@ mod tests {
 
     // --- against the fixture ------------------------------------------------
     //
-    // `cargo run --release --example parquet -- write ../fixtures` writes it,
-    // and the repository does not keep it. Without it there is nothing to
-    // assert, so these step aside rather than fail.
+    // `cargo run --example parquet -- write ../fixtures` writes it, and the
+    // repository does not keep it. Without it there is nothing to assert, so
+    // these step aside rather than fail — unless the run says the fixtures are
+    // required. See `crate::testing`.
 
     fn fixture() -> Option<ParquetDoc> {
         Some(ParquetDoc::open(Arc::new(mapped()?)).expect("open"))
     }
 
     fn fixture_path() -> Option<std::path::PathBuf> {
-        let path = std::path::PathBuf::from("../fixtures/sample.parquet");
-        path.exists().then_some(path)
+        crate::testing::fixture("sample.parquet")
     }
 
     /// Mapped, which is how a file arrives.

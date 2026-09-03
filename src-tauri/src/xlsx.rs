@@ -488,16 +488,16 @@ mod tests {
     //
     // These read `fixtures/sample.xlsx`, which `scripts/gen-fixtures.mjs`
     // writes and the repository does not keep. Without it there is nothing to
-    // assert, so they step aside rather than fail — the same bargain the
-    // benchmark examples take with the huge files.
+    // assert, so they step aside rather than fail — unless the run says the
+    // fixtures are required, which is how CI says the stepping aside would be
+    // a hole rather than a convenience. See `crate::testing`.
 
     fn fixture() -> Option<XlsxDoc> {
         Some(XlsxDoc::open(Arc::new(mapped()?)).expect("open"))
     }
 
     fn fixture_path() -> Option<std::path::PathBuf> {
-        let path = std::path::PathBuf::from("../fixtures/sample.xlsx");
-        path.exists().then_some(path)
+        crate::testing::fixture("sample.xlsx")
     }
 
     /// Mapped, which is how a file arrives.

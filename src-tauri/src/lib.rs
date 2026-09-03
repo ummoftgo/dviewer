@@ -21,6 +21,8 @@ pub mod xlsx;
 pub mod xml;
 
 mod commands;
+#[cfg(test)]
+mod testing;
 mod window;
 
 // Public for the same reason as the modules above: `examples/table.rs` decides
