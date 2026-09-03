@@ -822,11 +822,47 @@ mod tests {
         path
     }
 
+    /// A directory of this test's own, named by `tag`.
+    ///
+    /// The tag has to be unique across the whole module, and that is checked
+    /// here rather than left to whoever adds the next one. This function
+    /// *wipes* the directory it hands back, so two tests sharing a tag delete
+    /// each other's databases — and because the runner interleaves them, the
+    /// result is a test that fails sometimes. One did, once, on the run before
+    /// a release, and passed every time it was looked at.
+    ///
+    /// Failing here instead turns that into a failure that happens every time
+    /// and names the tag.
     fn temp_dir(tag: &str) -> PathBuf {
+        static TAKEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        {
+            let mut taken = TAKEN.lock();
+            assert!(
+                !taken.iter().any(|already| already == tag),
+                "two tests both asked for the temporary directory {tag:?}, \
+                 which this function empties before handing it over. They \
+                 would delete each other's files, and only on the runs where \
+                 they happen to overlap. Give one of them another tag.",
+            );
+            taken.push(tag.to_owned());
+        }
+
         let dir = std::env::temp_dir().join(format!("dviewer-sqlite-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir
+    }
+
+    /// And the guard itself guards.
+    ///
+    /// The tag here is used by nothing else, on purpose: this test proves the
+    /// second call fails, so a tag anyone else took would make it pass for the
+    /// wrong reason.
+    #[test]
+    #[should_panic(expected = "\"twice-on-purpose\"")]
+    fn two_tests_cannot_share_a_temporary_directory() {
+        temp_dir("twice-on-purpose");
+        temp_dir("twice-on-purpose");
     }
 
     /// Tables first, then views, each in name order — and SQLite's own
