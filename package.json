@@ -1,6 +1,6 @@
 {
   "name": "dviewer",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Markdown / JSON document viewer",
   "type": "module",
   "scripts": {
