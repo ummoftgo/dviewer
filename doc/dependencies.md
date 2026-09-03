@@ -17,6 +17,7 @@ Vite 8은 번들러가 rollup에서 rolldown으로 바뀌었고 esbuild를 더 �
 | `encoding_rs` | 인코딩 변환 | Gecko의 구현. Encoding Standard를 그대로 따르므로 브라우저가 읽는 것과 같게 읽습니다 |
 | `chardetng` | 인코딩 추측 | Firefox가 레거시 웹 콘텐츠에 쓰는 판별기 |
 | `toml` | TOML 파싱 | `preserve_order` 를 켜서 테이블 키 순서를 파일 그대로 유지합니다 |
+| `rusqlite` | SQLite 읽기 | `bundled` 로 SQLite 자체를 동봉합니다 — 기계마다 다른 버전을 읽는 뷰어는 뜻이 없습니다. `serialize` 는 압축 파일 안과 주소의 데이터베이스를 열려고 켜습니다. `Connection::deserialize_bytes` 하나를 쓰기 위해서이고, 그것이 `SQLITE_DESERIALIZE_READONLY` 로 버퍼를 제자리에서 읽게 해 사본을 없액니다. 기능 플래그뿐이라 `Cargo.lock` 은 한 줄도 바뀌지 않습니다 |
 | `calamine` | xlsx 읽기 | 순수 Rust 이고 시트를 이름만 먼저 훑을 수 있습니다. `dates` 기능을 켜서 Excel 의 일련번호를 날짜로 옮기는 일을 맡깁니다 — 1900년을 윤년으로 치는 Excel 의 오래된 버릇까지 포함해서, 직접 짜면 미묘하게 틀리기 쉬운 계산입니다 |
 | `parquet` | Parquet 읽기·쓰기 | **arrow 없이** 씁니다(`default-features = false`). arrow 리더는 컬럼 배치를 만드는 모양이라 백 행을 보여주는 일과 맞지 않고, 그걸 얻자고 의존이 두 배가 됩니다. 코덱은 실무에서 쓰이는 것 전부 — `flate2-rust_backend` 는 숨은 기능인데 이미 여기 있는 백엔드라 GZIP 이 공짜이고(기본값 `flate2-zlib-rs` 는 zlib-rs 를 새로 끌어옵니다), brotli 도 이미 트리에 있습니다 |
 | `zip` | 압축 파일 읽기 | **이미 트리에 있습니다** — `calamine` 이 xlsx 를 풀려고 씁니다. 직접 의존으로 적은 뒤 `Cargo.lock` 의 diff 는 `zip` 한 줄뿐이고 새 crate 는 0개입니다. 값이 0이라서 빌립니다 — 넓고 미묘한 표면(zip64, 데이터 디스크립터, CP437 이름, 암호 플래그)을 직접 쓸 이유가 없습니다. 코덱은 deflate 만: 실제 압축 파일이 쓰는 것이고, 나머지는 형식마다 압축기를 하나씩 더 끌어옵니다. (참고: `parquet` 항목의 zlib-rs 회피는 여기에 해당하지 않습니다. `calamine` 쪽 zip 이 이미 켜서 들어와 있습니다) |
