@@ -102,6 +102,7 @@ The technical documentation lives in `doc/` (Korean).
 - Pattern search is slower than literal search, because it looks at values one at a time: about 1.5 seconds over a 300MB CSV, against 0.05 for a literal. It can be interrupted.
 - Only a comment that starts its own line becomes a note. A remark after a value on the same line, or one before a closing brace, is not shown — attaching either to what follows would explain the wrong thing.
 - JSONPath has every selector but **none of the function extensions** — `length()`, `count()`, `match()`, `search()` and `value()` raise an error that names what is missing. Neither is comparing whole objects or arrays against each other. A union returns document order with no repeats: the RFC allows `[0,0]` to yield the same node twice, but highlighting one node twice says nothing.
+- A JSONPath index or slice near the end **is walked to from the front.** Children sit end to end in the index, so reaching the nth means stepping over the ones before it: `[-1]` or `[1000000:]` costs what scrolling to that row costs — 14ms over a 2.4-million-item array. A slice pays for that walk once however many it selects; a union pays once per part.
 - JSONPath is not offered for XML. An XML path is XPath-shaped, so an expression would mean something else there.
 - Literal search folds case in the ASCII range only. The regular-expression side follows Unicode, as the crate does.
 - Markdown rendering up to 16MB. Larger files do not open.

@@ -608,6 +608,16 @@ mod against_the_rfc {
         assert!(titles("$..book[?@.title == 10]").is_empty());
         assert_eq!(titles("$..book[?@.title != 10]").len(), 4, "and so all differ");
 
+        // An integer too wide for `i64` became a float, and it still has to
+        // compare as the large number it is rather than as an error or a zero.
+        assert_eq!(titles("$..book[?@.price < 9223372036854775808]").len(), 4);
+        assert!(titles("$..book[?@.price > 9223372036854775808]").is_empty());
+        assert_eq!(
+            titles("$..book[?9223372036854775808 > 1]").len(),
+            4,
+            "true of every child, however wide the number was written"
+        );
+
         // A missing value equals a missing value and nothing else.
         assert_eq!(titles("$..book[?@.isbn == @.nothing]").len(), 2, "the two without");
         assert!(titles("$..book[?@.isbn == 'x']").is_empty());
