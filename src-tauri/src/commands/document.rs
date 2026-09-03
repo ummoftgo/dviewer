@@ -90,7 +90,6 @@ pub async fn open_url(
     // A `.gz` served as bytes arrives compressed; `Content-Encoding: gzip` is
     // already undone by the HTTP client, so this only sees the former.
     let (bytes, title) = source::ungzip(DocBytes::from(fetched.bytes), &fetched.title)?;
-    let bytes = Arc::new(bytes);
     let id = state.next_id();
 
     // The formats that are not text at all are recognised before the detector
@@ -99,6 +98,13 @@ pub async fn open_url(
     // character that says what format it is — so those are decoded first and
     // the server's content type is consulted over the result.
     let kind = source::detect_kind(&title, &bytes);
+    // The same adoption an archive entry gets; see
+    // `commands::archive::entry_document`.
+    let bytes = Arc::new(if kind == DocKind::Sqlite {
+        crate::sqlite::adopt_image(bytes)
+    } else {
+        bytes
+    });
     let (kind, decoded) = if kind.reads_bytes() {
         let decoded = encoding::decode(Arc::clone(&bytes));
         let kind =
@@ -108,16 +114,6 @@ pub async fn open_url(
         (kind, encoding::verbatim(Arc::clone(&bytes)))
     };
 
-    // See `Error::NeedsFile`. A database and nothing else. Writing the download
-    // to a temporary file would make it work, and would leave the reader with a
-    // copy of a database they did not ask to keep, in a place they did not
-    // choose. Everything else that is not a run of bytes reads the buffer: a
-    // zip at a URL opens and the entries under it name that URL as their root,
-    // and so now do a workbook and a columnar file — for those two the 64MB and
-    // row-group ceilings are checked later, when the reader opens them.
-    if kind.needs_file() {
-        return Err(Error::NeedsFile);
-    }
     if kind == DocKind::Zip {
         let opened = super::open_archive(id, bytes, title, DocSource::Url { url })?;
         return Ok(state.insert(window.label(), opened).meta());

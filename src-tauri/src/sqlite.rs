@@ -698,7 +698,22 @@ const WAL: u8 = 2;
 /// look at — `DocKind::reads_bytes` is false for it, so there is no raw view
 /// and no encoding to re-pick — and the length is untouched, so the status bar
 /// still says what arrived.
-pub fn adopt_image(bytes: &mut [u8]) {
+///
+/// A mapped file is handed back untouched, and that is not defensiveness: a
+/// file is opened as a file, so it never becomes an image — and writing
+/// through the map would edit the reader's own database on disk.
+pub fn adopt_image(bytes: DocBytes) -> DocBytes {
+    match bytes {
+        DocBytes::Owned(mut image) => {
+            adopt_header(&mut image);
+            DocBytes::Owned(image)
+        }
+        mapped => mapped,
+    }
+}
+
+/// The two-byte edit itself.
+fn adopt_header(bytes: &mut [u8]) {
     let Some(versions) = bytes.get_mut(VERSION_BYTES) else {
         // Too short to be a database at all. Whatever it is, SQLite will say
         // so more usefully than a header edit would.
@@ -1228,9 +1243,8 @@ lines', 'tab\there', -7, 0.5, x'');",
     // both of them arrive as, and the only one either can be.
 
     fn image_of(path: &Path) -> Arc<DocBytes> {
-        let mut bytes = std::fs::read(path).expect("read");
-        adopt_image(&mut bytes);
-        Arc::new(DocBytes::Owned(bytes))
+        let bytes = DocBytes::Owned(std::fs::read(path).expect("read"));
+        Arc::new(adopt_image(bytes))
     }
 
     /// The same database, read from a buffer instead of a file.
@@ -1354,16 +1368,16 @@ lines', 'tab\there', -7, 0.5, x'');",
     fn adopting_an_image_touches_two_bytes_and_only_when_it_must() {
         // Too short to hold a header: left alone rather than indexed into.
         let mut stub = vec![0u8; 19];
-        adopt_image(&mut stub);
+        adopt_header(&mut stub);
         assert_eq!(stub, vec![0u8; 19]);
 
         let mut rollback = header_with(ROLLBACK);
         let before = rollback.clone();
-        adopt_image(&mut rollback);
+        adopt_header(&mut rollback);
         assert_eq!(rollback, before, "a rollback image is already readable");
 
         let mut wal = header_with(WAL);
-        adopt_image(&mut wal);
+        adopt_header(&mut wal);
         assert_eq!(&wal[VERSION_BYTES], &[ROLLBACK, ROLLBACK]);
         assert_eq!(&wal[..18], &header_with(WAL)[..18], "nothing else moves");
         assert_eq!(&wal[20..], &header_with(WAL)[20..]);
@@ -1371,8 +1385,28 @@ lines', 'tab\there', -7, 0.5, x'');",
         // Idempotent: the two call sites are not the same document, but a
         // second pass over one must not undo or double anything.
         let once = wal.clone();
-        adopt_image(&mut wal);
+        adopt_header(&mut wal);
         assert_eq!(wal, once);
+    }
+
+    /// A mapped file is handed back as it is — the reader's database on disk
+    /// is not something this app writes to, ever.
+    #[test]
+    fn a_mapped_file_is_never_edited() {
+        let dir = temp_dir("mapped");
+        let path = dir.join("wal-header.sqlite");
+        std::fs::write(&path, header_with(WAL)).expect("write");
+
+        let mapped = DocBytes::map_file(&path).expect("map");
+        let after = adopt_image(mapped);
+        assert!(matches!(after, DocBytes::Mapped(_)));
+        assert_eq!(&after[VERSION_BYTES], &[WAL, WAL], "in memory");
+        drop(after);
+        assert_eq!(
+            &std::fs::read(&path).expect("read back")[VERSION_BYTES],
+            &[WAL, WAL],
+            "and on disk",
+        );
     }
 
     fn header_with(version: u8) -> Vec<u8> {

@@ -323,7 +323,6 @@ export const ja: Messages = {
   "error.tooDeep": "{subject} のネストが深すぎます (最大 {limit})。",
   "error.notReady": "まだ{subject}を読み込んでいます。",
   "error.wrongView": "この形式は{subject}として表示できません。",
-  "error.needsFile": "データベースはファイルに問い合わせて読みます。ダウンロードしてから、そのファイルを開いてください。",
   "error.notInterchangeable": "データベースと他の形式は互いに読み替えられません。",
   "error.noSuchNode": "該当する項目が見つかりません。",
   "error.noSuchCell": "該当するセルが見つかりません。",

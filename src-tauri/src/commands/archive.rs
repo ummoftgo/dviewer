@@ -174,15 +174,17 @@ fn entry_document(
     // is a gzip member once it is out, and this is the same call a `.gz` on
     // disk goes through.
     let (bytes, title) = source::ungzip(DocBytes::from(body), name)?;
-    let bytes = Arc::new(bytes);
     let kind = source::detect_kind(&title, &bytes);
+    // A database arriving as bytes is an image, and an image whose header says
+    // "write-ahead log" cannot be read from one. See `sqlite::adopt_image` —
+    // and see `commands::document::open_url`, which does the same for a
+    // download. Both, or one of the two roads in stays closed.
+    let bytes = Arc::new(if kind == DocKind::Sqlite {
+        crate::sqlite::adopt_image(bytes)
+    } else {
+        bytes
+    });
 
-    // See `DocKind::needs_file`. A database is queried through a path, and what
-    // came out of an archive has none. It is the only one left: a workbook and
-    // a columnar file are read out of these very bytes.
-    if kind.needs_file() {
-        return Err(Error::NeedsFile);
-    }
     // An archive at the limit would be a tab whose every row is refused. Saying
     // so here, where there is still a list to say it on, is better than opening
     // a window onto nothing.
@@ -328,19 +330,28 @@ mod tests {
         assert!(matches!(doc.meta().source, DocSource::ArchiveEntry { .. }));
     }
 
-    /// The one refusal that stays, and the reason it stays: a database is
-    /// queried through a path, and what came out of an archive has none. The
-    /// same refusal a downloaded one gets, for the same reason.
+    /// A database out of an archive opens too, and it was the last one that
+    /// did not.
+    ///
+    /// The refusal this replaces — `NeedsFile` — no longer exists as a value,
+    /// so restoring the old assertion does not compile. That is the lock: the
+    /// variant cannot come back without someone meaning it to.
     #[test]
-    fn a_database_entry_is_refused_rather_than_unpacked_to_disk() {
+    fn a_database_entry_opens_from_the_bytes_it_came_out_as() {
         let magic = b"SQLite format 3\0and the rest of a header".to_vec();
-        let result = entry_document(
+        let doc = entry_document(
             1,
             magic,
             "app.sqlite",
             file_source().entry(0, "app.sqlite".to_owned()).expect("chain"),
+        )
+        .expect("open");
+
+        assert_eq!(doc.kind(), DocKind::Sqlite);
+        assert!(
+            matches!(doc.meta().source, DocSource::ArchiveEntry { .. }),
+            "it stays an entry rather than becoming a file somewhere",
         );
-        assert!(matches!(result, Err(Error::NeedsFile)));
     }
 
     /// The whole way through, not only the last step: a zip holding one

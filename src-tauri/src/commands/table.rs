@@ -246,12 +246,15 @@ pub fn sqlite_collections(
         });
     }
 
-    let DocSource::File { path } = &doc.meta().source else {
-        // A database is a file on disk. There is nothing to connect to in a
-        // downloaded buffer or a pasted string.
-        return Err(Error::UnsupportedScheme);
-    };
-    let database = Arc::new(crate::sqlite::SqliteDoc::open(std::path::Path::new(path))?);
+    // A file is opened as a file: SQLite reads it a page at a time, which is
+    // why a 2GB database opens as fast as a small one, and the `immutable=1`
+    // and journal decisions only mean something when there is a file to make
+    // them about. Anything else — an archive entry, a download — is handed to
+    // SQLite as an image of a database instead.
+    let database = Arc::new(match &doc.meta().source {
+        DocSource::File { path } => crate::sqlite::SqliteDoc::open(std::path::Path::new(path))?,
+        _ => crate::sqlite::SqliteDoc::open_bytes(doc.bytes())?,
+    });
     let items = database.collections().to_vec();
     doc.set_database(database);
     Ok(Collections { items })
