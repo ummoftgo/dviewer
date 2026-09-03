@@ -1323,7 +1323,7 @@ lines', 'tab\there', -7, 0.5, x'');",
     /// this half fails first and says so.
     #[test]
     fn a_write_ahead_log_image_is_read_as_a_rollback_one() {
-        let dir = temp_dir("wal");
+        let dir = temp_dir("wal-image");
         let path = dir.join("wal.sqlite");
         {
             let connection = Connection::open(&path).expect("create");
