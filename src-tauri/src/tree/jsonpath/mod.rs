@@ -47,6 +47,15 @@ pub enum Step {
     },
     /// `[*]` or `.*` — every child.
     Any,
+    /// `[a, b, …]` — everything any of the selectors inside names.
+    ///
+    /// Holds steps rather than a narrower type of its own, because the things
+    /// a comma may separate are exactly the things a bracket may hold. The
+    /// parser is what keeps that true: it builds a union only out of what it
+    /// read inside one `[...]`, so `Descend` and a nested `Union` never
+    /// appear here, and a bracket with one selector in it is that selector
+    /// rather than a union of one.
+    Union(Vec<Step>),
     /// `..` — the node itself and everything under it, which the next step
     /// then applies to. On its own at the end it selects the whole subtree.
     Descend,

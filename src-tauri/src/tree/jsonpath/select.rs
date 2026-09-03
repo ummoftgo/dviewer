@@ -98,6 +98,14 @@ fn apply(index: &TreeIndex, bytes: &[u8], step: &Step, id: u32, out: &mut Vec<u3
                 out.extend(index.children(id, position, 1));
             }
         }
+        // Each selector applied to the same node. The results are sorted and
+        // deduplicated with everything else at the end of the step, so
+        // `[0,0]` and `[1,0]` both give one node and document order.
+        Step::Union(selectors) => {
+            for selector in selectors {
+                apply(index, bytes, selector, id, out);
+            }
+        }
         Step::Slice { start, end, step } => {
             // A node that has no children gives an empty stride, so a slice
             // over a scalar needs no special case.
@@ -372,5 +380,26 @@ mod against_a_real_shape {
         // A slice over something that is not an array is nothing.
         assert!(ids("$.count[0:2]").is_empty());
         assert!(ids("$.count[-1]").is_empty());
+    }
+
+    /// A union is the union: every node any of its selectors names, once each
+    /// and in document order.
+    #[test]
+    fn a_union_gathers_without_repeating() {
+        let both = ids("$.items[*]");
+        assert_eq!(both.len(), 2);
+        assert_eq!(ids("$.items[0,1]"), both);
+        assert_eq!(ids("$.items[1,0]"), both, "the order asked for does not matter");
+        assert_eq!(ids("$.items[0,0]"), ids("$.items[0]"), "and neither does repeating");
+        assert_eq!(ids("$.items[0,-1]"), both, "counted from both ends");
+        assert_eq!(ids("$.items[0,9]"), ids("$.items[0]"), "a part that names nothing");
+
+        // Names and indices in one bracket, over the wrapper object.
+        let named = ids("$['generated','count']");
+        assert_eq!(named.len(), 2);
+        assert_eq!(named, ids("$[\"count\",\"generated\"]"));
+
+        // A union may hold a slice, and the answer is the same either way.
+        assert_eq!(ids("$.items[0:1,1:2]"), both);
     }
 }

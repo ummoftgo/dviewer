@@ -96,12 +96,23 @@ fn bracket(source: &str, chars: &mut Chars<'_>) -> Result<Step> {
     }
 
     let trimmed = inner.trim();
+    let parts = split_selectors(trimmed);
+    if parts.len() > 1 {
+        let mut selectors = Vec::with_capacity(parts.len());
+        for part in parts {
+            selectors.push(selector(source, part.trim())?);
+        }
+        return Ok(Step::Union(selectors));
+    }
+    selector(source, trimmed)
+}
+
+/// One selector: what may stand alone in a bracket, or between two commas.
+fn selector(source: &str, trimmed: &str) -> Result<Step> {
     if trimmed == "*" {
         return Ok(Step::Any);
     }
-    // A quoted name is tested first, and that is not cosmetic: a key may hold
-    // any of the characters the shapes below are recognised by. `['a:b']` is a
-    // name, not a slice.
+    // A quoted name is tested first here too, and for the same reason.
     if let Some(name) = quoted(trimmed) {
         return Ok(Step::Key(name));
     }
@@ -110,9 +121,6 @@ fn bracket(source: &str, chars: &mut Chars<'_>) -> Result<Step> {
     if trimmed.starts_with('?') {
         return Err(unsupported(source, "filter expressions `[?(...)]`"));
     }
-    if trimmed.contains(',') {
-        return Err(unsupported(source, "unions `[0,2]`"));
-    }
     if trimmed.contains(':') {
         return slice(source, trimmed);
     }
@@ -120,6 +128,41 @@ fn bracket(source: &str, chars: &mut Chars<'_>) -> Result<Step> {
         .parse::<i64>()
         .map(Step::Index)
         .map_err(|_| bad(source, &format!("`[{trimmed}]` is neither an index nor a name")))
+}
+
+/// Cut a bracket's contents at its top-level commas.
+///
+/// Not `split(',')`: a comma may be inside a quoted name (`['a,b']`) or inside
+/// a filter (`[?@.a=='x,y']`), and cutting there would make two halves of one
+/// selector. So quotes and brackets are counted, and only a comma outside all
+/// of them separates.
+fn split_selectors(inner: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut quote: Option<char> = None;
+    let mut depth = 0usize;
+
+    for (at, ch) in inner.char_indices() {
+        match quote {
+            // A closing quote. Escapes inside a name are the scanner's
+            // business, not this one's — what matters here is only where the
+            // name ends.
+            Some(q) if ch == q => quote = None,
+            Some(_) => {}
+            None => match ch {
+                '\'' | '"' => quote = Some(ch),
+                '(' | '[' => depth += 1,
+                ')' | ']' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    parts.push(&inner[start..at]);
+                    start = at + 1;
+                }
+                _ => {}
+            },
+        }
+    }
+    parts.push(&inner[start..]);
+    parts
 }
 
 /// `[start:end:step]`, with any of the three left out.
@@ -253,11 +296,60 @@ mod tests {
         }
     }
 
+    /// A comma separates selectors, and what may stand between two commas is
+    /// what may stand alone in a bracket.
+    #[test]
+    fn a_union_holds_whatever_a_bracket_holds() {
+        assert_eq!(
+            steps("$[0,2]"),
+            [Step::Union(vec![Step::Index(0), Step::Index(2)])]
+        );
+        assert_eq!(
+            steps("$['a','b']"),
+            [Step::Union(vec![Step::Key("a".into()), Step::Key("b".into())])]
+        );
+        // Mixed, spaced, and with the shapes from the two steps before this.
+        assert_eq!(
+            steps("$[0, -1, 'name', *, 1:3]"),
+            [Step::Union(vec![
+                Step::Index(0),
+                Step::Index(-1),
+                Step::Key("name".into()),
+                Step::Any,
+                Step::Slice { start: Some(1), end: Some(3), step: 1 },
+            ])]
+        );
+        // One selector is that selector, not a union of one.
+        assert_eq!(steps("$[0]"), [Step::Index(0)]);
+    }
+
+    /// A comma inside a name is part of the name. `split(',')` would make two
+    /// selectors out of one, and neither half would parse.
+    #[test]
+    fn a_comma_inside_quotes_does_not_separate() {
+        assert_eq!(steps("$['a,b']"), [Step::Key("a,b".into())]);
+        assert_eq!(
+            steps("$['a,b', 'c']"),
+            [Step::Union(vec![Step::Key("a,b".into()), Step::Key("c".into())])]
+        );
+        assert_eq!(steps("$[\"x, y\"]"), [Step::Key("x, y".into())]);
+    }
+
+    #[test]
+    fn a_union_with_a_part_that_is_not_a_selector_is_refused() {
+        for source in ["$[0,]", "$[,0]", "$[0,x]", "$[0,,1]"] {
+            assert!(
+                matches!(parse(source), Err(Error::BadPath { .. })),
+                "{source} should not parse"
+            );
+        }
+    }
+
     /// What the subset does not cover is refused by name. A reader who wrote a
     /// filter should be told it is not there, not handed a shorter answer.
     #[test]
     fn what_is_not_supported_is_refused_by_name() {
-        for (source, expected) in [("$[?(@.a==1)]", "filter"), ("$[0,2]", "union")] {
+        for (source, expected) in [("$[?(@.a==1)]", "filter")] {
             match parse(source) {
                 Err(Error::BadPath { detail }) => {
                     assert!(detail.contains(expected), "{source} said {detail}")
