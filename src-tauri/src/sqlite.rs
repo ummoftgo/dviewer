@@ -10,6 +10,7 @@
 //! cell copying and the virtual scroll are all reused. Only where the rows come
 //! from changes.
 
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,9 +18,10 @@ use std::sync::Arc;
 use crate::query::{Interpretation, Matcher};
 
 use parking_lot::{Mutex, MutexGuard};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, MAIN_DB};
 use serde::Serialize;
 
+use crate::bytes::DocBytes;
 use crate::error::{Error, Result};
 use crate::grid::Grid;
 use crate::table::{
@@ -37,7 +39,87 @@ pub struct Collection {
     pub is_view: bool,
 }
 
-/// An open database, and the file it came from.
+/// Where a database is read from.
+///
+/// A file is read the way SQLite reads files — a page at a time, through the
+/// operating system — which is the whole reason a 2GB database opens as fast as
+/// a small one. An archive entry or a download has no file, so its bytes are
+/// handed to SQLite as an *image* instead: one buffer, read in place.
+enum Backing {
+    File {
+        /// Kept so a second connection can be opened on the same terms. See
+        /// `SqliteDoc::open` for what the terms mean.
+        uri: String,
+    },
+    /// The document's own bytes, shared rather than copied. Both connections
+    /// read this same buffer, and neither takes a copy of it.
+    Image(Arc<DocBytes>),
+}
+
+/// A connection, and whatever it is reading from.
+///
+/// For a file this is just a connection. For an image it is a connection *and*
+/// the buffer under it, because `sqlite3_deserialize` does not take ownership
+/// of what it is given — SQLite goes on reading those bytes for as long as the
+/// connection is open, so something has to keep them alive that long.
+///
+/// The field order is the guarantee: Rust drops fields in declaration order, so
+/// the connection closes before the buffer it was reading is let go.
+pub struct Handle {
+    connection: Connection,
+    _image: Option<Arc<DocBytes>>,
+}
+
+impl Handle {
+    /// A connection over a file. Nothing to carry.
+    fn over_file(connection: Connection) -> Self {
+        Self {
+            connection,
+            _image: None,
+        }
+    }
+
+    /// A connection over an image, read in place.
+    ///
+    /// `SQLITE_DESERIALIZE_READONLY` (what `deserialize_bytes` sets) means
+    /// SQLite reads the buffer where it lies and never writes to or frees it —
+    /// so this costs no copy, and the 512MB an archive entry may be is the
+    /// only ceiling in play.
+    ///
+    /// The connection itself is a fresh in-memory database rather than a
+    /// read-only one: a read-only in-memory database is empty and cannot be
+    /// deserialized into. Read-only-ness comes from the flag above.
+    fn over_image(image: Arc<DocBytes>) -> Result<Self> {
+        let mut connection = Connection::open_in_memory().map_err(open_failed)?;
+
+        // SAFETY: `deserialize_bytes` asks for `&'static [u8]` because SQLite
+        // will read the buffer for as long as the connection lives. It does not
+        // live forever, but it does outlive the connection: `_image` holds the
+        // `Arc` that owns these bytes, and the field order above drops the
+        // connection first. The bytes are never written to — neither by SQLite,
+        // which has the read-only flag, nor by anything here: an `Arc<DocBytes>`
+        // hands out no `&mut`.
+        let bytes: &'static [u8] = unsafe { std::mem::transmute::<&[u8], &[u8]>(&image) };
+        connection
+            .deserialize_bytes(MAIN_DB, bytes)
+            .map_err(open_failed)?;
+
+        Ok(Self {
+            connection,
+            _image: Some(image),
+        })
+    }
+}
+
+impl Deref for Handle {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+/// An open database, and where it came from.
 ///
 /// The connection is behind a lock because a SQLite connection cannot be used
 /// from two threads at once — and because the state every window shares has to
@@ -48,10 +130,8 @@ pub struct Collection {
 /// scan would make the viewport wait on a search, which is the one thing a
 /// reader must always be able to do.
 pub struct SqliteDoc {
-    /// Kept so a second connection can be opened to the same database on the
-    /// same terms. See `SqliteDoc::open` for what the terms mean.
-    uri: String,
-    connection: Mutex<Connection>,
+    backing: Backing,
+    connection: Mutex<Handle>,
     collections: Vec<Collection>,
 }
 
@@ -67,12 +147,27 @@ impl SqliteDoc {
     /// since. A viewer that silently drops recent data is worse than one that
     /// takes a shared lock, so when there is a journal we read it.
     pub fn open(path: &Path) -> Result<Self> {
-        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
-        let uri = connection_uri(path);
-        let connection = Connection::open_with_flags(&uri, flags).map_err(open_failed)?;
+        Self::backed_by(Backing::File {
+            uri: connection_uri(path),
+        })
+    }
+
+    /// Open an image of a database: an archive entry, or a download.
+    ///
+    /// Everything above about `immutable=1` and journals is about files, and
+    /// none of it applies here — there is no `-wal` beside a zip entry, so the
+    /// image is the whole of what there is to read. A database whose header
+    /// still says "write-ahead log" is handled before it gets here; see
+    /// `adopt_image`.
+    pub fn open_bytes(bytes: Arc<DocBytes>) -> Result<Self> {
+        Self::backed_by(Backing::Image(bytes))
+    }
+
+    fn backed_by(backing: Backing) -> Result<Self> {
+        let connection = connect_to(&backing)?;
         let collections = list_collections(&connection)?;
         Ok(Self {
-            uri,
+            backing,
             connection: Mutex::new(connection),
             collections,
         })
@@ -82,18 +177,19 @@ impl SqliteDoc {
     /// enough that the shared one must stay free.
     ///
     /// Read-only and cheap — SQLite opens a connection without reading the
-    /// file beyond its header — and independent, so a scan on one does not
-    /// block a viewport query on the other.
-    pub fn connect(&self) -> Result<Connection> {
-        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
-        Connection::open_with_flags(&self.uri, flags).map_err(open_failed)
+    /// file beyond its header, and an image is read where it already is — and
+    /// independent, so a scan on one does not block a viewport query on the
+    /// other. Two connections over one image is two readers of the same
+    /// buffer, not two copies of it.
+    pub fn connect(&self) -> Result<Handle> {
+        connect_to(&self.backing)
     }
 
     pub fn collections(&self) -> &[Collection] {
         &self.collections
     }
 
-    pub fn connection(&self) -> MutexGuard<'_, Connection> {
+    pub fn connection(&self) -> MutexGuard<'_, Handle> {
         self.connection.lock()
     }
 
@@ -568,6 +664,65 @@ fn sibling(path: &Path, name: &str) -> PathBuf {
 }
 
 /// The `file:` URI to open the database with.
+/// Where the file format version bytes live in a SQLite header.
+///
+/// 18 is the write version and 19 the read version; 1 means the rollback
+/// journal, 2 means the write-ahead log. The header is 100 bytes and every
+/// database begins with one.
+const VERSION_BYTES: std::ops::Range<usize> = 18..20;
+const ROLLBACK: u8 = 1;
+const WAL: u8 = 2;
+
+/// Make an image of a database readable where it lies.
+///
+/// A database whose header says "write-ahead log" cannot be read from a buffer.
+/// SQLite's in-memory VFS has no shared-memory support, so opening one asks for
+/// a `-wal` it cannot have — and the failure does not come from
+/// `sqlite3_deserialize`, which returns success, but from the first page the
+/// first query touches, as `unable to open database file`. Measured, not
+/// guessed: see the WAL test below.
+///
+/// So the two version bytes are set back to the rollback journal's value. This
+/// is the same judgement the file path already makes with `immutable=1`, which
+/// tells SQLite to ignore the write-ahead log outright — and it is safer here
+/// than there, because an image has no `-wal` beside it to ignore. Whatever was
+/// in one was either checkpointed into these bytes before they were archived or
+/// was never going to arrive.
+///
+/// Called on the buffer before it becomes an `Arc`, from the two places a
+/// document can arrive as bytes: `commands::archive::entry_document` and
+/// `commands::document::open_url`. Both, or an archived database opens and a
+/// downloaded one does not.
+///
+/// Nothing else sees the change. A database is not a run of bytes a reader can
+/// look at — `DocKind::reads_bytes` is false for it, so there is no raw view
+/// and no encoding to re-pick — and the length is untouched, so the status bar
+/// still says what arrived.
+pub fn adopt_image(bytes: &mut [u8]) {
+    let Some(versions) = bytes.get_mut(VERSION_BYTES) else {
+        // Too short to be a database at all. Whatever it is, SQLite will say
+        // so more usefully than a header edit would.
+        return;
+    };
+    for version in versions {
+        if *version == WAL {
+            *version = ROLLBACK;
+        }
+    }
+}
+
+/// One connection over whichever backing this document has.
+fn connect_to(backing: &Backing) -> Result<Handle> {
+    match backing {
+        Backing::File { uri } => {
+            let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
+            let connection = Connection::open_with_flags(uri, flags).map_err(open_failed)?;
+            Ok(Handle::over_file(connection))
+        }
+        Backing::Image(bytes) => Handle::over_image(Arc::clone(bytes)),
+    }
+}
+
 fn connection_uri(path: &Path) -> String {
     // Percent-encode everything a URI cannot carry literally. Windows paths
     // bring backslashes and drive letters, and a filename may hold a `?` or a
@@ -1065,5 +1220,166 @@ lines', 'tab\there', -7, 0.5, x'');",
         let copied = grid.cell_text(0, 1).expect("cell text");
         assert_eq!(copied.text.len(), 100 * 2 + 3, "every byte, and no size");
         assert!(!copied.truncated);
+    }
+
+    // --- read from an image ---------------------------------------------------
+    //
+    // The path an archive entry and a download take. `Owned` is the variant
+    // both of them arrive as, and the only one either can be.
+
+    fn image_of(path: &Path) -> Arc<DocBytes> {
+        let mut bytes = std::fs::read(path).expect("read");
+        adopt_image(&mut bytes);
+        Arc::new(DocBytes::Owned(bytes))
+    }
+
+    /// The same database, read from a buffer instead of a file.
+    ///
+    /// Everything a file answers has to come back the same: the collections in
+    /// the same order, the rows of a table, and — because a view and a
+    /// WITHOUT ROWID table take the counting path rather than the seeking one
+    /// — those too.
+    #[test]
+    fn a_database_read_from_an_image_is_the_same_database() {
+        let dir = temp_dir("image");
+        let path = write_db(
+            &dir,
+            "app.sqlite",
+            "CREATE TABLE zebra (id INTEGER PRIMARY KEY, name TEXT);
+             INSERT INTO zebra (name) VALUES ('가나다'), ('라마바');
+             CREATE TABLE alpha (code TEXT PRIMARY KEY) WITHOUT ROWID;
+             INSERT INTO alpha VALUES ('a'), ('b'), ('c');
+             CREATE VIEW recent AS SELECT * FROM zebra;",
+        );
+
+        let from_file = Arc::new(SqliteDoc::open(&path).expect("open the file"));
+        let from_image =
+            Arc::new(SqliteDoc::open_bytes(image_of(&path)).expect("open the image"));
+
+        let names = |doc: &SqliteDoc| -> Vec<(String, bool)> {
+            doc.collections()
+                .iter()
+                .map(|c| (c.name.clone(), c.is_view))
+                .collect()
+        };
+        assert_eq!(names(&from_image), names(&from_file));
+
+        for collection in ["zebra", "alpha", "recent"] {
+            let file = SqliteGrid::open(Arc::clone(&from_file), collection).expect(collection);
+            let image = SqliteGrid::open(Arc::clone(&from_image), collection).expect(collection);
+            assert_eq!(image.row_count(), file.row_count(), "{collection}");
+            assert_eq!(image.columns(), file.columns(), "{collection}");
+            let rows = |grid: &SqliteGrid| -> Vec<Vec<String>> {
+                grid.page(0, 10)
+                    .expect("page")
+                    .rows
+                    .iter()
+                    .map(|row| row.cells.iter().map(|c| c.text.clone()).collect())
+                    .collect()
+            };
+            assert_eq!(rows(&image), rows(&file), "{collection}");
+        }
+
+        // The search opens a second connection, which is the assertion that
+        // matters here: two connections over one image, neither a copy.
+        let idle = AtomicBool::new(false);
+        let grid = SqliteGrid::open(Arc::clone(&from_image), "zebra").expect("grid");
+        let hits = grid
+            .search("가나다", false, Interpretation::Literal, &idle)
+            .expect("search")
+            .hits;
+        assert_eq!(
+            hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
+            [(0, 1)]
+        );
+
+        // And it is read-only, the way the file is.
+        assert!(from_image
+            .connection()
+            .execute("INSERT INTO zebra (name) VALUES ('다')", [])
+            .is_err());
+    }
+
+    /// A write-ahead-log image, and why `adopt_image` exists.
+    ///
+    /// Two halves, and the first is the point. Left as written, the image
+    /// *deserializes* — SQLite says yes — and then the first query that
+    /// touches a page fails, because the in-memory VFS has no shared memory to
+    /// put a `-wal` in. If SQLite ever starts reading these images directly,
+    /// this half fails first and says so.
+    #[test]
+    fn a_write_ahead_log_image_is_read_as_a_rollback_one() {
+        let dir = temp_dir("wal");
+        let path = dir.join("wal.sqlite");
+        {
+            let connection = Connection::open(&path).expect("create");
+            let mode: String = connection
+                .query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))
+                .expect("journal mode");
+            assert_eq!(mode, "wal");
+            connection
+                .execute_batch(
+                    "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT);
+                     INSERT INTO t (name) VALUES ('가'), ('나');",
+                )
+                .expect("setup");
+            // Closing checkpoints the log and removes it, so the bytes hold
+            // everything — while the header goes on saying WAL.
+            connection.close().expect("close");
+        }
+        assert!(!dir.join("wal.sqlite-wal").exists(), "checkpointed and gone");
+
+        let written = std::fs::read(&path).expect("read");
+        assert_eq!(&written[VERSION_BYTES], &[WAL, WAL], "the header says WAL");
+
+        let untouched = SqliteDoc::open_bytes(Arc::new(DocBytes::Owned(written.clone())));
+        assert!(
+            untouched.is_err(),
+            "a WAL image must not appear to open, or the fix below is pointless",
+        );
+
+        // And with the two bytes adopted, it reads.
+        let doc = Arc::new(SqliteDoc::open_bytes(image_of(&path)).expect("open the image"));
+        assert_eq!(
+            doc.collections().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["t"]
+        );
+        let grid = SqliteGrid::open(doc, "t").expect("grid");
+        assert_eq!(grid.row_count(), 2);
+        assert_eq!(grid.page(0, 2).expect("page").rows[0].cells[1].text, "가");
+    }
+
+    /// The header edit itself, on its own.
+    #[test]
+    fn adopting_an_image_touches_two_bytes_and_only_when_it_must() {
+        // Too short to hold a header: left alone rather than indexed into.
+        let mut stub = vec![0u8; 19];
+        adopt_image(&mut stub);
+        assert_eq!(stub, vec![0u8; 19]);
+
+        let mut rollback = header_with(ROLLBACK);
+        let before = rollback.clone();
+        adopt_image(&mut rollback);
+        assert_eq!(rollback, before, "a rollback image is already readable");
+
+        let mut wal = header_with(WAL);
+        adopt_image(&mut wal);
+        assert_eq!(&wal[VERSION_BYTES], &[ROLLBACK, ROLLBACK]);
+        assert_eq!(&wal[..18], &header_with(WAL)[..18], "nothing else moves");
+        assert_eq!(&wal[20..], &header_with(WAL)[20..]);
+
+        // Idempotent: the two call sites are not the same document, but a
+        // second pass over one must not undo or double anything.
+        let once = wal.clone();
+        adopt_image(&mut wal);
+        assert_eq!(wal, once);
+    }
+
+    fn header_with(version: u8) -> Vec<u8> {
+        let mut header = b"SQLite format 3\0".to_vec();
+        header.resize(100, 0x5a);
+        header[18] = version;
+        header[19] = version;
+        header
     }
 }
