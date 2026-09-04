@@ -507,7 +507,7 @@ const databaseBytes = await sampleDatabase();
 // side and the tree should be identical.
 const jsoncBody = `{
   // 어느 포트로 열지
-  "port": 8080,
+  "port": 8080, // 기본값
 
   /* 여러 줄 주석도
      당연히 지나간다 */

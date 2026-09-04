@@ -3,14 +3,14 @@
 ← [README](../README.md)
 
 ```bash
-cd src-tauri && cargo test          # 408개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 아카이브, 표시/복사, 정화
+cd src-tauri && cargo test          # 409개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 아카이브, 표시/복사, 정화
 npm test                            # 82개: 프론트의 순수 모듈과 상태 로직
 npm run smoke                       # 진짜 창에서 픽스처 전수 (아래)
 ```
 
 ## 프론트 테스트
 
-`npm test` 는 vitest 를 돌립니다. 테스트는 검사하는 코드 **옆에** 삽니다(`src/**/*.test.ts`) — Rust 쪽 408개가 전부 같은 파일 안 `#[cfg(test)] mod tests` 에 있는 것과 같은 문법입니다.
+`npm test` 는 vitest 를 돌립니다. 테스트는 검사하는 코드 **옆에** 삽니다(`src/**/*.test.ts`) — Rust 쪽 409개가 전부 같은 파일 안 `#[cfg(test)] mod tests` 에 있는 것과 같은 문법입니다.
 
 **러너를 vitest 로 고른 이유는 하나뿐입니다: 이 저장소의 `vite.config.ts` 를 그대로 쓴다는 것.** 그래서 테스트가 앱과 **같은 방식으로 컴파일**되고, `.svelte.ts` 의 runes 가 추가 설정 없이 돕니다. 그것이 상태 로직을 테스트할 수 있게 하는 전부입니다. 설정은 `vitest.config.ts` 로 분리했습니다 — `vite.config.ts` 는 Tauri 빌드가 읽는 파일이라 테스트 전용 설정으로 불리지 않는 편이 안전합니다.
 

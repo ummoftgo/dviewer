@@ -248,35 +248,64 @@ impl TreeDoc {
         self.note_text(self.index.remark_of(id)?, max_chars)
     }
 
-    /// A comment span as the reader should see it: markers dropped, lines
-    /// joined, cut at `max_chars`.
+    /// A comment span as the reader should see it: markers dropped, what is
+    /// left joined into one line, cut at `max_chars`.
+    ///
+    /// **Read one comment at a time, not one line at a time.** A span can hold
+    /// two of them — `1 /* 앞의 */ /* 뒤의 */` is one remark about one value —
+    /// and stripping a `/*` from the front of the span and a `*/` from its end
+    /// leaves the pair in the middle on screen. So the span is walked: skip
+    /// space, take a `//` to the end of its line or a `/*` to its `*/`, and
+    /// that whole thing is one comment whose markers are gone.
+    ///
+    /// Lines inside one comment are joined the same way they always were,
+    /// leading `*` and all, which is what a wrapped block comment looks like.
     fn note_text(&self, (start, len): (u32, u32), max_chars: usize) -> Option<String> {
         let raw = &self.bytes[start as usize..(start + len) as usize];
+        let text = String::from_utf8_lossy(raw);
+        let mut rest = text.as_ref();
         let mut out = String::new();
         let mut taken = 0usize;
-        for line in raw.split(|byte| *byte == b'\n') {
-            let line = String::from_utf8_lossy(line);
-            let line = line.trim();
-            let line = line
-                .strip_prefix("//")
-                .or_else(|| line.strip_prefix("/*"))
-                .unwrap_or(line);
-            let line = line.strip_suffix("*/").unwrap_or(line);
-            let line = line.trim_start_matches('*').trim();
-            if line.is_empty() {
-                continue;
-            }
-            if !out.is_empty() {
-                out.push(' ');
-                taken += 1;
-            }
-            for character in line.chars() {
-                if taken >= max_chars {
-                    out.push('…');
-                    return Some(out);
+
+        while !rest.is_empty() {
+            let here = rest.trim_start();
+            let (body, after) = if let Some(after) = here.strip_prefix("//") {
+                match after.find('\n') {
+                    // The newline stays behind, for the next turn to skip.
+                    Some(end) => (&after[..end], &after[end..]),
+                    None => (after, ""),
                 }
-                out.push(character);
-                taken += 1;
+            } else if let Some(after) = here.strip_prefix("/*") {
+                match after.find("*/") {
+                    Some(end) => (&after[..end], &after[end + 2..]),
+                    // Unterminated, which the scanner does not produce; taking
+                    // the rest is better than dropping what was written.
+                    None => (after, ""),
+                }
+            } else {
+                // Not a marker. Whatever is here was written by the author,
+                // so it is shown rather than dropped.
+                (here, "")
+            };
+            rest = after;
+
+            for line in body.lines() {
+                let line = line.trim().trim_start_matches('*').trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if !out.is_empty() {
+                    out.push(' ');
+                    taken += 1;
+                }
+                for character in line.chars() {
+                    if taken >= max_chars {
+                        out.push('…');
+                        return Some(out);
+                    }
+                    out.push(character);
+                    taken += 1;
+                }
             }
         }
         (!out.is_empty()).then_some(out)
@@ -833,6 +862,45 @@ mod converted_tests {
         let host = rows.iter().find(|r| r.key.as_deref() == Some("host")).expect("host");
         assert_eq!(host.comment, None);
         assert_eq!(host.remark, None, "the remark above belongs to `port`");
+    }
+
+    /// A span can hold more than one comment, and every one of them loses its
+    /// markers.
+    ///
+    /// The defect this exists for was on screen: the remark on
+    /// `1 /* 앞의 */ /* 뒤의 */` read **`앞의 */ /* 뒤의`**, because the markers
+    /// came off the ends of the span rather than off each comment inside it.
+    /// The two multi-line shapes are here beside it because the fix walks the
+    /// span, and a walk that gets those wrong would be a worse bug than the
+    /// one it replaced.
+    #[test]
+    fn every_comment_in_a_span_loses_its_markers() {
+        let src = "{\n  /* 여러 줄\n     계속 */\n  \"a\": 1 /* 앞의 */ /* 뒤의 */,\n\
+                   \n  // 그리고\n  // 이어서\n  \"b\": 2\n}";
+        let doc = TreeDoc::build(
+            Arc::new(DocBytes::from(src.as_bytes().to_vec())),
+            Syntax::Jsonc,
+            &ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("build");
+        doc.expand_all();
+        let rows = doc.rows(0, 10);
+        let row = |key: &str| {
+            rows.iter()
+                .find(|r| r.key.as_deref() == Some(key))
+                .expect("row")
+                .clone()
+        };
+
+        // Two comments on one line, joined into one remark with no markers
+        // left in the middle of it.
+        assert_eq!(row("a").remark.as_deref(), Some("앞의 뒤의"));
+        // A block comment that wrapped is still one note.
+        assert_eq!(row("a").comment.as_deref(), Some("여러 줄 계속"));
+        // And so is a run of `//` lines.
+        assert_eq!(row("b").comment.as_deref(), Some("그리고 이어서"));
     }
 
     /// The same ceiling a note has, for the same reason: the key/value table
