@@ -217,6 +217,15 @@ for (const [label, extra] of [
   const { lines, summary } = await results(out);
   report(lines);
 
+  // The `--new` window closes itself when it is done, and what that closing
+  // does — handing its documents back — is the thing being checked. `report`
+  // above already fails on `ok: false`, so what is left to check is that the
+  // line is there at all: if the destroy handler never ran, there is nothing
+  // to be false.
+  if (extra.length && !lines.some((line) => line.step === "reclaim")) {
+    fail(`${label}: 창이 닫힐 때 문서를 회수했다는 보고가 없습니다`);
+  }
+
   if (!summary) fail(`${label}: 첫 프로세스가 전달을 보고하지 않았습니다`);
   else if (first.code !== 0 || summary.failed > 0) fail(`${label}: 전달이 확인되지 않았습니다`);
   else console.log(`  ✓ ${label}`);

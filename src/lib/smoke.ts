@@ -194,17 +194,53 @@ export async function reportDelivery(request: LaunchRequest): Promise<void> {
 }
 
 /**
- * A window that was built to answer `--new`, reporting that it exists.
+ * A window that was built to answer `--new`: it opens what it was given, says
+ * so, and then closes itself.
  *
  * The failure this covers put an empty frame on screen: the window was created
  * on the event loop's own thread, so the webview never attached and the second
  * process never got its answer either. A window that reaches this line is a
- * window that booted.
+ * window that booted — and one that opened the file it was handed, which is
+ * what the frame was empty of.
+ *
+ * Closing rather than calling `smokeDone` is the other half. What happens when
+ * a window goes away — its documents being reclaimed, its panels closed — lives
+ * in a Tauri event handler that no unit test can reach, and exiting while the
+ * window still stands would step over it. So the run ends from inside that
+ * handler instead; see `smoke_close_self`.
+ *
+ * The close waits for the view to be ready on purpose. Closing mid-open would
+ * exercise the *race* between opening and destruction, and a race decided by
+ * timing makes a check that passes on some runs — that one is held down by
+ * `state.rs` instead.
  */
 export async function reportNewWindow(label: string, request: LaunchRequest): Promise<void> {
+  const wanted = request.files.length + request.urls.length;
+  let opened = 0;
+  let ready: Outcome = { ok: wanted > 0, stage: "none" };
+
+  for (const path of request.files) {
+    const tab = await workspace.openPath(path);
+    if (!tab) {
+      ready = { ok: false, stage: "open", error: workspace.notice ?? "did not open" };
+      break;
+    }
+    opened += 1;
+    ready = await settle(tab, tab.view);
+    if (!ready.ok) break;
+  }
+
   await ipc.smokeReport(
-    { step: "newWindow", window: label, files: request.files },
-    request.files.length + request.urls.length > 0,
+    {
+      step: "newWindow",
+      window: label,
+      files: request.files,
+      opened,
+      stage: ready.stage,
+      view: ready.view,
+      error: ready.error,
+    },
+    wanted > 0 && opened === request.files.length && ready.ok,
   );
-  await ipc.smokeDone();
+  await ipc.smokeCloseSelf();
 }

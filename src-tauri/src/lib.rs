@@ -117,6 +117,25 @@ pub fn run() {
                     state.cancel_jobs(*doc);
                     state.remove(*doc);
                 }
+
+                // A self-check watches this path, because it is the one thing
+                // here that no test outside a running app can reach.
+                if let Some(run) = window.try_state::<smoke::SmokeRun>() {
+                    run.record(
+                        serde_json::json!({
+                            "step": "reclaim",
+                            "window": window.label(),
+                            "docs": reclaimed.len(),
+                        }),
+                        // The window under test opened one document. None
+                        // means the reclaiming did not happen.
+                        !reclaimed.is_empty(),
+                    );
+                    if run.ends_with(window.label()) {
+                        let code = run.finish();
+                        window.app_handle().exit(code);
+                    }
+                }
             }
         })
         .setup(move |app| {
@@ -196,6 +215,7 @@ pub fn run() {
             commands::smoke_plan,
             commands::smoke_report,
             commands::smoke_done,
+            commands::smoke_close_self,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

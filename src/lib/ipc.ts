@@ -423,6 +423,8 @@ export const smokePlan = () => invoke<SmokeStep[]>("smoke_plan");
 export const smokeReport = (result: unknown, ok: boolean) =>
   invoke<void>("smoke_report", { result, ok });
 export const smokeDone = () => invoke<void>("smoke_done");
+/** Close this window and let its destruction end the run. See `smoke.ts`. */
+export const smokeCloseSelf = () => invoke<void>("smoke_close_self");
 
 export const setDocEncoding = (docId: number, encodingName: string) =>
   invoke<DocMeta>("set_doc_encoding", { docId, encodingName });

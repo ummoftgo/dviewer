@@ -22,15 +22,7 @@ pub fn smoke_plan(run: State<'_, SmokeRun>) -> Vec<Step> {
 /// every time a new kind of step is added.
 #[tauri::command]
 pub fn smoke_report(run: State<'_, SmokeRun>, result: serde_json::Value, ok: bool) {
-    // `ok` is folded into the line rather than kept beside it. Whoever reads
-    // this file later has only the file, and a result that does not say whether
-    // it passed makes them reconstruct the verdict from the fields — which is
-    // exactly the kind of guessing that reads a banner as a failure.
-    let mut line = result;
-    if let Some(object) = line.as_object_mut() {
-        object.insert("ok".into(), ok.into());
-    }
-    run.record(&line, ok);
+    run.record(result, ok);
 }
 
 /// Write the summary and end the process.
@@ -42,6 +34,21 @@ pub fn smoke_report(run: State<'_, SmokeRun>, result: serde_json::Value, ok: boo
 pub fn smoke_done(app: tauri::AppHandle, run: State<'_, SmokeRun>) {
     let code = run.finish();
     app.exit(code);
+}
+
+/// Close this window, and let its destruction end the run.
+///
+/// The `--new` check ends here rather than at `smoke_done`, and the difference
+/// is the point: `smoke_done` exits while the window is still standing, so the
+/// path a closing window takes — its documents being reclaimed — never runs.
+/// Closing first and finishing from the destroy handler makes that path part
+/// of the check.
+#[tauri::command]
+pub fn smoke_close_self(window: tauri::Window, run: State<'_, SmokeRun>) {
+    // Written before the close, not after: the destroy handler reads it, and
+    // on some platforms the window is gone before this function returns.
+    run.finish_when_gone(window.label());
+    let _ = window.close();
 }
 
 /// Whether this process is running a self-check, and which window is asking.

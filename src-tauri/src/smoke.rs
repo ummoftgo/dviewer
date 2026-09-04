@@ -67,6 +67,14 @@ pub struct SmokeRun {
     out: Mutex<File>,
     started: Instant,
     tally: Mutex<(usize, usize)>,
+    /// The window whose destruction ends this run, if one has asked.
+    ///
+    /// The `--new` half of the round trip finishes by closing its own window,
+    /// because the thing being checked is what happens *after* that: a window
+    /// going away has to take its documents with it, and no unit test can
+    /// reach that code — it lives in a Tauri event handler. So the run cannot
+    /// end when the frontend is done; it ends when the window is really gone.
+    finish_when_gone: Mutex<Option<String>>,
 }
 
 impl SmokeRun {
@@ -88,6 +96,7 @@ impl SmokeRun {
             out: Mutex::new(out),
             started: Instant::now(),
             tally: Mutex::new((0, 0)),
+            finish_when_gone: Mutex::new(None),
         })
     }
 
@@ -99,7 +108,14 @@ impl SmokeRun {
     ///
     /// Flushed rather than buffered, and the reason is the whole design: this
     /// file is the only thing that survives a process that stops existing.
-    pub fn record(&self, line: &serde_json::Value, ok: bool) {
+    ///
+    /// `ok` is folded into the line rather than kept beside it. Whoever reads
+    /// this file later has only the file, and a result that does not say
+    /// whether it passed makes them reconstruct the verdict from the fields —
+    /// which is exactly the kind of guessing that reads a banner as a failure.
+    /// Done here rather than in the command, because not every line comes from
+    /// the frontend: the destroy handler writes one too.
+    pub fn record(&self, line: serde_json::Value, ok: bool) {
         {
             let mut tally = self.tally.lock();
             tally.0 += 1;
@@ -107,9 +123,23 @@ impl SmokeRun {
                 tally.1 += 1;
             }
         }
+        let mut line = line;
+        if let Some(object) = line.as_object_mut() {
+            object.insert("ok".into(), ok.into());
+        }
         let mut out = self.out.lock();
         let _ = writeln!(out, "{line}");
         let _ = out.flush();
+    }
+
+    /// End the run when `window` is destroyed rather than now.
+    pub fn finish_when_gone(&self, window: &str) {
+        *self.finish_when_gone.lock() = Some(window.to_owned());
+    }
+
+    /// Whether the destruction of `window` is what ends the run.
+    pub fn ends_with(&self, window: &str) -> bool {
+        self.finish_when_gone.lock().as_deref() == Some(window)
     }
 
     /// Write the summary and say how the process should end.
@@ -215,8 +245,8 @@ mod tests {
         })
         .expect("start");
 
-        run.record(&serde_json::json!({"file": "a.md", "ok": true}), true);
-        run.record(&serde_json::json!({"file": "b.md", "ok": false}), false);
+        run.record(serde_json::json!({"file": "a.md", "ok": true}), true);
+        run.record(serde_json::json!({"file": "b.md", "ok": false}), false);
         assert_eq!(run.finish(), MISMATCH);
 
         let written = std::fs::read_to_string(&out).expect("read");
@@ -235,8 +265,55 @@ mod tests {
             out: manifest.with_file_name("clean.jsonl"),
         })
         .expect("start");
-        run.record(&serde_json::json!({"file": "a.md", "ok": true}), true);
+        run.record(serde_json::json!({"file": "a.md", "ok": true}), true);
         assert_eq!(run.finish(), OK);
+    }
+
+
+    /// Every line says whether it passed, whoever wrote it.
+    ///
+    /// The frontend used to fold `ok` in on its way through the command, which
+    /// left the one line the backend writes by itself — the reclaim line from
+    /// the destroy handler — without a verdict. Whoever reads this file has
+    /// only the file.
+    #[test]
+    fn a_recorded_line_carries_its_own_verdict() {
+        let manifest = wrote("verdict", r#"[{"file":"a.md","expect":"prose"}]"#);
+        let out = manifest.with_file_name("verdict.jsonl");
+        let run = SmokeRun::start(&Smoke {
+            mode: SmokeMode::Run { manifest: manifest.clone() },
+            out: out.clone(),
+        })
+        .expect("start");
+
+        run.record(serde_json::json!({"step": "reclaim", "window": "doc-1", "docs": 1}), true);
+        run.record(serde_json::json!({"step": "reclaim", "window": "doc-2", "docs": 0}), false);
+        run.finish();
+
+        let written = std::fs::read_to_string(&out).expect("read");
+        let lines: Vec<serde_json::Value> = written
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("json"))
+            .collect();
+        assert_eq!(lines[0]["ok"], true);
+        assert_eq!(lines[0]["docs"], 1);
+        assert_eq!(lines[1]["ok"], false, "nothing reclaimed is a failure");
+    }
+
+    /// Which window's death ends the run, and only that one's.
+    #[test]
+    fn a_run_can_be_told_to_end_when_a_window_goes() {
+        let manifest = wrote("gone", r#"[{"file":"a.md","expect":"prose"}]"#);
+        let run = SmokeRun::start(&Smoke {
+            mode: SmokeMode::Run { manifest: manifest.clone() },
+            out: manifest.with_file_name("gone.jsonl"),
+        })
+        .expect("start");
+
+        assert!(!run.ends_with("doc-1"), "nothing ends the run until something asks");
+        run.finish_when_gone("doc-1");
+        assert!(run.ends_with("doc-1"));
+        assert!(!run.ends_with("main"), "another window closing is not the end");
     }
 
     /// Listening opens nothing, so it has no plan — and must still start.
