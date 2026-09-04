@@ -810,9 +810,6 @@ mod converted_tests {
         assert_eq!(server.child_count, 2);
     }
 
-    /// Skipping a comment is not losing it.
-    ///
-
     /// A row carries both of the author's notes: the one above the value and
     /// the one after it, each without the markers that had to be typed.
     #[test]
@@ -858,6 +855,8 @@ mod converted_tests {
         assert!(remark.ends_with('…'));
     }
 
+    /// Skipping a comment is not losing it.
+    ///
     /// A tree document has no raw view — that is the markdown toggle — so the
     /// only way back to what was written is a node's own text. It is cut from
     /// the document's bytes, so the comments inside a container come back with
