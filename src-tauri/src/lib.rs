@@ -107,9 +107,15 @@ pub fn run() {
                 // The frontend is what normally closes a document, and a window
                 // that is gone never gets to. Its documents would otherwise
                 // hold their mmap and index until the app exits.
-                for doc in state.docs_owned_by(window.label()) {
-                    state.cancel_jobs(doc);
-                    state.remove(doc);
+                //
+                // One call, because taking the list and marking the window gone
+                // have to happen together: a document still being opened when
+                // this runs would otherwise be filed under a window that has
+                // already collected. See `AppState::window_gone`.
+                let reclaimed = state.window_gone(window.label());
+                for doc in &reclaimed {
+                    state.cancel_jobs(*doc);
+                    state.remove(*doc);
                 }
             }
         })

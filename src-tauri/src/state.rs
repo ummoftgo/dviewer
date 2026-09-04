@@ -434,6 +434,24 @@ struct PanelOwner {
     doc: DocId,
 }
 
+/// Who owns what, and who is no longer there to own anything.
+///
+/// The two halves live under one lock because the only hard question about
+/// window ownership is a race between them: a document can finish opening
+/// after the window that asked for it has been destroyed. Answered separately,
+/// the two orders give different results — the destroyed window collects
+/// nothing and the late document is filed under a window that will never
+/// collect again. Answered together, both orders end the same way.
+#[derive(Default)]
+struct Ownership {
+    by_doc: HashMap<DocId, String>,
+    /// Labels of windows that have been destroyed.
+    ///
+    /// It only grows, and that is fine: a label is one short string, `doc-N`
+    /// and `panel-N` are never reused, and `main` dies once when the app does.
+    gone: HashSet<String>,
+}
+
 #[derive(Default)]
 pub struct AppState {
     next_id: AtomicU32,
@@ -448,13 +466,16 @@ pub struct AppState {
     panels: RwLock<HashMap<String, PanelOwner>>,
     /// Directories already added to the asset scope. See `grant_asset_dir`.
     asset_dirs: RwLock<HashSet<PathBuf>>,
-    /// Which window opened each document.
+    /// Which window opened each document, and which windows are gone.
     ///
     /// Plain ownership is enough because documents are never shared: each
     /// window's frontend dedupes against its own tabs, so two windows opening
     /// the same file end up with two documents. A panel does not open any — it
     /// reads the one its opener already has, and dies with that window.
-    owners: RwLock<HashMap<DocId, String>>,
+    ///
+    /// One lock over both halves, because the question they answer together is
+    /// a race: see `Ownership`.
+    owners: RwLock<Ownership>,
     /// What each window should open as soon as it is ready, keyed by label.
     ///
     /// A window cannot be told what to open until its frontend exists, and a
@@ -525,11 +546,55 @@ impl AppState {
     /// document, and a window that is destroyed never gets to. Without an
     /// owner recorded, killing a second window leaves its mmap and index held
     /// until the app exits.
+    ///
+    /// **A document for a window that is already gone is not stored.** Opening
+    /// is not instant — a 500MB file is mapped and scanned on a worker — and
+    /// the window can be closed while that runs. The `Arc` still comes back,
+    /// because the command has to return something, but nothing holds it: the
+    /// caller drops it and the map is released. Storing it instead would leave
+    /// a document nobody can reach and nobody will free, since the destroyed
+    /// window has already collected what it owned.
     pub fn insert(&self, window: &str, doc: Document) -> Arc<Document> {
         let doc = Arc::new(doc);
-        self.owners.write().insert(doc.id, window.to_owned());
+        {
+            let mut owners = self.owners.write();
+            if owners.gone.contains(window) {
+                return doc;
+            }
+            owners.by_doc.insert(doc.id, window.to_owned());
+        }
         self.docs.write().insert(doc.id, Arc::clone(&doc));
         doc
+    }
+
+    /// A window is gone: remember that, and say what it was holding.
+    ///
+    /// One write lock does both halves, and that is the whole point. The other
+    /// order — a document finishing after the window died — is the race, and
+    /// under one lock it does not matter which side wins: either this sees the
+    /// document and hands it back to be freed, or `insert` sees the window is
+    /// gone and never stores it.
+    ///
+    /// Removing the documents is left to the caller, which also has to cancel
+    /// their jobs; what cannot be left to the caller is the two writes here
+    /// happening together.
+    pub fn window_gone(&self, window: &str) -> Vec<DocId> {
+        // A request the window never collected. Small, but it is the same
+        // leak: nothing else will ever ask for it.
+        self.pending.write().remove(window);
+
+        let mut owners = self.owners.write();
+        owners.gone.insert(window.to_owned());
+        let doomed: Vec<DocId> = owners
+            .by_doc
+            .iter()
+            .filter(|(_, owner)| owner.as_str() == window)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &doomed {
+            owners.by_doc.remove(id);
+        }
+        doomed
     }
 
     pub fn get(&self, id: DocId) -> Result<Arc<Document>> {
@@ -539,7 +604,7 @@ impl AppState {
     /// Dropping the Arc releases the mmap and the JSON index immediately,
     /// provided no background job still holds a clone.
     pub fn remove(&self, id: DocId) {
-        self.owners.write().remove(&id);
+        self.owners.write().by_doc.remove(&id);
         self.docs.write().remove(&id);
     }
 
@@ -548,6 +613,7 @@ impl AppState {
     pub fn docs_owned_by(&self, window: &str) -> Vec<DocId> {
         self.owners
             .read()
+            .by_doc
             .iter()
             .filter(|(_, owner)| owner.as_str() == window)
             .map(|(id, _)| *id)
@@ -798,6 +864,74 @@ mod tests {
         for (source, expected) in cases {
             assert_eq!(serde_json::to_value(&source).expect("serialise"), expected);
         }
+    }
+
+
+    /// The race this milestone exists for, in the order that used to leak.
+    ///
+    /// Opening is not instant, so a window can be destroyed while one of its
+    /// documents is still being mapped and scanned. The old code recorded the
+    /// owner afterwards, and nothing was ever going to ask that window for its
+    /// documents again — the map stayed until the app exited.
+    #[test]
+    fn a_document_that_arrives_after_its_window_died_is_not_kept() {
+        let state = AppState::default();
+        let late = state.next_id();
+        let elsewhere = state.next_id();
+        state.insert("main", stub(elsewhere));
+
+        assert!(state.window_gone("doc-1").is_empty(), "it had opened nothing yet");
+        // The open that was already running finishes now.
+        let doc = state.insert("doc-1", stub(late));
+
+        assert!(matches!(state.get(late), Err(Error::NoSuchDoc { .. })));
+        assert!(state.docs_owned_by("doc-1").is_empty());
+        assert_eq!(
+            Arc::strong_count(&doc),
+            1,
+            "nothing else holds it, so dropping the return value frees the map",
+        );
+        assert!(state.get(elsewhere).is_ok(), "another window is untouched");
+    }
+
+    /// And in the other order, which is the ordinary one.
+    #[test]
+    fn a_window_takes_the_documents_it_had_when_it_died() {
+        let state = AppState::default();
+        let mine = state.next_id();
+        let theirs = state.next_id();
+        state.insert("doc-1", stub(mine));
+        state.insert("main", stub(theirs));
+
+        assert_eq!(state.window_gone("doc-1"), [mine]);
+        assert!(
+            state.docs_owned_by("doc-1").is_empty(),
+            "handed over, so the caller is the only one that can free them",
+        );
+        // The caller does what the destroy handler does with the list.
+        state.remove(mine);
+        assert!(matches!(state.get(mine), Err(Error::NoSuchDoc { .. })));
+        assert!(state.get(theirs).is_ok());
+
+        // Asking twice is not an error, and gives nothing the second time.
+        assert!(state.window_gone("doc-1").is_empty());
+    }
+
+    /// A window destroyed before its frontend ever mounted leaves a request
+    /// nobody will collect. Same leak, smaller.
+    #[test]
+    fn a_request_dies_with_the_window_it_was_left_for() {
+        let state = AppState::default();
+        let request = LaunchRequest {
+            files: vec!["a.md".into()],
+            urls: Vec::new(),
+        };
+        state.queue("doc-1", request.clone());
+        state.queue("main", request);
+
+        state.window_gone("doc-1");
+        assert!(state.take_pending("doc-1").is_empty(), "gone with the window");
+        assert!(!state.take_pending("main").is_empty(), "and only that window's");
     }
 
     #[test]
