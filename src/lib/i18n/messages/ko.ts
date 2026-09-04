@@ -209,7 +209,7 @@ export const ko = {
   "search.regex": "정규식",
   "search.regex.title": "정규식으로 찾기 — 값 하나, 키 하나 안에서 맞춰 봅니다",
   "search.jsonPath": "식",
-  "search.jsonPath.title": "JSONPath 표현식으로 노드를 고릅니다 — $.items[0].name, $..title, $..book[?@.price<10]",
+  "search.jsonPath.title": "JSONPath 표현식으로 노드를 고릅니다 — $.items[0].name, $..title, $..book[?@.price<10], $..book[?search(@.title, 'Rings')]",
   "search.prev": "이전 결과 (Shift+Enter)",
   "search.prevLabel": "이전 결과",
   "search.next": "다음 결과 (Enter)",

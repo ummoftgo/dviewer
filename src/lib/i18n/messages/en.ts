@@ -204,7 +204,7 @@ export const en: Messages = {
   "search.regex": "Regex",
   "search.regex.title": "Search by regular expression — matched inside one key or one value",
   "search.jsonPath": "Path",
-  "search.jsonPath.title": "Select nodes by JSONPath expression — $.items[0].name, $..title, $..book[?@.price<10]",
+  "search.jsonPath.title": "Select nodes by JSONPath expression — $.items[0].name, $..title, $..book[?@.price<10], $..book[?search(@.title, 'Rings')]",
   "search.prev": "Previous match (Shift+Enter)",
   "search.prevLabel": "Previous match",
   "search.next": "Next match (Enter)",
