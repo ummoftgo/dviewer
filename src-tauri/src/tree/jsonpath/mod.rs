@@ -32,6 +32,7 @@ mod filter;
 mod functions;
 pub(crate) mod parse;
 mod select;
+mod values;
 
 pub use filter::Expr;
 pub use parse::parse;

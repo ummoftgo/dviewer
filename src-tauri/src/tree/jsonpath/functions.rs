@@ -25,9 +25,8 @@ use std::sync::Arc;
 
 use regex::Regex;
 
-use super::filter::{
-    resolve, value_of, Budget, Cursor, Literal, Operand, Query, Value,
-};
+use super::filter::{resolve, Budget, Cursor, Operand, Query};
+use super::values::{value_of, Literal, Value};
 use crate::error::{Error, Result};
 use crate::tree::index::TreeIndex;
 
