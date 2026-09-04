@@ -604,7 +604,7 @@ impl TreeIndex {
                 Kind::Text | Kind::CData => "/text()".to_owned(),
                 Kind::Comment => "/comment()".to_owned(),
                 Kind::Directive => "/processing-instruction()".to_owned(),
-                _ => match self.same_name_position(bytes, current, &key) {
+                _ => match self.same_name_position(bytes, current) {
                     Some(n) => format!("/{key}[{n}]"),
                     None => format!("/{key}"),
                 },
@@ -622,17 +622,18 @@ impl TreeIndex {
     /// One-based position among same-named sibling elements, or None when the
     /// name occurs only once and no predicate is needed.
     ///
-    /// Walking siblings is linear, which is fine for the handful of nodes a
-    /// person hovers or copies. Past `WIDE` children it is not, so the sibling
-    /// position stands in: a parent that wide is a list, and a list's children
-    /// share one name, which makes the two counts identical.
+    /// Walking siblings is linear. That is fine for the handful of nodes a
+    /// person copies — but `tree_path` is the *hover* popover, so on a list of
+    /// a million it would run again for every row the pointer crosses.
+    /// Measured over 1.5 million siblings: 11ms each time. Hence a shortcut
+    /// past `WIDE` children, where the sibling index stands in for the
+    /// same-name count.
     ///
-    /// Identical, that is, unless the wide element also carries attributes.
-    /// Those are children too and take sibling indices of their own, so the
-    /// predicate would then be off by however many there are. It takes more
-    /// than 4096 children *and* attributes on the same element to see it, and
-    /// closing it properly means the walk this shortcut exists to avoid.
-    fn same_name_position(&self, bytes: &[u8], id: u32, key: &str) -> Option<u32> {
+    /// The shortcut is only taken when the element looks like a plain list,
+    /// because the two counts are the same number only then. See
+    /// `position_in_list` for what "looks like" means and what it costs to be
+    /// wrong.
+    fn same_name_position(&self, bytes: &[u8], id: u32) -> Option<u32> {
         const WIDE: u32 = 4096;
 
         let node = self.node(id)?;
@@ -640,8 +641,14 @@ impl TreeIndex {
         if parent.child_count <= 1 {
             return None;
         }
+        let key = name_of(bytes, node);
         if parent.child_count > WIDE {
-            return Some(node.sibling_index + 1);
+            if let Some(position) = self.position_in_list(bytes, id, node, parent, key) {
+                return Some(position);
+            }
+            // It does not look like a list, so the exact count is the only
+            // answer — and being slow on an element that is both wide and
+            // mixed beats naming the wrong node.
         }
 
         let mut position = 1;
@@ -650,12 +657,7 @@ impl TreeIndex {
         let end = node.parent + parent.subtree_size;
         while child < end {
             let Some(sibling) = self.node(child) else { break };
-            if sibling.kind != Kind::Text
-                && sibling.kind != Kind::Comment
-                && sibling.kind != Kind::CData
-                && sibling.kind != Kind::Directive
-                && super::text::decode_key(bytes, sibling) == key
-            {
+            if is_named_element(bytes, sibling, key) {
                 total += 1;
                 if child < id {
                     position += 1;
@@ -665,6 +667,93 @@ impl TreeIndex {
         }
         (total > 1).then_some(position)
     }
+
+    /// The position `id` would have if its parent were a plain list, or None
+    /// when it does not look like one.
+    ///
+    /// Two things go wrong with reading the sibling index as a position, and
+    /// this handles them differently because they cost differently.
+    ///
+    /// **Attributes are children too.** The scanner pushes them while opening
+    /// the element, so they are always the first children and always take
+    /// sibling indices of their own — which is why the first `<item>` of a
+    /// `<list a="1" b="2">` used to copy as `item[3]`. They are counted and
+    /// subtracted rather than detected: there are a handful of them, and the
+    /// count comes out of the same pass that finds where the elements start.
+    ///
+    /// **A wide element need not hold one name.** `<a>` four thousand times
+    /// and then `<b>` is not a list, and the sibling index would give the
+    /// first `<b>` the position of the four thousand and first `<a>`. That is
+    /// checked by sampling rather than counting, because counting is the walk
+    /// this exists to avoid: the first element under the attributes and the
+    /// next sibling both have to carry this node's name.
+    ///
+    /// **The sample is not a proof.** A wide element whose odd child sits
+    /// somewhere in the middle — a comment, a stray `<b>`, non-blank text
+    /// between two elements — passes all three and gets a position that is too
+    /// high. Mixed content that wide is rare enough to trade for the hover
+    /// staying instant, and the cost of being wrong is bounded: a copied path
+    /// names a different element of the same list. Nothing is lost or
+    /// overwritten, and pasting it into a real XPath tool finds that other
+    /// node rather than nothing.
+    fn position_in_list(
+        &self,
+        bytes: &[u8],
+        id: u32,
+        node: &Node,
+        parent: &Node,
+        key: &[u8],
+    ) -> Option<u32> {
+        let mut first = node.parent + 1;
+        let mut attributes = 0u32;
+        while let Some(child) = self.node(first) {
+            if child.kind != Kind::Attribute {
+                break;
+            }
+            attributes += 1;
+            first += child.subtree_size.max(1);
+        }
+
+        if !self.node(first).is_some_and(|c| is_named_element(bytes, c, key)) {
+            return None;
+        }
+        // The one after this one, which is `id + subtree_size` and needs no
+        // walking. There is none for the last child, and then two samples is
+        // what there is to have.
+        let after = id + node.subtree_size.max(1);
+        if after < node.parent + parent.subtree_size
+            && !self.node(after).is_some_and(|c| is_named_element(bytes, c, key))
+        {
+            return None;
+        }
+
+        Some(node.sibling_index.checked_sub(attributes)? + 1)
+    }
+}
+
+/// A node's name as it stands in the document.
+///
+/// Not `decode_key`: that one is for display and cuts a name off at the
+/// preview length, which would make two long names compare equal. XML names
+/// carry no escapes, so the bytes are the name.
+fn name_of<'a>(bytes: &'a [u8], node: &Node) -> &'a [u8] {
+    let start = node.key_start as usize;
+    bytes
+        .get(start..start + node.key_len as usize)
+        .unwrap_or_default()
+}
+
+/// Whether this node is an element called `key` — what an XPath predicate
+/// counts, and nothing else.
+///
+/// Attributes are excluded along with the text-ish kinds. They are children in
+/// this index but not in XPath, and `<list a="1"><a/><a/></list>` would
+/// otherwise number its elements from two.
+fn is_named_element(bytes: &[u8], node: &Node, key: &[u8]) -> bool {
+    !matches!(
+        node.kind,
+        Kind::Text | Kind::Comment | Kind::CData | Kind::Directive | Kind::Attribute
+    ) && name_of(bytes, node) == key
 }
 
 /// Whether a key can follow a dot without being read as a path of its own.

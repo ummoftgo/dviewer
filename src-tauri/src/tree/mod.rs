@@ -514,6 +514,101 @@ mod xml_tests {
         assert_eq!(row_for(&doc, "note", 0).value.as_deref(), Some("a & b"));
     }
 
+
+    // --- wide elements ------------------------------------------------------
+    //
+    // Past 4,096 children the sibling walk behind `[n]` is skipped, because
+    // `tree_path` is the hover popover and the walk is linear — 11ms over a
+    // million and a half siblings, on every row the pointer crosses. These
+    // hold down what the shortcut is allowed to assume.
+
+    /// The nth child of the document's root, attributes included, without
+    /// building four thousand rows to find it.
+    fn nth_child(doc: &TreeDoc, nth: u32) -> u32 {
+        *doc.index
+            .children(0, nth, 1)
+            .first()
+            .unwrap_or_else(|| panic!("no child #{nth}"))
+    }
+
+    /// Attributes are children in this index and are always pushed first, so
+    /// they used to take positions away from the elements: the first `<item>`
+    /// of this list copied as `item[3]`.
+    #[test]
+    fn attributes_do_not_shift_the_position_of_a_wide_list() {
+        let mut src = String::from(r#"<list a="1" b="2">"#);
+        for _ in 0..4097 {
+            src.push_str("<item/>");
+        }
+        src.push_str("</list>");
+        let doc = xml_doc(&src);
+
+        // Children 0 and 1 are the attributes; the items start at 2.
+        assert_eq!(
+            doc.path_of(nth_child(&doc, 2)).as_deref(),
+            Some("/list/item[1]")
+        );
+        assert_eq!(
+            doc.path_of(nth_child(&doc, 4098)).as_deref(),
+            Some("/list/item[4097]")
+        );
+        // And the attributes themselves are still named, not numbered.
+        assert_eq!(doc.path_of(nth_child(&doc, 0)).as_deref(), Some("/list/@a"));
+    }
+
+    /// The plain case the shortcut was written for, unchanged.
+    #[test]
+    fn a_wide_list_without_attributes_counts_from_one() {
+        let mut src = String::from("<list>");
+        for _ in 0..4097 {
+            src.push_str("<item/>");
+        }
+        src.push_str("</list>");
+        let doc = xml_doc(&src);
+
+        assert_eq!(
+            doc.path_of(nth_child(&doc, 0)).as_deref(),
+            Some("/list/item[1]")
+        );
+        assert_eq!(
+            doc.path_of(nth_child(&doc, 4096)).as_deref(),
+            Some("/list/item[4097]")
+        );
+    }
+
+    /// A wide element need not hold one name, and then the sibling index is
+    /// not the position: the first `<b>` here would be numbered as if it were
+    /// the four thousand and first `<a>`. The samples catch it and the exact
+    /// walk answers instead.
+    #[test]
+    fn a_wide_element_holding_two_names_is_counted_exactly() {
+        let mut src = String::from("<x>");
+        for _ in 0..4000 {
+            src.push_str("<a/>");
+        }
+        for _ in 0..200 {
+            src.push_str("<b/>");
+        }
+        src.push_str("</x>");
+        let doc = xml_doc(&src);
+
+        assert_eq!(doc.path_of(nth_child(&doc, 4000)).as_deref(), Some("/x/b[1]"));
+        assert_eq!(doc.path_of(nth_child(&doc, 4199)).as_deref(), Some("/x/b[200]"));
+        // The `<a>` run is still right at both ends.
+        assert_eq!(doc.path_of(nth_child(&doc, 0)).as_deref(), Some("/x/a[1]"));
+        assert_eq!(doc.path_of(nth_child(&doc, 3999)).as_deref(), Some("/x/a[4000]"));
+    }
+
+    /// An attribute is a child here but not in XPath, so it never counts
+    /// towards a position — not even when it shares the elements' name.
+    #[test]
+    fn an_attribute_never_counts_as_a_same_named_element() {
+        let doc = xml_doc(r#"<list a="1"><a/><a/></list>"#);
+        assert_eq!(doc.path_of(nth_child(&doc, 1)).as_deref(), Some("/list/a[1]"));
+        assert_eq!(doc.path_of(nth_child(&doc, 2)).as_deref(), Some("/list/a[2]"));
+        assert_eq!(doc.path_of(nth_child(&doc, 0)).as_deref(), Some("/list/@a"));
+    }
+
     #[test]
     fn a_path_is_written_as_xpath() {
         let doc = xml_doc(CATALOG);
