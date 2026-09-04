@@ -607,6 +607,35 @@ mod xml_tests {
         assert_eq!(doc.path_of(nth_child(&doc, 3999)).as_deref(), Some("/x/a[4000]"));
     }
 
+
+    /// Two names alternating, which is what a plist `<dict>` is: a `<key>` and
+    /// then its value, over and over. The kth `<key>` has sibling index
+    /// 2(k-1), so the shortcut would number it 2k-1 — twice what it should be.
+    ///
+    /// This is the layout the *next sibling* sample is for. The first child is
+    /// a `<key>` and so is this node, so that sample passes; what says this is
+    /// not a list is that the thing after it is a `<string>`.
+    #[test]
+    fn a_wide_element_of_alternating_names_is_counted_exactly() {
+        let mut src = String::from("<dict>");
+        for _ in 0..2100 {
+            src.push_str("<key/><string/>");
+        }
+        src.push_str("</dict>");
+        let doc = xml_doc(&src);
+
+        assert_eq!(doc.path_of(nth_child(&doc, 0)).as_deref(), Some("/dict/key[1]"));
+        assert_eq!(doc.path_of(nth_child(&doc, 1)).as_deref(), Some("/dict/string[1]"));
+        assert_eq!(
+            doc.path_of(nth_child(&doc, 4198)).as_deref(),
+            Some("/dict/key[2100]")
+        );
+        assert_eq!(
+            doc.path_of(nth_child(&doc, 4199)).as_deref(),
+            Some("/dict/string[2100]")
+        );
+    }
+
     /// An attribute is a child here but not in XPath, so it never counts
     /// towards a position — not even when it shares the elements' name.
     #[test]

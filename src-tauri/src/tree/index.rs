@@ -688,14 +688,15 @@ impl TreeIndex {
     /// this exists to avoid: the first element under the attributes and the
     /// next sibling both have to carry this node's name.
     ///
-    /// **The sample is not a proof.** A wide element whose odd child sits
-    /// somewhere in the middle — a comment, a stray `<b>`, non-blank text
-    /// between two elements — passes all three and gets a position that is too
-    /// high. Mixed content that wide is rare enough to trade for the hover
-    /// staying instant, and the cost of being wrong is bounded: a copied path
-    /// names a different element of the same list. Nothing is lost or
-    /// overwritten, and pasting it into a real XPath tool finds that other
-    /// node rather than nothing.
+    /// **The sample is not a proof.** What slips through is an odd child in
+    /// the middle with nothing odd beside the node being asked about:
+    /// `<a>` three thousand times, one `<b>`, then one more `<a>` — that last
+    /// `<a>` is the final child, so there is no sibling after it to give the
+    /// `<b>` away, and it comes back one too high. Mixed content that wide is
+    /// rare enough to trade for the hover staying instant, and the cost of
+    /// being wrong is bounded: a copied path names a different element of the
+    /// same list. Nothing is lost or overwritten, and pasting it into a real
+    /// XPath tool finds that other node rather than nothing.
     fn position_in_list(
         &self,
         bytes: &[u8],
@@ -718,16 +719,18 @@ impl TreeIndex {
             return None;
         }
         // And the one after this one, which is `id + subtree_size` and needs
-        // no walking. There is none for the last child, and then two samples
-        // is what there is to have.
+        // no walking. There is none for the last child, and then the two
+        // samples above are what there is to have.
         //
-        // This one is the weaker of the two, and honestly so: a sibling index
-        // is too high only when something differently named came *before* this
-        // node, and this sample looks after it. What it buys is that a node
-        // standing next to an odd one — a comment, a stray element — takes the
-        // exact walk, which is never wrong. The sample above is the one that
-        // catches the layout that actually occurs: two runs of names, where
-        // the first child settles it for every node in the second run.
+        // The two catch different shapes, and both shapes are real. The first
+        // child catches a **different head**: runs of one name after another,
+        // where everything in the second run would be numbered as if it were
+        // still in the first. This one catches **alternation** — a plist
+        // `<dict>` is `<key>` then its value, over and over, so the kth `<key>`
+        // has sibling index 2(k-1) and the shortcut would say 2k-1. The first
+        // child is a `<key>` there and so is the node; only what comes after
+        // says otherwise.
+
         let after = id + node.subtree_size.max(1);
         if after < node.parent + parent.subtree_size
             && !self.node(after).is_some_and(|c| is_named_element(bytes, c, key))
