@@ -630,6 +630,84 @@ mod against_the_rfc {
         assert!(values("$.store.bicycle[?@.color == 'red']").is_empty());
     }
 
+    /// RFC 9535 §2.4.4–§2.4.8, one section at a time, over this document.
+    #[test]
+    fn the_five_functions_from_the_rfc() {
+        // §2.4.4 — the length of a string is in code points, and the length of
+        // an object or an array is how many things are in it.
+        assert_eq!(titles("$..book[?length(@.title) < 10]"), ["Moby Dick"]);
+        assert_eq!(
+            titles("$..book[?length(@) == 5]"),
+            ["Moby Dick", "The Lord of the Rings"],
+            "the two with an isbn have a fifth member"
+        );
+        // A number has no length, and Nothing is not less than anything.
+        assert!(titles("$..book[?length(@.price) < 10]").is_empty());
+
+        // §2.4.5 — count takes the query a comparison could not.
+        assert_eq!(titles("$..book[?count(@.*) == 5]").len(), 2);
+        assert_eq!(
+            values("$.store[?count(@..*) == 2].color"),
+            ["red"],
+            "the bicycle holds two nodes and the book array holds far more"
+        );
+
+        // §2.4.6 — `match` is the whole string.
+        assert_eq!(titles("$..book[?match(@.category, 'fict.*')]").len(), 3);
+        assert!(
+            titles("$..book[?match(@.category, 'fict')]").is_empty(),
+            "and not a part of it"
+        );
+        // §2.4.7 — `search` is any part of it.
+        assert_eq!(titles("$..book[?search(@.category, 'fict')]").len(), 3);
+        assert_eq!(
+            titles("$..book[?search(@.author, '[MT]')]"),
+            ["Moby Dick", "The Lord of the Rings"]
+        );
+        // Neither matches something that is not text.
+        assert!(titles("$..book[?search(@.price, '8')]").is_empty());
+
+        // §2.4.8 — one node has a value; a query that finds several has none.
+        assert_eq!(values("$.store[?value(@..color) == 'red'].color"), ["red"]);
+        assert_eq!(
+            values("$.store[?value(@..price) == 399].price"),
+            ["399"],
+            "the bicycle holds one price; the book array holds four, which is no value"
+        );
+
+        // A function's result is a value, so it may stand on either side.
+        assert_eq!(titles("$..book[?count(@.*) == length(@)]").len(), 4);
+    }
+
+    /// A pattern the document holds, rather than one the query wrote out.
+    ///
+    /// The compiled form is cached one deep, so this also asks whether the
+    /// cache answers for the second node and the ones after it.
+    #[test]
+    fn a_pattern_can_come_from_the_document() {
+        let doc = r#"{
+            "want": "^b",
+            "rows": [ {"v": "abc"}, {"v": "bcd"}, {"v": "bde"}, {"v": 7} ]
+        }"#;
+        let scanned =
+            scan(doc.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).expect("scan");
+        let index = Arc::new(TreeIndex::new(
+            scanned.nodes,
+            scanned.synthetic_root,
+            Syntax::Json,
+        ));
+        let found = |source: &str| {
+            let steps = parse(source).expect(source);
+            select(&index, doc.as_bytes(), &steps, &AtomicBool::new(false))
+                .expect(source)
+                .len()
+        };
+        assert_eq!(found("$.rows[?search(@.v, $.want)]"), 2);
+        // A pattern that is not a string matches nothing, rather than failing
+        // the query — the pattern came out of the document.
+        assert_eq!(found("$.rows[?search(@.v, $.rows[3].v)]"), 0);
+    }
+
     /// A value longer than a row can show is still compared whole.
     ///
     /// This is the defect the test exists for: the display path cuts a scalar

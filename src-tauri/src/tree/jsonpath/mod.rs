@@ -11,15 +11,13 @@
 //! bytes. Walking the index instead costs nothing extra, because the index
 //! already knows a node's children and its key.
 //!
-//! **Every selector RFC 9535 defines**, and the rest refused out loud. `$`,
+//! **Every selector RFC 9535 defines**, and every function it defines. `$`,
 //! `.key`, `["key"]`, `[n]` (from either end), `[start:end:step]`, `[a, b]`,
-//! `[?<expr>]`, `[*]`, `.*` and `..`. What is not here is the five function
-//! extensions — `length()`, `count()`, `match()`, `search()`, `value()` — and
-//! comparing whole objects or arrays.
-//!
-//! An expression that reaches for one of those is an error rather than a
-//! quietly different answer, because a wrong answer that looks like an answer
-//! is the worst thing this could do.
+//! `[?<expr>]`, `[*]`, `.*`, `..`, and `length()`, `count()`, `match()`,
+//! `search()`, `value()` inside a filter. What is not here is comparing whole
+//! objects or arrays, which is an error rather than a quietly different
+//! answer — a wrong answer that looks like an answer is the worst thing this
+//! could do.
 //!
 //! One deliberate departure: the RFC lets a union hand back the same node
 //! twice (`[0, 0]`), and this does not. A viewer highlights nodes, and
@@ -31,6 +29,7 @@
 //! speak in, and the one error this module can raise.
 
 mod filter;
+mod functions;
 pub(crate) mod parse;
 mod select;
 

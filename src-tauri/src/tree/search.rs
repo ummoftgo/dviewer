@@ -1114,7 +1114,7 @@ mod tests {
     fn an_expression_this_does_not_do_is_refused() {
         let index = build(DOC);
         for (query, expected) in [
-            ("$[?length(@.title) > 2]", "length()"),
+            ("$[?length(@.title[*]) > 2]", "has to be a value"),
             ("items", "start at `$`"),
         ] {
             let options = SearchOptions {

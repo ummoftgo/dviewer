@@ -15,7 +15,11 @@
 //! makes `!`, `&&` and `||` bind the way a reader expects.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
+use regex::Regex;
+
+use super::functions::{self, Call, Ty};
 use super::{bad, unsupported, Step};
 use crate::error::{Error, Result};
 use crate::tree::index::TreeIndex;
@@ -32,6 +36,10 @@ pub enum Expr {
     /// `[?@.isbn]` is every child that has an `isbn` at all.
     Exists(Query),
     Compare(Box<Operand>, Op, Box<Operand>),
+    /// A `match()` or a `search()` standing on its own. Those two already
+    /// answer true or false, so there is nothing to compare them to — and
+    /// nothing may be, which is what `Ty::Logical` is for.
+    Test(Call),
 }
 
 /// One side of a comparison.
@@ -39,6 +47,7 @@ pub enum Expr {
 pub enum Operand {
     Query(Query),
     Literal(Literal),
+    Function(Call),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,13 +96,6 @@ pub enum Literal {
     Null,
 }
 
-/// The names this does not have, and what a reader who wrote one is told.
-///
-/// Refused rather than ignored: a filter that quietly drops a `length()` would
-/// answer a different question than the one asked, and look like it answered
-/// the right one.
-const FUNCTIONS: [&str; 5] = ["length", "count", "match", "search", "value"];
-
 /// Parse the inside of a `[?...]`, with `source` only for error messages.
 pub fn parse_filter(source: &str, body: &str) -> Result<Expr> {
     let mut cursor = Cursor {
@@ -110,7 +112,7 @@ pub fn parse_filter(source: &str, body: &str) -> Result<Expr> {
     }
 }
 
-struct Cursor<'a> {
+pub(super) struct Cursor<'a> {
     /// The whole expression, so an error can quote what was typed.
     source: &'a str,
     text: &'a str,
@@ -118,7 +120,7 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    fn rest(&self) -> &'a str {
+    pub(super) fn rest(&self) -> &'a str {
         &self.text[self.at..]
     }
 
@@ -128,7 +130,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Whether the next thing is `token`, and step over it if so.
-    fn eat(&mut self, token: &str) -> bool {
+    pub(super) fn eat(&mut self, token: &str) -> bool {
         self.spaces();
         if self.rest().starts_with(token) {
             self.at += token.len();
@@ -137,7 +139,7 @@ impl<'a> Cursor<'a> {
         false
     }
 
-    fn here(&self, why: &str) -> crate::error::Error {
+    pub(super) fn here(&self, why: &str) -> crate::error::Error {
         bad(self.source, &format!("{why} (in the filter, at {})", self.at + 1))
     }
 
@@ -190,7 +192,11 @@ impl<'a> Cursor<'a> {
         }
         match self.comparable()? {
             Operand::Query(query) => Ok(Expr::Exists(query)),
-            Operand::Literal(_) => Err(self.here("`!` needs a query or a `(` after it")),
+            Operand::Function(call) if call.returns == Ty::Logical => Ok(Expr::Test(call)),
+            // `!length(@.a)` is a negated number, which is not a question.
+            Operand::Function(_) | Operand::Literal(_) => {
+                Err(self.here("`!` needs a query, a test or a `(` after it"))
+            }
         }
     }
 
@@ -205,11 +211,13 @@ impl<'a> Cursor<'a> {
 
         let left = self.comparable()?;
         let Some(op) = self.operator() else {
-            // Nothing to compare with, so this is an existence test — which
-            // only a query can be. A bare `1` is not a question.
+            // Nothing to compare with, so this is a test on its own — which a
+            // query can be, and so can a function that gives back true or
+            // false. A bare `1`, or a bare `length(@.a)`, is not a question.
             return match left {
                 Operand::Query(query) => Ok(Expr::Exists(query)),
-                Operand::Literal(_) => {
+                Operand::Function(call) if call.returns == Ty::Logical => Ok(Expr::Test(call)),
+                Operand::Function(_) | Operand::Literal(_) => {
                     Err(self.here("a value on its own is not a test; compare it to something"))
                 }
             };
@@ -217,14 +225,24 @@ impl<'a> Cursor<'a> {
         let right = self.comparable()?;
 
         for side in [&left, &right] {
-            if let Operand::Query(query) = side {
-                if !query.singular {
+            match side {
+                Operand::Query(query) if !query.singular => {
                     return Err(unsupported(
                         self.source,
                         "comparisons against a query that can select more than one node \
                          (a wildcard, a slice, a filter or `..` inside `[?...]`)",
                     ));
                 }
+                // `match(@.a, "b") == true` is the RFC's own example of what
+                // is not well-typed: a test is already the answer, and there
+                // is no `true` for it to be equal to.
+                Operand::Function(call) if call.returns == Ty::Logical => {
+                    return Err(self.here(&format!(
+                        "`{}()` is already a test, so it cannot be compared",
+                        call.name
+                    )));
+                }
+                _ => {}
             }
         }
         Ok(Expr::Compare(Box::new(left), op, Box::new(right)))
@@ -251,7 +269,7 @@ impl<'a> Cursor<'a> {
 
     // --- the leaves --------------------------------------------------------
 
-    fn comparable(&mut self) -> Result<Operand> {
+    pub(super) fn comparable(&mut self) -> Result<Operand> {
         self.spaces();
         let rest = self.rest();
         match rest.chars().next() {
@@ -270,7 +288,7 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    /// `true`, `false`, `null` — or a function name, which is refused by name.
+    /// `true`, `false`, `null` — or a call to one of the five functions.
     fn word(&mut self) -> Result<Operand> {
         let rest = self.rest();
         let end = rest
@@ -278,11 +296,14 @@ impl<'a> Cursor<'a> {
             .unwrap_or(rest.len());
         let word = &rest[..end];
 
-        if let Some(name) = FUNCTIONS.iter().find(|name| **name == word) {
-            return Err(unsupported(
-                self.source,
-                &format!("the function `{name}()`"),
-            ));
+        // The `(` has to be right there: the RFC's grammar puts no space
+        // between a function's name and its arguments. Whether the name is one
+        // this knows is `parse_call`'s to answer, so that `foo(@.a)` is told it
+        // is not a function rather than that `foo` is not a value.
+        if rest[end..].starts_with('(') {
+            let name = word.to_owned();
+            self.at += end;
+            return Ok(Operand::Function(functions::parse_call(self, &name)?));
         }
         let literal = match word {
             "true" => Literal::Bool(true),
@@ -318,9 +339,14 @@ impl<'a> Cursor<'a> {
                 self.at += 2;
                 steps.push(Step::Descend);
                 singular = false;
-                // `..` may be followed by a name, the way it is outside a
-                // filter. Leaving it to the loop would stop at the name and
-                // call the rest of the filter leftovers.
+                // `..` may be followed by a name or a `*`, the way it is
+                // outside a filter. Leaving it to the loop would stop there
+                // and call the rest of the filter leftovers.
+                if self.rest().starts_with('*') {
+                    self.at += 1;
+                    steps.push(Step::Any);
+                    continue;
+                }
                 if let Some(name) = self.name() {
                     steps.push(Step::Key(name));
                 }
@@ -463,8 +489,40 @@ pub(crate) enum Value<'a> {
     Float(f64),
     Str(std::borrow::Cow<'a, str>),
     /// An object or an array. Comparing two of those means deep equality,
-    /// which this does not do — see `compare`.
-    Composite,
+    /// which this does not do — see `compare`. The count is carried because
+    /// `length()` asks for exactly it, and the index already knows it.
+    Composite { count: u32 },
+}
+
+impl<'a> From<&'a Literal> for Value<'a> {
+    fn from(literal: &'a Literal) -> Self {
+        match literal {
+            Literal::Str(text) => Value::Str(std::borrow::Cow::Borrowed(text)),
+            Literal::Int(n) => Value::Int(*n),
+            Literal::Float(n) => Value::Float(*n),
+            Literal::Bool(b) => Value::Bool(*b),
+            Literal::Null => Value::Null,
+        }
+    }
+}
+
+impl Value<'_> {
+    /// Cut the tie to the bytes this was read out of.
+    ///
+    /// A function's result outlives the borrow its argument was read under —
+    /// `length(@.name)` reads a string and hands back a number, and the number
+    /// has nothing to do with those bytes. Only `Str` actually copies.
+    pub(super) fn into_owned(self) -> Value<'static> {
+        match self {
+            Value::Str(text) => Value::Str(std::borrow::Cow::Owned(text.into_owned())),
+            Value::Nothing => Value::Nothing,
+            Value::Null => Value::Null,
+            Value::Bool(b) => Value::Bool(b),
+            Value::Int(n) => Value::Int(n),
+            Value::Float(n) => Value::Float(n),
+            Value::Composite { count } => Value::Composite { count },
+        }
+    }
 }
 
 /// Whether `expr` is true of the node `current`.
@@ -493,11 +551,12 @@ pub(crate) fn matches(
             let right = operand(index, bytes, right, current, budget)?;
             compare(&left, *op, &right)
         }
+        Expr::Test(call) => functions::test(index, bytes, call, current, budget),
     }
 }
 
 /// The nodes a query inside a filter selects.
-fn resolve(
+pub(super) fn resolve(
     index: &TreeIndex,
     bytes: &[u8],
     query: &Query,
@@ -519,11 +578,8 @@ fn operand<'a>(
     budget: &mut Budget<'_>,
 ) -> Result<Value<'a>> {
     match operand {
-        Operand::Literal(Literal::Str(text)) => Ok(Value::Str(std::borrow::Cow::Borrowed(text))),
-        Operand::Literal(Literal::Int(n)) => Ok(Value::Int(*n)),
-        Operand::Literal(Literal::Float(n)) => Ok(Value::Float(*n)),
-        Operand::Literal(Literal::Bool(b)) => Ok(Value::Bool(*b)),
-        Operand::Literal(Literal::Null) => Ok(Value::Null),
+        Operand::Literal(literal) => Ok(Value::from(literal)),
+        Operand::Function(call) => functions::value(index, bytes, call, current, budget),
         Operand::Query(query) => {
             let found = resolve(index, bytes, query, current, budget)?;
             // A singular query, so at most one — and the parser has already
@@ -543,7 +599,7 @@ fn operand<'a>(
 /// two strings that differ only after the cut would come back equal. So this
 /// reads the whole span, and pays for a copy only when there is an escape in
 /// it — the same bargain `named` takes over keys.
-fn value_of<'a>(bytes: &'a [u8], index: &TreeIndex, id: u32) -> Value<'a> {
+pub(super) fn value_of<'a>(bytes: &'a [u8], index: &TreeIndex, id: u32) -> Value<'a> {
     let Some(node) = index.node(id) else {
         return Value::Nothing;
     };
@@ -566,8 +622,11 @@ fn value_of<'a>(bytes: &'a [u8], index: &TreeIndex, id: u32) -> Value<'a> {
         Kind::Bool => Value::Bool(raw == b"true"),
         Kind::Null => Value::Null,
         // XML never reaches here — `select_by_path` refuses it — and an object
-        // or an array is a thing you can test the existence of, not compare.
-        _ => Value::Composite,
+        // or an array is a thing you can test the existence of or measure, not
+        // compare.
+        _ => Value::Composite {
+            count: node.child_count,
+        },
     }
 }
 
@@ -593,7 +652,7 @@ fn number_of(raw: &[u8]) -> Value<'static> {
 /// deep equality. Said out loud rather than answered as `false`: a filter that
 /// quietly finds nothing looks exactly like a filter that found nothing.
 fn compare(left: &Value<'_>, op: Op, right: &Value<'_>) -> Result<bool> {
-    if matches!(left, Value::Composite) || matches!(right, Value::Composite) {
+    if matches!(left, Value::Composite { .. }) || matches!(right, Value::Composite { .. }) {
         return Err(Error::BadPath {
             detail: "comparing an object or an array is not supported yet; compare one of its values instead"
                 .to_owned(),
@@ -649,6 +708,11 @@ fn compare(left: &Value<'_>, op: Op, right: &Value<'_>) -> Result<bool> {
 pub(crate) struct Budget<'a> {
     cancel: &'a AtomicBool,
     seen: u32,
+    /// The last regex built from a pattern that came out of the document, kept
+    /// so the next node does not build the same one again. One deep because
+    /// every node in a run looks at the same `$.pattern`; see
+    /// `functions::regex_for`.
+    pub(super) regex: Option<(String, Arc<Regex>)>,
 }
 
 /// Chosen the way the table search chose its own: often enough that a click
@@ -657,7 +721,11 @@ const CHECK_EVERY: u32 = 4_096;
 
 impl<'a> Budget<'a> {
     pub(crate) fn new(cancel: &'a AtomicBool) -> Self {
-        Self { cancel, seen: 0 }
+        Self {
+            cancel,
+            seen: 0,
+            regex: None,
+        }
     }
 
     pub(crate) fn tick(&mut self) -> Result<()> {
@@ -829,15 +897,44 @@ mod tests {
         assert_eq!(text("@.a == 'x,y'"), "x,y", "a comma is just a character");
     }
 
-    /// The functions are named, not silently dropped.
+    /// RFC 9535 §2.4.9, which is the whole of well-typedness in ten lines.
+    ///
+    /// Kept as one table because that is what the RFC's own examples are, and
+    /// because the two halves only mean something together: `count(@.*)` is
+    /// fine and `length(@.*)` is not, and the difference is not in the query.
     #[test]
-    fn the_functions_this_does_not_have_are_refused_by_name() {
+    fn the_type_rules_are_the_rfcs_own_examples() {
+        for source in [
+            "length(@) < 3",
+            "count(@.*) == 1",
+            "match(@.timezone, 'Europe/.*')",
+            "search(@.author, 'Nigel')",
+            "value(@..color) == 'red'",
+            // A function's result is a value, so it may be either side.
+            "length(@.a) == count(@.b[*])",
+        ] {
+            assert!(
+                parse_filter("$[?...]", source).is_ok(),
+                "{source} should be well-typed"
+            );
+        }
+
         for (source, expected) in [
-            ("length(@.a) > 2", "length()"),
-            ("count(@.a[*]) == 1", "count()"),
-            ("match(@.a, 'x')", "match()"),
-            ("search(@.a, 'x')", "search()"),
-            ("value(@.a) == 1", "value()"),
+            // `@.*` is not one node, so there is nothing to take the length of.
+            ("length(@.*) < 3", "argument 1 of `length()` has to be a value"),
+            // A literal is not a list of nodes to count.
+            ("count(1) == 1", "argument 1 of `count()` has to be a query"),
+            // A test is the answer already.
+            (
+                "match(@.a, 'x') == true",
+                "`match()` is already a test, so it cannot be compared",
+            ),
+            // And a value is not one.
+            (
+                "value(@..color)",
+                "a value on its own is not a test; compare it to something",
+            ),
+            ("foo(@.*) == 1", "`foo()` is not a function this knows"),
         ] {
             match parse_filter("$[?...]", source) {
                 Err(Error::BadPath { detail }) => {
@@ -846,6 +943,36 @@ mod tests {
                 other => panic!("{source} gave {other:?}"),
             }
         }
+    }
+
+    /// The arity and the brackets, which the signature table also decides.
+    #[test]
+    fn a_call_that_is_not_shaped_like_its_signature_is_refused() {
+        for (source, expected) in [
+            ("length() == 1", "takes 1 argument(s), not 0"),
+            ("length(@.a, @.b) == 1", "takes 1 argument(s), not 2"),
+            ("match(@.a) ", "takes 2 argument(s), not 1"),
+            ("length(@.a == 1", "`length(` with no `)`"),
+        ] {
+            match parse_filter("$[?...]", source) {
+                Err(Error::BadPath { detail }) => {
+                    assert!(detail.contains(expected), "{source} said {detail}")
+                }
+                other => panic!("{source} gave {other:?}"),
+            }
+        }
+    }
+
+    /// A pattern written out is compiled once, at parse time — so a broken one
+    /// is a broken query and not a filter that quietly matches nothing.
+    #[test]
+    fn a_literal_pattern_that_is_not_a_regex_is_refused_while_parsing() {
+        match parse_filter("$[?...]", "match(@.a, '[')") {
+            Err(Error::BadRegex { .. }) => {}
+            other => panic!("gave {other:?}"),
+        }
+        // One that came out of the document cannot be, so it is not.
+        assert!(parse_filter("$[?...]", "match(@.a, @.pattern)").is_ok());
     }
 
     /// A comparison needs a side that can only be one node. This is decided

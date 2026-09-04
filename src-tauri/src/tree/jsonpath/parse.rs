@@ -365,9 +365,9 @@ mod tests {
     #[test]
     fn what_is_not_supported_is_refused_by_name() {
         for (source, expected) in [
-            ("$[?length(@.a) > 2]", "length()"),
-            ("$[?count(@.a[*]) == 1]", "count()"),
-            ("$[?match(@.a, 'x')]", "match()"),
+            ("$[?length(@.*) > 2]", "has to be a value"),
+            ("$[?count(1) == 1]", "has to be a query"),
+            ("$[?match(@.a, 'x') == true]", "already a test"),
             ("$[?@.items[*] == 1]", "more than one node"),
         ] {
             match parse(source) {
