@@ -1,6 +1,6 @@
 [package]
 name = "dviewer"
-version = "0.10.0"
+version = "0.11.0"
 description = "Large JSON, YAML, TOML, XML, CSV and Markdown documents, opened fast"
 authors = ["yonghyeon"]
 edition = "2021"
