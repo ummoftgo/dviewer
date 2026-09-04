@@ -173,6 +173,7 @@ export const zhHans: Messages = {
   "inspector.key": "键",
   "inspector.value": "值",
   "inspector.comment": "说明",
+  "inspector.remark": "备注",
   "inspector.drill": "跳转到此项目",
   "inspector.expand": "显示完整值",
   "inspector.valueCut": "值过长，仅显示开头部分。",

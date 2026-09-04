@@ -643,12 +643,20 @@
                 >{/if}
             </span>
           {/if}
-          <!-- The note its author wrote above this value. Dimmed and last,
+          <!-- What its author wrote about this value. Dimmed and last,
                because it explains the row rather than being part of it — and
                shortened, because a row that grows to fit a paragraph stops
-               being a row. The whole of it is in the key/value table. -->
-          {#if row.comment}
-            <span class="note" title={row.comment}>{row.comment}</span>
+               being a row. The whole of both is in the key/value table.
+
+               The remark comes first: in the file it is the one written
+               nearer the value. Each keeps its own `title`, so hovering tells
+               you which is which even when both are clipped. -->
+          {#if row.remark || row.comment}
+            <span class="note">
+              {#if row.remark}<span title={row.remark}>{row.remark}</span>{/if}
+              {#if row.remark && row.comment}<span class="between"> · </span>{/if}
+              {#if row.comment}<span title={row.comment}>{row.comment}</span>{/if}
+            </span>
           {/if}
         </div>
       {/each}
@@ -940,6 +948,11 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Enough to read as a separator without competing with the words. */
+  .note .between {
+    opacity: 0.6;
   }
 
   .ellipsis {

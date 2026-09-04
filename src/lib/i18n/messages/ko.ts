@@ -178,6 +178,7 @@ export const ko = {
   "inspector.key": "키",
   "inspector.value": "값",
   "inspector.comment": "설명",
+  "inspector.remark": "덧말",
   "inspector.drill": "이 항목으로 이동",
   "inspector.expand": "전체 값 보기",
   "inspector.valueCut": "값이 길어 앞부분만 보여줍니다.",

@@ -56,6 +56,13 @@ pub struct TreeRow {
     /// to be read while scanning — that is why its author put it there. The
     /// whole of it is in the key/value table, where there is room.
     pub comment: Option<String>,
+    /// What was written after this value on its line. JSONC only.
+    ///
+    /// Beside `comment` rather than folded into it: one is what the author
+    /// said *before* the value and one is what they said *after* it, and a row
+    /// that showed them as one string would put words in an order nobody
+    /// wrote.
+    pub remark: Option<String>,
     pub truncated: bool,
     pub child_count: u32,
     pub container: bool,
@@ -128,6 +135,7 @@ impl TreeDoc {
         let index = Arc::new(TreeIndex::annotated(
             scanned.nodes,
             scanned.comments,
+            scanned.remarks,
             scanned.synthetic_root,
             syntax,
         ));
@@ -189,6 +197,7 @@ impl TreeDoc {
             kind: node.kind.as_str(),
             value,
             comment: self.comment_of(id, COMMENT_PREVIEW_CHARS),
+            remark: self.remark_of(id, COMMENT_PREVIEW_CHARS),
             truncated,
             child_count: node.child_count,
             container: node.kind.is_container(),
@@ -227,7 +236,21 @@ impl TreeDoc {
     /// written — only the markers are dropped, because `//` on screen would be
     /// punctuation the reader has to look past on every annotated row.
     pub fn comment_of(&self, id: u32, max_chars: usize) -> Option<String> {
-        let (start, len) = self.index.comment_of(id)?;
+        self.note_text(self.index.comment_of(id)?, max_chars)
+    }
+
+    /// The remark written after `id` on its line, read the same way.
+    ///
+    /// Same treatment as a comment, because it is the same thing in a
+    /// different place: the author's words about this value, with the markers
+    /// they had to type in order to write them.
+    pub fn remark_of(&self, id: u32, max_chars: usize) -> Option<String> {
+        self.note_text(self.index.remark_of(id)?, max_chars)
+    }
+
+    /// A comment span as the reader should see it: markers dropped, lines
+    /// joined, cut at `max_chars`.
+    fn note_text(&self, (start, len): (u32, u32), max_chars: usize) -> Option<String> {
         let raw = &self.bytes[start as usize..(start + len) as usize];
         let mut out = String::new();
         let mut taken = 0usize;
@@ -789,6 +812,52 @@ mod converted_tests {
 
     /// Skipping a comment is not losing it.
     ///
+
+    /// A row carries both of the author's notes: the one above the value and
+    /// the one after it, each without the markers that had to be typed.
+    #[test]
+    fn a_row_carries_the_note_above_and_the_one_after() {
+        let src = "{\n  // 어느 포트로 열지\n  \"port\": 8080, // 기본값\n  \"host\": \"a\"\n}";
+        let doc = TreeDoc::build(
+            Arc::new(DocBytes::from(src.as_bytes().to_vec())),
+            Syntax::Jsonc,
+            &ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("build");
+        doc.expand_all();
+        let rows = doc.rows(0, 10);
+
+        let port = rows.iter().find(|r| r.key.as_deref() == Some("port")).expect("port");
+        assert_eq!(port.comment.as_deref(), Some("어느 포트로 열지"));
+        assert_eq!(port.remark.as_deref(), Some("기본값"), "markers dropped, like a note");
+
+        let host = rows.iter().find(|r| r.key.as_deref() == Some("host")).expect("host");
+        assert_eq!(host.comment, None);
+        assert_eq!(host.remark, None, "the remark above belongs to `port`");
+    }
+
+    /// The same ceiling a note has, for the same reason: the key/value table
+    /// wraps it and the row clips it, so one length serves both.
+    #[test]
+    fn a_long_remark_is_cut_like_a_long_note() {
+        let long = "가".repeat(COMMENT_PREVIEW_CHARS + 50);
+        let src = format!("[1 // {long}\n]");
+        let doc = TreeDoc::build(
+            Arc::new(DocBytes::from(src.as_bytes().to_vec())),
+            Syntax::Jsonc,
+            &ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("build");
+
+        let remark = doc.remark_of(1, COMMENT_PREVIEW_CHARS).expect("remark");
+        assert_eq!(remark.chars().count(), COMMENT_PREVIEW_CHARS + 1, "cut, plus the ellipsis");
+        assert!(remark.ends_with('…'));
+    }
+
     /// A tree document has no raw view — that is the markdown toggle — so the
     /// only way back to what was written is a node's own text. It is cut from
     /// the document's bytes, so the comments inside a container come back with

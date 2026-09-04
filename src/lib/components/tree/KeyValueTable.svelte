@@ -368,9 +368,19 @@ b` there is
                 </td>
               </tr>
 
-              <!-- The note its author wrote above this value, whole and
-                   wrapped. The tree row has it too, clipped to one line — this
-                   is where a long one is actually readable. -->
+              <!-- What its author wrote about this value, whole and
+                   wrapped. The tree row has both too, clipped to one line —
+                   this is where a long one is actually readable.
+
+                   Two rows rather than one line, because they are two things:
+                   what was written above the value and what was written after
+                   it. The order matches the tree row. -->
+              {#if row.remark}
+                <tr class="explains" class:alt={i % 2 === 1}>
+                  <th scope="row">{t("inspector.remark")}</th>
+                  <td><EscapedText text={row.remark} /></td>
+                </tr>
+              {/if}
               {#if row.comment}
                 <tr class="explains" class:alt={i % 2 === 1}>
                   <th scope="row">{t("inspector.comment")}</th>

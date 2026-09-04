@@ -407,6 +407,10 @@ pub struct TreeIndex {
     /// Comments, each attached to the node it explains. Empty for every format
     /// but JSONC — see `scanner::Annotation` for why it is not a node field.
     pub comments: Vec<crate::tree::scanner::Annotation>,
+    /// Remarks: what was written after a value on its own line. Same shape,
+    /// same emptiness everywhere but JSONC, and a table of its own so both
+    /// lookups stay a plain binary search on the node id.
+    pub remarks: Vec<crate::tree::scanner::Annotation>,
     pub synthetic_root: bool,
     /// Computed once at build time. Deriving it per call would put a full scan
     /// of every node behind every collapse — 26ms on a 38M-node document.
@@ -416,12 +420,13 @@ pub struct TreeIndex {
 
 impl TreeIndex {
     pub fn new(nodes: Vec<Node>, synthetic_root: bool, syntax: Syntax) -> Self {
-        Self::annotated(nodes, Vec::new(), synthetic_root, syntax)
+        Self::annotated(nodes, Vec::new(), Vec::new(), synthetic_root, syntax)
     }
 
     pub fn annotated(
         nodes: Vec<Node>,
         comments: Vec<crate::tree::scanner::Annotation>,
+        remarks: Vec<crate::tree::scanner::Annotation>,
         synthetic_root: bool,
         syntax: Syntax,
     ) -> Self {
@@ -429,6 +434,7 @@ impl TreeIndex {
         Self {
             nodes,
             comments,
+            remarks,
             synthetic_root,
             max_depth,
             syntax,
@@ -439,7 +445,8 @@ impl TreeIndex {
     /// a huge document costs.
     pub fn heap_bytes(&self) -> usize {
         self.nodes.len() * std::mem::size_of::<Node>()
-            + self.comments.len() * std::mem::size_of::<crate::tree::scanner::Annotation>()
+            + (self.comments.len() + self.remarks.len())
+                * std::mem::size_of::<crate::tree::scanner::Annotation>()
     }
 
     pub fn node(&self, id: u32) -> Option<&Node> {
@@ -517,12 +524,12 @@ impl TreeIndex {
     /// filled it in node order — an annotated document has one entry per
     /// commented value, not one per node.
     pub fn comment_of(&self, id: u32) -> Option<(u32, u32)> {
-        let at = self
-            .comments
-            .binary_search_by_key(&id, |comment| comment.node)
-            .ok()?;
-        let found = self.comments[at];
-        Some((found.start, found.len))
+        span_of(&self.comments, id)
+    }
+
+    /// The remark written after `id` on its line, if there was one.
+    pub fn remark_of(&self, id: u32) -> Option<(u32, u32)> {
+        span_of(&self.remarks, id)
     }
 
     pub fn table_target(&self, id: u32) -> Option<u32> {
@@ -765,6 +772,12 @@ fn is_named_element(bytes: &[u8], node: &Node, key: &[u8]) -> bool {
         node.kind,
         Kind::Text | Kind::Comment | Kind::CData | Kind::Directive | Kind::Attribute
     ) && name_of(bytes, node) == key
+}
+
+/// Find one node's annotation in a table that is in node order.
+fn span_of(table: &[crate::tree::scanner::Annotation], id: u32) -> Option<(u32, u32)> {
+    let at = table.binary_search_by_key(&id, |entry| entry.node).ok()?;
+    Some((table[at].start, table[at].len))
 }
 
 /// Whether a key can follow a dot without being read as a path of its own.

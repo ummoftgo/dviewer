@@ -224,6 +224,15 @@ export interface TreeRow {
   value: string | null;
   /** The comment written above this value, shortened. JSONC only. */
   comment: string | null;
+  /**
+   * What was written after this value on its line, shortened. JSONC only.
+   *
+   * Separate from `comment` because the two sit on opposite sides of the
+   * value: one is what the author said before it, the other what they said
+   * after. Joining them into one string would put words in an order nobody
+   * wrote.
+   */
+  remark: string | null;
   truncated: boolean;
   childCount: number;
   container: boolean;

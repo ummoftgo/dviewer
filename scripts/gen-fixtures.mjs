@@ -516,10 +516,11 @@ const jsoncBody = `{
     "b.example.com",  // 그리고 다음 줄에 후행 쉼표
   ],
 
-  "nested": { "deep": { "value": 1, }, },
+  "nested": { "deep": { "value": 1, }, }, // end of nested
   "url": "https://example.com/not/a/comment",
   "text": "/* 이건 문자열 안이라 주석이 아니다 */",
-  "number": 1, // 주석이 값의 끝이기도 하다
+  "number": 1, /* 앞의 */ /* 뒤의 */
+  "last": 2, // 주석이 값의 끝이기도 하다
 }`;
 await writeFile(path.join(OUT, "sample.jsonc"), jsoncBody + "\n");
 console.log("  sample.jsonc");
@@ -534,6 +535,7 @@ await writeFile(
       url: "https://example.com/not/a/comment",
       text: "/* 이건 문자열 안이라 주석이 아니다 */",
       number: 1,
+      last: 2,
     },
     null,
     2,
