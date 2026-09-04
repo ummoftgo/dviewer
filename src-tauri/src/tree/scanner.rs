@@ -164,6 +164,11 @@ pub struct Scan {
     /// Comments, each attached to the value that followed it. In node order,
     /// which is what lets a lookup be a binary search.
     pub comments: Vec<Annotation>,
+    /// Remarks: what was written after a value, on its line. Also in node
+    /// order, and a table of its own rather than a kind flag on the one above
+    /// — two tables both stay a plain `binary_search_by_key(node)`, where one
+    /// would need a compound key and a wider `Annotation`.
+    pub remarks: Vec<Annotation>,
     /// True when the input held several top-level values (NDJSON and friends)
     /// and node 0 is a synthetic array wrapping them.
     pub synthetic_root: bool,
@@ -208,6 +213,8 @@ pub fn scan_as(
         pending_key: None,
         pending_comment: None,
         comments: Vec::new(),
+        last_finished: None,
+        remarks: Vec::new(),
         descended: false,
         limits,
         next_progress: PROGRESS_STEP,
@@ -218,12 +225,18 @@ pub fn scan_as(
 
     let mut nodes = scanner.nodes;
     let mut comments = scanner.comments;
+    // A container's remark is written when it closes, which is after every
+    // remark inside it. So this table arrives out of order, and the lookup
+    // that reads it is a binary search — one sort, once, or it finds nothing.
+    let mut remarks = scanner.remarks;
+    remarks.sort_by_key(|remark| remark.node);
+
     let synthetic_root = root_count != 1;
     if synthetic_root {
         wrap_in_synthetic_root(&mut nodes, root_count, body.len() as u32);
         // Every node moved down one to make room for the wrapper.
-        for comment in &mut comments {
-            comment.node += 1;
+        for annotation in comments.iter_mut().chain(remarks.iter_mut()) {
+            annotation.node += 1;
         }
     }
 
@@ -236,14 +249,15 @@ pub fn scan_as(
                 node.key_start += bom_offset;
             }
         }
-        for comment in &mut comments {
-            comment.start += bom_offset;
+        for annotation in comments.iter_mut().chain(remarks.iter_mut()) {
+            annotation.start += bom_offset;
         }
     }
 
     Ok(Scan {
         nodes,
         comments,
+        remarks,
         synthetic_root,
     })
 }
@@ -269,6 +283,14 @@ struct Scanner<'a, 'l> {
     /// next.
     pending_comment: Option<(u32, u32)>,
     comments: Vec<Annotation>,
+    /// The node that finished most recently, and where it ended.
+    ///
+    /// "Ended" moves: after a remark is attached to that node, this holds the
+    /// end of the remark instead. That is what lets `1 /* a */ /* b */` join —
+    /// measured from the value, the second comment has the first one between
+    /// it and the value, and would be turned away.
+    last_finished: Option<(u32, u32)>,
+    remarks: Vec<Annotation>,
     /// Set when the value just parsed was a container we stepped into.
     descended: bool,
     limits: &'l ScanLimits,
@@ -377,6 +399,9 @@ impl Scanner<'_, '_> {
         self.pending_comment = None;
         let (id, children) = self.stack.pop().expect("close_container with no open container");
         self.p += 1;
+        // What ended on this line is the container, so `} // end of section`
+        // is a remark about the block rather than about its last member.
+        self.last_finished = Some((id, self.p as u32));
         let total = self.nodes.len() as u32;
         let node = &mut self.nodes[id as usize];
         node.val_len = self.p as u32 - node.val_start;
@@ -472,6 +497,7 @@ impl Scanner<'_, '_> {
         };
         self.p = end;
         self.nodes[id as usize].val_len = (end - start) as u32;
+        self.last_finished = Some((id, end as u32));
         Ok(())
     }
 
@@ -568,6 +594,8 @@ impl Scanner<'_, '_> {
                     };
                     if leading {
                         block = Some(grow(block, from, self.p as u32));
+                    } else {
+                        self.remark(from, self.p as u32);
                     }
                     if self.p < self.b.len() {
                         self.p += 1;
@@ -588,6 +616,8 @@ impl Scanner<'_, '_> {
                             self.p = at + 1;
                             if leading {
                                 block = Some(grow(block, start as u32, self.p as u32));
+                            } else {
+                                self.remark(start as u32, self.p as u32);
                             }
                             break;
                         }
@@ -601,6 +631,49 @@ impl Scanner<'_, '_> {
                 }
             }
         }
+    }
+
+    /// Attach `from..to` to the value it was written after, if it was.
+    ///
+    /// The rule is narrow on purpose: a remark belongs to the thing that ended
+    /// before it **on the same line**, and only when nothing stands between
+    /// them but spaces, tabs and commas. That admits both spellings a reader
+    /// uses — `"a", // x` and `"a" /* x */,` — and turns away the three shapes
+    /// that would otherwise be captured by the value before them:
+    ///
+    /// * a comment on its own line (there is a newline in the gap);
+    /// * one just inside an opening brace (nothing has ended yet, and the
+    ///   previous sibling is a line up);
+    /// * one between a key and its value (`{"a": 1, "b": /* x */ 2}`), where
+    ///   the gap holds the key. A newline test alone would let this one
+    ///   through whenever the object is written on one line.
+    ///
+    /// `\r` is not in the allowed set: on a CRLF document it means the
+    /// remark is on the next line, and a carriage return with no newline after
+    /// it is not a gap anyone writes on purpose.
+    fn remark(&mut self, from: u32, to: u32) {
+        let Some((node, end)) = self.last_finished else {
+            return;
+        };
+        let gap = &self.b[end as usize..from as usize];
+        if !gap.iter().all(|b| matches!(b, b' ' | b'\t' | b',')) {
+            return;
+        }
+
+        // A second remark on the same line joins the first rather than
+        // replacing it. They are pushed back to back, so the last entry is the
+        // only one that can be this node's.
+        match self.remarks.last_mut() {
+            Some(last) if last.node == node => last.len = to - last.start,
+            _ => self.remarks.push(Annotation {
+                node,
+                start: from,
+                len: to - from,
+            }),
+        }
+        // Measured from here on, so the next comment on this line is not
+        // turned away by the one just recorded.
+        self.last_finished = Some((node, to));
     }
 
     /// Whether nothing but whitespace stands between `at` and the line above.
@@ -1289,6 +1362,13 @@ mod annotations {
             .expect("scan")
     }
 
+    fn remark<'a>(src: &'a str, scan: &Scan, node: u32) -> Option<&'a str> {
+        scan.remarks
+            .iter()
+            .find(|r| r.node == node)
+            .map(|r| &src[r.start as usize..(r.start + r.len) as usize])
+    }
+
     fn note<'a>(src: &'a str, scan: &Scan, node: u32) -> Option<&'a str> {
         scan.comments
             .iter()
@@ -1345,25 +1425,21 @@ mod annotations {
         assert!(scan.comments.is_empty());
     }
 
-    /// A remark written after a value belongs to that value, not to the next
-    /// one. It is out of scope, so it is dropped — attaching it to whatever
-    /// follows would put the author's words against the wrong thing, which is
-    /// worse than not showing them.
+    /// A remark is the note of the value it follows, not of the one after it.
+    ///
+    /// The second half is the older half: attaching it to what comes next
+    /// would put the author's words against the wrong thing. What is new is
+    /// that it is no longer thrown away — it belongs to the value on its line.
     #[test]
-    fn a_remark_after_a_value_is_not_a_note_on_the_next_one() {
+    fn a_remark_belongs_to_the_value_it_was_written_after() {
         let src = "[
   \"a\", // a 에 대한 말
   \"b\"
 ]";
         let scan = scan_jsonc(src);
-        assert!(
-            scan.comments.is_empty(),
-            "got {:?}",
-            scan.comments
-                .iter()
-                .map(|c| &src[c.start as usize..(c.start + c.len) as usize])
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(remark(src, &scan, 1), Some("// a 에 대한 말"));
+        assert_eq!(remark(src, &scan, 2), None, "and not to the next value");
+        assert!(scan.comments.is_empty(), "it is a remark, not a description");
 
         // And a note on its own line still attaches, even right after one.
         let src = "[
@@ -1373,5 +1449,109 @@ mod annotations {
 ]";
         let scan = scan_jsonc(src);
         assert_eq!(note(src, &scan, 2), Some("// b 에 대한 말"));
+        assert_eq!(remark(src, &scan, 1), Some("// a 에 대한 말"), "both, side by side");
+    }
+
+    /// Either spelling, either side of the comma.
+    #[test]
+    fn a_remark_may_be_written_before_or_after_the_comma() {
+        let src = "[\"a\" /* x */, \"b\"]";
+        let scan = scan_jsonc(src);
+        assert_eq!(remark(src, &scan, 1), Some("/* x */"));
+        assert_eq!(remark(src, &scan, 2), None);
+    }
+
+    /// What ended on the line is the container, so the remark is the block's.
+    #[test]
+    fn a_remark_after_a_closing_bracket_belongs_to_the_container() {
+        let src = "{
+  \"nums\": [1, 2], // 두 개면 충분하다
+  \"deep\": { \"a\": 1 } // end of section
+}";
+        let scan = scan_jsonc(src);
+        // 0 root, 1 nums array, 2 and 3 its numbers, 4 deep object, 5 its "a".
+        assert_eq!(remark(src, &scan, 1), Some("// 두 개면 충분하다"));
+        assert_eq!(remark(src, &scan, 4), Some("// end of section"));
+        assert_eq!(remark(src, &scan, 2), None, "not the last member");
+        assert_eq!(remark(src, &scan, 5), None);
+    }
+
+    /// A container is written down after everything inside it, so its remark
+    /// is pushed after theirs — with a *smaller* node id. The table is read by
+    /// binary search, which needs it sorted; without the one sort at the end
+    /// the container's remark is there and cannot be found.
+    #[test]
+    fn remarks_come_back_in_node_order() {
+        let src = "{
+  \"a\": [
+    1, // one
+    2  // two
+  ] // the list
+}";
+        let scan = scan_jsonc(src);
+        assert_eq!(remark(src, &scan, 1), Some("// the list"));
+        assert_eq!(remark(src, &scan, 2), Some("// one"));
+        assert_eq!(remark(src, &scan, 3), Some("// two"));
+
+        let nodes: Vec<u32> = scan.remarks.iter().map(|r| r.node).collect();
+        assert_eq!(nodes, [1, 2, 3], "written 2, 3, 1 and sorted once");
+    }
+
+    /// Two on one line are one remark. Measured from the last one recorded,
+    /// not from the value — from the value, the second has the first between
+    /// it and the value and would be turned away.
+    #[test]
+    fn two_remarks_on_one_line_are_joined() {
+        let src = "[1 /* a */ /* b */]";
+        let scan = scan_jsonc(src);
+        assert_eq!(remark(src, &scan, 1), Some("/* a */ /* b */"));
+        assert_eq!(scan.remarks.len(), 1);
+    }
+
+    /// The three shapes that are not remarks, and are still dropped.
+    #[test]
+    fn a_comment_that_follows_nothing_is_not_a_remark() {
+        // Just inside an opening bracket: nothing has ended yet.
+        let scan = scan_jsonc("[ // 이 배열은\n  1\n]");
+        assert!(scan.remarks.is_empty(), "got {:?}", scan.remarks);
+
+        // Between a key and its value, on one line. A newline test alone would
+        // let this one through and hang it on the value before it.
+        let src = "{\"a\": 1, \"b\": /* x */ 2}";
+        let scan = scan_jsonc(src);
+        assert!(scan.remarks.is_empty(), "got {:?}", scan.remarks);
+
+        // On its own line before a closing brace: it explains nothing that
+        // follows, and the container is not what it is about either.
+        let scan = scan_jsonc("{\n  \"a\": 1\n  // 여기까지\n}");
+        assert!(scan.remarks.is_empty(), "got {:?}", scan.remarks);
+        assert!(scan.comments.is_empty());
+    }
+
+    /// A remark on a top-level value of a multi-root document, where every
+    /// node moves down one to make room for the wrapper.
+    #[test]
+    fn a_remark_moves_with_its_node_under_a_synthetic_root() {
+        let src = "1 // 첫째\n2 // 둘째";
+        let scan = scan_jsonc(src);
+        assert!(scan.synthetic_root);
+        assert_eq!(remark(src, &scan, 1), Some("// 첫째"));
+        assert_eq!(remark(src, &scan, 2), Some("// 둘째"));
+    }
+
+    /// Offsets are computed against the BOM-stripped slice and have to be
+    /// shifted back, or the text read out of them is off by three.
+    #[test]
+    fn a_remark_in_a_bom_document_points_at_the_right_bytes() {
+        let src = "\u{feff}[1 // 하나\n]";
+        let scan = scan_as(
+            src.as_bytes(),
+            Dialect::Jsonc,
+            &ScanLimits::default(),
+            |_| {},
+            &|| false,
+        )
+        .expect("scan");
+        assert_eq!(remark(src, &scan, 1), Some("// 하나"));
     }
 }
