@@ -592,9 +592,17 @@ mod xml_tests {
         src.push_str("</x>");
         let doc = xml_doc(&src);
 
+        // Every `<b>` is caught by the first sample: the first child is an
+        // `<a>`, so the element is not a list of `<b>` and the walk answers.
         assert_eq!(doc.path_of(nth_child(&doc, 4000)).as_deref(), Some("/x/b[1]"));
         assert_eq!(doc.path_of(nth_child(&doc, 4199)).as_deref(), Some("/x/b[200]"));
-        // The `<a>` run is still right at both ends.
+
+        // The `<a>` run is right at both ends. The last one takes the walk too
+        // — its next sibling is a `<b>` — though for an `<a>` the shortcut
+        // would have said the same thing: nothing differently named comes
+        // before them, so their sibling index *is* their position. Which is
+        // why this assertion cannot tell the two paths apart, and the `<b>`
+        // ones above are what hold the fallback down.
         assert_eq!(doc.path_of(nth_child(&doc, 0)).as_deref(), Some("/x/a[1]"));
         assert_eq!(doc.path_of(nth_child(&doc, 3999)).as_deref(), Some("/x/a[4000]"));
     }

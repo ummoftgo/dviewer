@@ -717,9 +717,17 @@ impl TreeIndex {
         if !self.node(first).is_some_and(|c| is_named_element(bytes, c, key)) {
             return None;
         }
-        // The one after this one, which is `id + subtree_size` and needs no
-        // walking. There is none for the last child, and then two samples is
-        // what there is to have.
+        // And the one after this one, which is `id + subtree_size` and needs
+        // no walking. There is none for the last child, and then two samples
+        // is what there is to have.
+        //
+        // This one is the weaker of the two, and honestly so: a sibling index
+        // is too high only when something differently named came *before* this
+        // node, and this sample looks after it. What it buys is that a node
+        // standing next to an odd one — a comment, a stray element — takes the
+        // exact walk, which is never wrong. The sample above is the one that
+        // catches the layout that actually occurs: two runs of names, where
+        // the first child settles it for every node in the second run.
         let after = id + node.subtree_size.max(1);
         if after < node.parent + parent.subtree_size
             && !self.node(after).is_some_and(|c| is_named_element(bytes, c, key))
