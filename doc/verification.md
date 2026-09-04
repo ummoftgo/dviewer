@@ -3,14 +3,14 @@
 ← [README](../README.md)
 
 ```bash
-cd src-tauri && cargo test          # 394개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 아카이브, 표시/복사, 정화
+cd src-tauri && cargo test          # 404개: 스캐너 둘, 가시성, 검색, 변환, 표, 인코딩, 판별, 아카이브, 표시/복사, 정화
 npm test                            # 82개: 프론트의 순수 모듈과 상태 로직
 npm run smoke                       # 진짜 창에서 픽스처 전수 (아래)
 ```
 
 ## 프론트 테스트
 
-`npm test` 는 vitest 를 돌립니다. 테스트는 검사하는 코드 **옆에** 삽니다(`src/**/*.test.ts`) — Rust 쪽 394개가 전부 같은 파일 안 `#[cfg(test)] mod tests` 에 있는 것과 같은 문법입니다.
+`npm test` 는 vitest 를 돌립니다. 테스트는 검사하는 코드 **옆에** 삽니다(`src/**/*.test.ts`) — Rust 쪽 404개가 전부 같은 파일 안 `#[cfg(test)] mod tests` 에 있는 것과 같은 문법입니다.
 
 **러너를 vitest 로 고른 이유는 하나뿐입니다: 이 저장소의 `vite.config.ts` 를 그대로 쓴다는 것.** 그래서 테스트가 앱과 **같은 방식으로 컴파일**되고, `.svelte.ts` 의 runes 가 추가 설정 없이 돕니다. 그것이 상태 로직을 테스트할 수 있게 하는 전부입니다. 설정은 `vitest.config.ts` 로 분리했습니다 — `vite.config.ts` 는 Tauri 빌드가 읽는 파일이라 테스트 전용 설정으로 불리지 않는 편이 안전합니다.
 
@@ -246,7 +246,7 @@ cd src-tauri && cargo run --release --example archive -- ../fixtures/archive.zip
 
 프론트의 트리와 거르기는 10만 항목에서 만들기 78ms, 거르기 12ms 입니다 (거르기 입력에는 120ms 디바운스가 있습니다).
 
-`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), `archive.zip`(json·log·md·csv·`.log.gz`·중첩 zip·잠김 플래그), `korean-names.zip`(플래그 없는 CP949 이름), `zip64.zip`(작지만 zip64 끝 레코드), `single.zip`·`single-locked.zip`(투명 해제가 되는 쪽과 목록으로 후퇴하는 쪽), `workbook.zip`·`columnar.zip`·`database.zip`(**압축 안의 통합 문서·컬럼 파일·데이터베이스** — 항목이 하나라 투명 해제되므로 뜨는 것은 압축 목록이 아니라 그 안쪽 형식이어야 합니다), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
+`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시, 그리고 **값 뒤의 덧말** 셋 — 닫는 괄호 뒤·한 줄에 둘·쉼표 뒤)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), `archive.zip`(json·log·md·csv·`.log.gz`·중첩 zip·잠김 플래그), `korean-names.zip`(플래그 없는 CP949 이름), `zip64.zip`(작지만 zip64 끝 레코드), `single.zip`·`single-locked.zip`(투명 해제가 되는 쪽과 목록으로 후퇴하는 쪽), `workbook.zip`·`columnar.zip`·`database.zip`(**압축 안의 통합 문서·컬럼 파일·데이터베이스** — 항목이 하나라 투명 해제되므로 뜨는 것은 압축 목록이 아니라 그 안쪽 형식이어야 합니다), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
 
 `sample.xlsx` 의 바이트는 `archive.zip` 의 `data/sales.xlsx` 와 `workbook.zip` 에도 그대로 들어갑니다. 같은 워크북을 파일로 한 번, 압축 항목으로 한 번 보내는 것이 요점입니다 — 다른 길로 왔을 뿐 같은 것이어야 합니다. `columnar.zip` 은 `sample.parquet` 과 같은 이유로 Rust 예제가 씁니다(생성기가 감쌀 대상을 만들지 못합니다). `sample.sqlite` 도 같습니다 — `archive.zip` 의 `data/app.sqlite` 와 `database.zip` 이 그 바이트입니다. `node:sqlite` 는 파일에만 쓰므로 쓴 뒤 다시 읽어 넣습니다.
 
