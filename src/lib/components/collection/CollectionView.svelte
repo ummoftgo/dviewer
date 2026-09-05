@@ -245,6 +245,7 @@
       {rowCount}
       {columnCount}
       {columnName}
+      sortAvailable={!columnar}
       onsort={(column) => void controls?.sortColumn(column)}
       firstRowNumber={tab.gridStats?.firstRowNumber ?? 1}
       label={t("table.label", { title: tab.meta.title })}
