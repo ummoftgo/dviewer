@@ -507,6 +507,7 @@ impl TableDoc {
 
     /// A cell's actual text, for copying — escapes resolved, quotes stripped.
     pub fn cell_text(&self, row: u32, column: u32) -> Option<(String, bool)> {
+        if column >= self.columns() { return None; }
         let record = row.checked_add(self.header_offset())?;
         let (start, end) = self.record_span(record)?;
         // A JSONL cell is a JSON value, and copying one means the value rather
@@ -524,7 +525,8 @@ impl TableDoc {
         }
         let span = record_fields(&self.bytes, start, end, &self.reading())
             .into_iter()
-            .nth(column as usize)?;
+            .nth(column as usize)
+            .unwrap_or((end, end)); // A short row has the same empty cells as its page.
         Some(decode_cell(
             &self.bytes,
             span,
@@ -1354,6 +1356,16 @@ mod tests {
         let page = doc.page(0, 10);
         assert_eq!(texts(&page.rows[0]), ["1", "", "", ""]);
         assert_eq!(texts(&page.rows[1]), ["2", "3", "4", "5"]);
+        assert_eq!(doc.cell_text(0, 3), Some((String::new(), false)));
+        assert!(doc.cell_text(0, 4).is_none());
+        assert!(doc.cell_text(2, 0).is_none());
+        let order = crate::grid::order::Order::build(&doc,
+            Some(crate::grid::order::Sort { column: 3, descending: false }), "",
+            &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+        assert_eq!(order.rows, [1, 0]);
+        let filtered = crate::grid::order::Order::build(&doc, None, "3",
+            &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+        assert_eq!(filtered.rows, [1]);
     }
 
     #[test]

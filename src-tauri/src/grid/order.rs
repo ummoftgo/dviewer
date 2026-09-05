@@ -140,7 +140,6 @@ impl Order {
             Ok(())
         })?;
         if let Some(row) = current { finish(row, matched, key, text, &text_key)?; }
-        drop(finish);
         check_cancel(cancel)?;
         let mut peak_bytes = rows.capacity() * 4 + keys.capacity() * size_of::<Key>() + arena.capacity();
         if let Some(sort) = sort {
@@ -158,7 +157,7 @@ impl Order {
                     let (mut a, mut b) = (start, middle);
                     for out in &mut scratch[start..end] {
                         comparisons += 1;
-                        if comparisons % 4096 == 0 { check_cancel(cancel)?; }
+                        if comparisons.is_multiple_of(4096) { check_cancel(cancel)?; }
                         let left_first = b == end || (a < middle &&
                             compare(keys[positions[a] as usize], keys[positions[b] as usize], &arena, sort.descending)
                                 .then_with(|| rows[positions[a] as usize].cmp(&rows[positions[b] as usize])) != Ordering::Greater);
@@ -170,7 +169,10 @@ impl Order {
                 width *= 2;
                 progress(grid.row_count(), grid.row_count());
             }
-            for (at, position) in positions.into_iter().enumerate() { scratch[at] = rows[position as usize]; }
+            for (at, position) in positions.into_iter().enumerate() {
+                if at.is_multiple_of(4096) { check_cancel(cancel)?; }
+                scratch[at] = rows[position as usize];
+            }
             rows = scratch;
         }
         check_cancel(cancel)?;
@@ -178,12 +180,18 @@ impl Order {
         Ok(Self { rows, total: grid.row_count(), filtered: !filter.is_empty(), inverse: OnceLock::new(), peak_bytes })
     }
 
-    pub fn inverse(&self) -> &[u32] {
-        self.inverse.get_or_init(|| {
+    fn inverse(&self, cancel: &AtomicBool) -> Result<&[u32]> {
+        check_cancel(cancel)?;
+        if self.inverse.get().is_none() {
             let mut inverse = vec![u32::MAX; self.total as usize];
-            for (shown, &original) in self.rows.iter().enumerate() { inverse[original as usize] = shown as u32; }
-            inverse
-        })
+            for (shown, &original) in self.rows.iter().enumerate() {
+                if shown.is_multiple_of(4096) { check_cancel(cancel)?; }
+                inverse[original as usize] = shown as u32;
+            }
+            check_cancel(cancel)?;
+            let _ = self.inverse.set(inverse);
+        }
+        Ok(self.inverse.get().expect("set above"))
     }
 
     pub fn stats(&self) -> OrderStats {
@@ -210,7 +218,7 @@ impl Order {
     }
 
     pub fn search(&self, grid: &dyn Grid, query: &str, case_sensitive: bool, how: Interpretation, cancel: &AtomicBool) -> Result<TableSearch> {
-        let inverse = self.inverse();
+        let inverse = self.inverse(cancel)?;
         let mut result = if self.filtered {
             let matcher = Matcher::new(query, case_sensitive, how)?;
             let mut hits = Vec::new();

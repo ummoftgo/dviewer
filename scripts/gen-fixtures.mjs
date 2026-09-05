@@ -77,6 +77,20 @@ console.log("fixtures →", OUT);
 // ~1MB: the everyday case.
 await writeStream("small.json", arrayOf(1_500, record));
 
+// Array/map grid boundaries, long keys, and values beyond the cell preview.
+await writeFile(path.join(OUT, "grid-cases.json"), JSON.stringify({
+  objects: [{ id: 3, name: "Alpha", nested: { tags: [1, 2] } }, { name: "beta", id: 1 }, { id: 1, later: true }],
+  scalars: [3, "line\nbreak", null, "", "NaN", 9007199254740991],
+  mixed: [{ id: 2 }, "whole value", [1, 2], false],
+  map: { first: { n: 2 }, second: { n: 1 }, third: { n: 2 } },
+  empty: [],
+  emptyMap: {},
+  longValues: ["x".repeat(128) + "z", "x".repeat(128) + "a", "y".repeat(600) + "needle\nend"],
+  ["long-key-" + "가".repeat(210) + "A"]: [1, 2],
+  ["long-key-" + "가".repeat(210) + "B"]: [3, 4],
+}, null, 2));
+console.log("  grid-cases.json");
+
 // A name no tab can show whole. The two differ only at the end, which is the
 // half a browser drops first — so a tab strip that cuts from the right shows
 // the same thing for both, and one that cuts the middle does not.
@@ -1134,7 +1148,8 @@ console.log("  zip64.zip");
 const SMOKE = [
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
-  { file: "small.json", expect: "tree" },
+  { file: "small.json", expect: "tree", then: "treeAsTable" },
+  { file: "grid-cases.json", expect: "tree" },
   { file: "2026-09-quarterly-revenue-report-final.json", expect: "tree" },
   { file: "strict.json", expect: "tree" },
   { file: "sample.jsonc", expect: "tree" },

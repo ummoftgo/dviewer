@@ -73,13 +73,16 @@ fn filtering_and_sorting_compose() {
     let grid = grid(r#"[{"n":3,"tag":"keep"},{"n":1,"tag":"drop"},{"n":2,"tag":"keep"}]"#);
     let order = Order::build(&grid, Some(Sort { column:0, descending:false }), "keep", &AtomicBool::new(false), &mut |_, _| {}).unwrap();
     assert_eq!(order.rows, [2,0]);
-    assert_eq!(order.inverse(), [1,u32::MAX,0]);
+    assert_eq!(order.inverse(&AtomicBool::new(false)).unwrap(), [1,u32::MAX,0]);
 }
 #[test]
 fn reading_and_sorting_can_both_be_cancelled() {
     let grid = grid("[4,3,2,1]");
     let cancel = AtomicBool::new(true);
     assert!(matches!(Order::build(&grid, None, "", &cancel, &mut |_,_|{}), Err(Error::Cancelled)));
+    let order = ordered("[4,3,2,1]", false, "");
+    assert!(matches!(order.search(&grid, "4", false, Interpretation::Literal, &cancel), Err(Error::Cancelled)));
+    assert!(order.inverse.get().is_none());
     cancel.store(false, AtomicOrdering::Relaxed);
     let result = Order::build(&grid, Some(Sort {column:0,descending:false}), "", &cancel,
         &mut |done,total| { if done == total { cancel.store(true, AtomicOrdering::Relaxed); } });
@@ -87,11 +90,26 @@ fn reading_and_sorting_can_both_be_cancelled() {
 }
 #[test]
 fn page_reorders_original_rows_and_keeps_their_numbers() {
-    let grid = grid("[4,1,3,2]");
+    struct Trace(JsonArrayGrid, std::sync::Mutex<Vec<(u32, u32)>>);
+    impl Grid for Trace {
+        fn row_count(&self) -> u32 { self.0.row_count() }
+        fn column_count(&self) -> u32 { self.0.column_count() }
+        fn page(&self, start: u32, count: u32) -> Result<TablePage> {
+            self.1.lock().unwrap().push((start, count));
+            self.0.page(start, count)
+        }
+        fn cell_text(&self, row: u32, column: u32) -> Result<crate::table::CellText> { self.0.cell_text(row, column) }
+        fn row_text(&self, row: u32) -> Result<crate::table::CellText> { self.0.row_text(row) }
+        fn search(&self, query: &str, case: bool, how: Interpretation, cancel: &AtomicBool) -> Result<TableSearch> {
+            self.0.search(query, case, how, cancel)
+        }
+    }
+    let grid = Trace(grid("[4,1,3,2]"), std::sync::Mutex::new(Vec::new()));
     let order = ordered("[4,1,3,2]", false, "");
     let page = order.page(&grid, 1, 3).unwrap();
     assert_eq!(page.start, 1);
     assert_eq!(page.rows.iter().map(|r|r.index).collect::<Vec<_>>(), [3,2,0]);
+    assert_eq!(*grid.1.lock().unwrap(), [(0, 1), (2, 2)]);
     assert!(order.page(&grid, 99, 3).unwrap().rows.is_empty());
 }
 #[test]

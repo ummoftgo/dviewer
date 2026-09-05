@@ -192,8 +192,8 @@ mod tests {
         let layout = jsonl::detect(record.as_bytes()).unwrap();
         let line = jsonl::cells(record.as_bytes(), 0, record.len() as u32, &layout);
         let page = grid.page(0, 1).unwrap();
-        for column in 0..2 {
-            assert_eq!(page.rows[0].cells[column].text, line[column].text);
+        for (column, cell) in line.iter().enumerate() {
+            assert_eq!(page.rows[0].cells[column].text, cell.text);
             assert_eq!(grid.cell_text(0, column as u32).unwrap().text,
                 jsonl::value_text(record.as_bytes(), 0, record.len() as u32, &layout, column, MAX_CELL_TEXT_BYTES).unwrap().0);
         }

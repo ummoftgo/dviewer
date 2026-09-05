@@ -91,6 +91,25 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === "treeAsTable") {
+    const children = await ipc.treeChildren(tab.id, 0, 0, 100);
+    const array = children?.rows.find((row) => row.key === "items");
+    if (!array) return { ok: false, stage: what, error: "items array missing" };
+    const opened = await workspace.openTreeTable(tab, array.id);
+    if (!opened) return { ok: false, stage: what, error: tab.error ?? "did not open" };
+    const ready = await settle(opened, "collection");
+    if (!ready.ok) return { ...ready, stage: what };
+    const stats = await ipc.treeTableStats(opened.id);
+    const page = await ipc.gridRows(opened.id, 0, 2);
+    const again = await workspace.openTreeTable(tab, array.id);
+    await workspace.close(tab.id);
+    const surviving = await ipc.gridCellText(opened.id, 1, 0);
+    const ok = stats.rowCount === 1500 && stats.firstRowNumber === 0 && stats.columns[0] === "id"
+      && page.rows[0]?.index === 0 && page.rows[1]?.cells[0]?.text === "1"
+      && again?.id === opened.id && surviving.text === "1";
+    return { ok, stage: what, view: opened.view, error: ok ? undefined : "derived grid, identity or lifetime mismatch" };
+  }
+
   if (what === "openEntry") {
     const entry = tab.entries.find((candidate) => !candidate.encrypted);
     if (!entry) return { ok: false, stage: "openEntry", error: "nothing openable" };
@@ -108,10 +127,26 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
     tab.header = shape.header;
     tab.tableSearch.reset();
     const discarded = tab.tableSearch.hits.length === 0;
+    const sort = { column: 0, descending: true };
+    const sorted = await ipc.gridOrder(tab.id, sort, "", ++tab.order.request);
+    const ordered = await ipc.gridRows(tab.id, 0, sorted.shown);
+    const numbers = ordered.rows.filter((row) => /^\d+$/.test(row.cells[0]?.text ?? ""));
+    const descending = numbers.map((row) => row.cells[0].text).join(",") === "5,4,3,2,1";
+    const query = "가나다"; // i18n-ignore: fixture cell, never interface text
+    const stats = await ipc.gridOrder(tab.id, sort, query, ++tab.order.request);
+    tab.order.stats = stats;
+    tab.order.sort = sort;
+    tab.order.filter = query;
+    const visible = await ipc.gridRows(tab.id, 0, 100);
+    const hits = await ipc.gridSearch(tab.id, query, false, "literal");
+    const copied = visible.rows[0] && await ipc.gridCellText(tab.id, visible.rows[0].index, 1);
+    const filtered = stats.shown === 1 && stats.shown < stats.total && copied?.text === query
+      && hits.hits.length === 1 && hits.hits[0].row === 0;
     return {
-      ok: discarded,
-      stage: "toggleHeader",
-      error: discarded ? undefined : "the search survived a change of shape",
+      ok: discarded && descending && filtered,
+      stage: "toggleHeader+gridOrder",
+      error: !discarded ? "the search survived a change of shape"
+        : !descending ? "numeric order mismatch" : !filtered ? "filter, copy or search coordinates mismatch" : undefined,
     };
   }
 
@@ -153,7 +188,10 @@ export async function runSmoke(): Promise<void> {
       workspace.notice = null;
     } else {
       outcome = await settle(tab, step.expect);
-      if (outcome.ok && step.then) outcome = await follow(tab, step.then);
+      if (outcome.ok && step.then) {
+        try { outcome = await follow(tab, step.then); }
+        catch (error) { outcome = { ok: false, stage: step.then, error: ipc.errorMessage(error) }; }
+      }
     }
 
     await ipc.smokeReport(

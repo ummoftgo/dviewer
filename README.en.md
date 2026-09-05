@@ -9,10 +9,10 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 | View | Formats | What it does |
 | --- | --- | --- |
 | Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle |
-| Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy |
-| Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy. **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
+| Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in a new grid tab (except XML) |
+| Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, column sorting and row filtering across grids (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
-| Archive | ZIP | What the archive holds, as a list. Pick one and it opens in a tab of its own, **as whichever of the four above it is** — the only view that does not end on screen but leads to another document |
+| Archive | ZIP | What the archive holds, as a list. Pick one and it opens in a tab of its own, **as whichever of the four above it is** |
 
 - Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
@@ -31,6 +31,9 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 - **gzip files just open.** `access.log.gz` is decompressed and read under its inner name (`access.log`). The raw view shows the decompressed content.
 - **A tab keeps the end of its name.** A long name is shortened in the **middle**, not at the end: `2026-09-report-final.json` reads as `2026-09-report-f…inal.json`, so two files that differ only after the part that fits can still be told apart. **Tabs that share a name carry their folder** dimmed beside it (`config.json · alpha`), reaching one level further up when the folder matches too. When there are more tabs than the window holds, the strip scrolls sideways — its ends fade — and a **tab list button** appears.
 - Dark/light (auto by default), interface scale, separate interface and content font sizes, and content/code fonts picked from the fonts installed on the system.
+
+- **Open arrays and maps as grids.** Right-click a nonempty array or object in the tree to open a new tab. Opening the same location again selects the existing tab. The grid survives closing its parent and keeps the old tree if the parent's format or encoding changes. Array row numbers start at zero, matching `[n]` paths.
+- **Every grid supports row filtering.** Apply a case-insensitive substring across cell values. Headers cycle through ascending, descending and original order (Parquet supports filtering only). Original row numbers and copied values stay intact, and search operates on visible rows. Cancelling a running operation restores original order; `Esc` in the filter input clears just the filter.
 
 ## Requirements
 
@@ -97,6 +100,10 @@ The technical documentation lives in `doc/` (Korean).
 | [Dependencies](doc/dependencies.md) | Why each package was chosen, and vulnerability checks |
 
 ## Known limits
+
+- An array grid samples its first 2,000 elements. If at least 70% are objects, it collects up to 64 columns in first-seen order; otherwise it has one value column. Maps add a `key` column. Empty arrays/maps and XML cannot become grid tabs. A derived grid cannot change format or encoding.
+- Sorting preserves integer precision. Text compares the first 128 UTF-8 bytes in byte order; equal prefixes keep original order. Empty cells and SQL NULL stay last in both directions. Text keys have a 256MiB arena limit; exceeding it refuses the sort. The permutation, temporary keys and search inverse map use separate memory. Filtering reads at most 8MiB per cell, the same ceiling as copying.
+- Parquet header sorting is disabled: sorted 100-row pages exceeded the 500ms gate on a 311MiB file. Row filtering remains available.
 
 - JSON files up to 4GB (offsets are `u32`).
 - A regular expression is matched **inside one value** — one key or value in the tree, one cell in a grid. There is no match spanning nodes or cells; that is what makes `^` and `$` mean anything.
