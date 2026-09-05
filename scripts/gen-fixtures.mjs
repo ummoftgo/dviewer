@@ -320,6 +320,14 @@ console.log("  sample.md");
   await writeFile(path.join(OUT, "sample.log.gz"), gzipSync(log));
   console.log("  sample.log.gz");
 
+  // 같은 내용, 긴 이름. 탭이 이름을 자를 때 `.log.gz` 를 확장자 하나로 보는지는
+  // 이름이 길어야만 화면에 드러납니다 — 위의 셋은 짧아서 통째로 들어갑니다.
+  await writeFile(
+    path.join(OUT, "2026-09-05-access-report.log.gz"),
+    gzipSync(log),
+  );
+  console.log("  2026-09-05-access-report.log.gz");
+
   // 확장자가 형식을 말하지 않는 경우 — 내용으로 판별해야 한다.
   await writeFile(path.join(OUT, "dump.gz"), gzipSync(json));
   console.log("  dump.gz (안쪽 이름 없음)");
@@ -1150,6 +1158,7 @@ const SMOKE = [
   { file: "report.json.gz", expect: "tree" },
   { file: "dump.gz", expect: "tree" },
   { file: "sample.log.gz", expect: "table" },
+  { file: "2026-09-05-access-report.log.gz", expect: "table" },
   { file: "cp949.csv", expect: "table" },
   { file: "cp949.log", expect: "table" },
   { file: "utf16.csv", expect: "table" },
