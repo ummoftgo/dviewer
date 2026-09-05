@@ -214,13 +214,19 @@ fn compile(name: &str, pattern: &str) -> Result<Regex> {
 // --- asking the question ---------------------------------------------------
 
 /// Evaluate a call that gives back a value.
-pub fn value(
+///
+/// The result borrows from the document and from the expression, which is
+/// what keeps a filter from copying a string per candidate. Neither outlives
+/// the walk: the bytes are mapped for the search and the `Call` is part of the
+/// parsed expression being walked, so tying both to one `'a` costs nothing and
+/// says what is true.
+pub fn value<'a>(
     index: &TreeIndex,
-    bytes: &[u8],
-    call: &Call,
+    bytes: &'a [u8],
+    call: &'a Call,
     current: u32,
     budget: &mut Budget<'_>,
-) -> Result<Value<'static>> {
+) -> Result<Value<'a>> {
     match call.name {
         // The number of code points in a string, of members in an object, of
         // elements in an array — and nothing at all for anything else, which
@@ -244,7 +250,7 @@ pub fn value(
         "value" => {
             let found = nodes(index, bytes, call, 0, current, budget)?;
             Ok(match found.as_slice() {
-                [only] => value_of(bytes, index, *only).into_owned(),
+                [only] => value_of(bytes, index, *only),
                 _ => Value::Nothing,
             })
         }
@@ -302,22 +308,27 @@ fn regex_for(name: &str, pattern: &str, budget: &mut Budget<'_>) -> Option<Arc<R
 }
 
 /// One argument, as a value.
-fn argument(
+///
+/// Borrowed, never copied. A literal is read out of the `Call` itself and a
+/// query out of the document's bytes; both live as long as the walk, so the
+/// only string this ever allocates is one an escape forced `value_of` to
+/// decode.
+fn argument<'a>(
     index: &TreeIndex,
-    bytes: &[u8],
-    call: &Call,
+    bytes: &'a [u8],
+    call: &'a Call,
     at: usize,
     current: u32,
     budget: &mut Budget<'_>,
-) -> Result<Value<'static>> {
+) -> Result<Value<'a>> {
     match &call.args[at] {
-        Arg::Literal(literal) => Ok(Value::from(literal).into_owned()),
+        Arg::Literal(literal) => Ok(Value::from(literal)),
         Arg::Call(inner) => value(index, bytes, inner, current, budget),
         // Singular by the type check above, so at most one node.
         Arg::Query(query) => {
             let found = resolve(index, bytes, query, current, budget)?;
             Ok(match found.first() {
-                Some(&id) => value_of(bytes, index, id).into_owned(),
+                Some(&id) => value_of(bytes, index, id),
                 None => Value::Nothing,
             })
         }
@@ -339,5 +350,98 @@ fn nodes(
         _ => Err(Error::BadPath {
             detail: format!("`{}()` needs a query", call.name),
         }),
+    }
+}
+
+/// That a value is *borrowed* is the whole of this module's cost, and nothing
+/// about the answers it gives would change if it were copied.
+///
+/// So the ordinary tests cannot see it: `length(@.name)` is 5 either way. The
+/// assertion has to be about the shape the value comes back in, which is why
+/// these look at `Cow` variants rather than at results. "It is fast" needs a
+/// benchmark; "it does not copy" is something the type can be asked.
+#[cfg(test)]
+mod borrowing {
+    use std::borrow::Cow;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    use super::super::filter::{parse_filter, Expr};
+    use super::*;
+    use crate::tree::index::Syntax;
+    use crate::tree::scanner::{scan, ScanLimits};
+
+    /// `esc` is the only value here that cannot be handed back as it lies.
+    const DOC: &str = r#"{"name":"plain","esc":"a\nb"}"#;
+
+    fn index() -> Arc<TreeIndex> {
+        let scanned =
+            scan(DOC.as_bytes(), &ScanLimits::default(), |_| {}, &|| false).expect("scan");
+        Arc::new(TreeIndex::new(scanned.nodes, scanned.synthetic_root, Syntax::Json))
+    }
+
+    /// The call inside a filter, so these test what the parser actually builds.
+    fn call_of(source: &str) -> Call {
+        match parse_filter("$[?...]", source).expect("parse") {
+            Expr::Test(call) => call,
+            Expr::Compare(left, _, _) => match *left {
+                Operand::Function(call) => call,
+                other => panic!("not a call: {other:?}"),
+            },
+            other => panic!("not a call: {other:?}"),
+        }
+    }
+
+    fn ask<'a>(index: &TreeIndex, call: &'a Call, at: usize) -> Value<'a> {
+        let idle = AtomicBool::new(false);
+        argument(index, DOC.as_bytes(), call, at, 0, &mut Budget::new(&idle)).expect("argument")
+    }
+
+    #[test]
+    fn a_string_with_no_escape_is_read_where_it_lies() {
+        let index = index();
+        let call = call_of("length(@.name) > 0");
+        let value = ask(&index, &call, 0);
+        assert!(
+            matches!(value, Value::Str(Cow::Borrowed("plain"))),
+            "a copy crept back in: {value:?}"
+        );
+    }
+
+    #[test]
+    fn an_escape_is_the_one_thing_that_has_to_be_built() {
+        let index = index();
+        let call = call_of("length(@.esc) > 0");
+        let value = ask(&index, &call, 0);
+        // `a\nb` in the file is three characters here, and no span of the
+        // document holds them — this one allocation is the decode itself.
+        assert!(
+            matches!(&value, Value::Str(Cow::Owned(text)) if text == "a\nb"),
+            "{value:?}"
+        );
+    }
+
+    #[test]
+    fn a_literal_is_read_out_of_the_expression() {
+        let index = index();
+        let call = call_of("match(@.name, 'needle')");
+        let value = ask(&index, &call, 1);
+        assert!(
+            matches!(value, Value::Str(Cow::Borrowed("needle"))),
+            "the literal was copied out of its own call: {value:?}"
+        );
+    }
+
+    #[test]
+    fn the_document_is_what_a_borrowed_value_points_into() {
+        let index = index();
+        let call = call_of("length(@.name) > 0");
+        let Value::Str(Cow::Borrowed(text)) = ask(&index, &call, 0) else {
+            panic!("not borrowed");
+        };
+        // Not merely equal to `plain` — the same bytes. Anything that copied
+        // on the way here would be equal and somewhere else entirely.
+        let at = text.as_ptr() as usize - DOC.as_ptr() as usize;
+        assert_eq!(&DOC[at..at + text.len()], "plain");
     }
 }

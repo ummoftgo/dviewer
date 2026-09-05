@@ -69,25 +69,6 @@ impl<'a> From<&'a Literal> for Value<'a> {
     }
 }
 
-impl Value<'_> {
-    /// Cut the tie to the bytes this was read out of.
-    ///
-    /// A function's result outlives the borrow its argument was read under —
-    /// `length(@.name)` reads a string and hands back a number, and the number
-    /// has nothing to do with those bytes. Only `Str` actually copies.
-    pub(super) fn into_owned(self) -> Value<'static> {
-        match self {
-            Value::Str(text) => Value::Str(Cow::Owned(text.into_owned())),
-            Value::Nothing => Value::Nothing,
-            Value::Null => Value::Null,
-            Value::Bool(b) => Value::Bool(b),
-            Value::Int(n) => Value::Int(n),
-            Value::Float(n) => Value::Float(n),
-            Value::Composite { count } => Value::Composite { count },
-        }
-    }
-}
-
 /// A node's value, read from the bytes it was scanned out of.
 ///
 /// **Not the row preview.** `text::decode_scalar` cuts a value off at the
