@@ -559,8 +559,8 @@ export const treeTableStats = (docId: number) => invoke<GridStats>("tree_table_s
 
 export interface GridSort { column: number; descending: boolean }
 export interface OrderStats { shown: number; total: number; indexBytes: number; peakBytes: number }
-export const gridOrder = (docId: number, sort: GridSort | null, filter: string, request: number) =>
-  invoke<OrderStats>("grid_order", { docId, sort, filter, request });
+export const gridOrder = (docId: number, sort: GridSort | null, filter: string, filterColumn: number | null, request: number) =>
+  invoke<OrderStats>("grid_order", { docId, sort, filter, filterColumn, request });
 export const gridOrderCancel = (docId: number) => invoke<void>("grid_order_cancel", { docId });
 export const gridOrderStats = (docId: number) => invoke<OrderStats | null>("grid_order_stats", { docId });
 

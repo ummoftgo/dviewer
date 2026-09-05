@@ -118,6 +118,8 @@ let nextKey = 0;
 class GridOrderState {
   sort = $state<GridSort | null>(null);
   filter = $state("");
+  filterColumn = $state<number | null>(null);
+  revision = $state(0);
   stats = $state<OrderStats | null>(null);
   running = $state(false);
   request = $state(0);
@@ -126,8 +128,10 @@ class GridOrderState {
 
   reset() {
     this.request += 1;
+    this.revision += 1;
     this.sort = null;
     this.filter = "";
+    this.filterColumn = null;
     this.stats = null;
     this.running = false;
     this.progress = null;
@@ -230,6 +234,34 @@ export class DocTab {
   get subtitle(): string {
     if (this.status === "blank") return "";
     return describeSource(this.meta.source);
+  }
+
+  async applyOrder(sort: GridSort | null, filter: string, filterColumn: number | null): Promise<boolean> {
+    const state = this.order;
+    const request = ++state.request;
+    state.running = true;
+    state.progress = null;
+    state.error = null;
+    this.tableSearch.reset();
+    try {
+      const stats = await ipc.gridOrder(this.id, sort, filter, filterColumn, request);
+      if (request !== state.request) return false;
+      state.stats = sort || filter ? stats : null;
+      state.sort = sort;
+      state.filter = filter;
+      state.filterColumn = filter ? filterColumn : null;
+      this.selectedCell = null;
+      this.pendingCell = null;
+      this.tableScrollTop = 0;
+      this.tableSearch.reset();
+      state.revision += 1;
+      return true;
+    } catch (error) {
+      if (request === state.request) state.error = ipc.errorMessage(error);
+      return false;
+    } finally {
+      if (request === state.request) { state.running = false; state.progress = null; }
+    }
   }
 
   /** Drop derived state so the tab reloads from scratch on the next view. */

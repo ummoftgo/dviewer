@@ -265,7 +265,7 @@
       </button>
     </div>
 
-    <GridControls {tab} {columnName} bind:this={controls} onchange={async () => { await grid?.refresh(true); }} />
+    <GridControls {tab} {columnName} bind:this={controls} />
     {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
     <DataGrid
       bind:this={grid}
@@ -274,6 +274,9 @@
       {columnCount}
       {columnName}
       onsort={(column) => void controls?.sortColumn(column)}
+      onsortTo={(sort) => void controls?.sortTo(sort)}
+      onfilterColumn={(column) => controls?.filterColumn(column)}
+      onfilterClear={() => void controls?.clearFilter()}
       cellTone={levelTone}
       label={t("table.label", { title: tab.meta.title })}
     />

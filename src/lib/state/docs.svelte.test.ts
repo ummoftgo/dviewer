@@ -59,6 +59,7 @@ vi.mock("../ipc", async (importOriginal) => {
       meta({ type: "archiveEntry", root: { type: "file", path: "C:/a.zip" }, entries: [{ index, name: `e${index}` }] }),
     ),
     closeDoc: vi.fn(async (docId: number) => void closed.push(docId)),
+    gridOrder: vi.fn(),
     treeAsTable: vi.fn(async (parent: number, node: number) => {
       const waiting = gate;
       gate = null;
@@ -122,11 +123,68 @@ beforeEach(() => {
   vi.mocked(ipc.openPath).mockClear();
 });
 
+describe("order completion belongs to the tab, not its mounted view", () => {
+  test("explicit ascending, descending and original choices commit the requested sort", async () => {
+    const tab = new DocTab(meta({ type: "text" }));
+    for (const sort of [{ column: 2, descending: false }, { column: 2, descending: true }, null]) {
+      vi.mocked(ipc.gridOrder).mockResolvedValueOnce({ shown: 3, total: 3, indexBytes: 12, peakBytes: 24 });
+      expect(await tab.applyOrder(sort, "", null)).toBe(true);
+      expect(tab.order.sort).toEqual(sort);
+      expect(tab.order.stats === null).toBe(sort === null);
+    }
+  });
+  test("a pending order commits its scope and refresh revision after a tab round trip with the same row count", async () => {
+    const parent = (await workspace.openPath("C:/a.json"))!;
+    const tab = (await workspace.openTreeTable(parent, { id: 7, key: "items", index: null, kind: "array" } as TreeRow))!;
+    tab.order.stats = { shown: 3, total: 3, indexBytes: 12, peakBytes: 24 };
+    tab.tableScrollTop = 500;
+    let resolve!: (stats: NonNullable<typeof tab.order.stats>) => void;
+    vi.mocked(ipc.gridOrder).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const revision = tab.order.revision;
+    const pending = tab.applyOrder({ column: 0, descending: true }, "keep", 1);
+    expect(tab.order.filterColumn).toBeNull();
+    expect(tab.order.filter).toBe("");
+    workspace.activate(parent.id);
+    workspace.activate(tab.id);
+    resolve({ shown: 3, total: 3, indexBytes: 12, peakBytes: 24 });
+    expect(await pending).toBe(true);
+    expect(tab.order.stats?.shown).toBe(3);
+    expect(tab.order.revision).toBe(revision + 1);
+    expect(tab.order.filterColumn).toBe(1);
+    expect(tab.order.filter).toBe("keep");
+    expect(tab.order.sort).toEqual({ column: 0, descending: true });
+    expect(tab.tableScrollTop).toBe(0);
+    expect(tab.order.running).toBe(false);
+    expect(ipc.gridOrder).toHaveBeenLastCalledWith(tab.id, { column: 0, descending: true }, "keep", 1, tab.order.request);
+  });
+
+  test("failure keeps applied scope and reset rejects a late result", async () => {
+    const tab = new DocTab(meta({ type: "text" }));
+    tab.order.filter = "old";
+    tab.order.filterColumn = 0;
+    vi.mocked(ipc.gridOrder).mockRejectedValueOnce(new Error("failed"));
+    expect(await tab.applyOrder(null, "new", 1)).toBe(false);
+    expect(tab.order.filter).toBe("old");
+    expect(tab.order.filterColumn).toBe(0);
+    expect(tab.order.revision).toBe(0);
+    let resolve!: (stats: { shown: number; total: number; indexBytes: number; peakBytes: number }) => void;
+    vi.mocked(ipc.gridOrder).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const pending = tab.applyOrder(null, "new", 1);
+    tab.order.reset();
+    resolve({ shown: 1, total: 3, indexBytes: 4, peakBytes: 4 });
+    expect(await pending).toBe(false);
+    expect(tab.order.filterColumn).toBeNull();
+    expect(tab.order.filter).toBe("");
+    expect(tab.order.stats).toBeNull();
+  });
+});
+
 describe("opening a file that is already open", () => {
   test("invalidating the document discards order and supersedes pending results", () => {
     const tab = new DocTab(meta({ type: "text" }));
     tab.order.sort = { column: 1, descending: true };
     tab.order.filter = "keep";
+    tab.order.filterColumn = 1;
     tab.order.stats = { shown: 1, total: 10, indexBytes: 4, peakBytes: 100 };
     tab.order.running = true;
     const request = tab.order.request;
@@ -135,6 +193,7 @@ describe("opening a file that is already open", () => {
     expect(tab.order.sort).toBeNull();
     expect(tab.order.stats).toBeNull();
     expect(tab.order.filter).toBe("");
+    expect(tab.order.filterColumn).toBeNull();
     expect(tab.order.running).toBe(false);
   });
   test("raises the tab instead of loading a second copy", async () => {

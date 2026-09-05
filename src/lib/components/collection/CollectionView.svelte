@@ -237,7 +237,7 @@
       {t(columnar ? "table.noColumns" : workbook ? "table.noSheets" : "table.noCollections")}
     </p>
   {:else}
-    <GridControls {tab} {columnName} bind:this={controls} disabled={loading} onchange={async () => { await grid?.refresh(true); }} />
+    <GridControls {tab} {columnName} bind:this={controls} disabled={loading} />
     {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
     <DataGrid
       bind:this={grid}
@@ -247,6 +247,9 @@
       {columnName}
       sortAvailable={!columnar}
       onsort={(column) => void controls?.sortColumn(column)}
+      onsortTo={(sort) => void controls?.sortTo(sort)}
+      onfilterColumn={(column) => controls?.filterColumn(column)}
+      onfilterClear={() => void controls?.clearFilter()}
       firstRowNumber={tab.gridStats?.firstRowNumber ?? 1}
       label={t("table.label", { title: tab.meta.title })}
     />

@@ -11,9 +11,10 @@ struct Progress { doc_id: DocId, request: u32, done: u32, total: u32 }
 
 #[tauri::command]
 pub async fn grid_order(app: tauri::AppHandle, state: State<'_, AppState>, doc_id: DocId,
-    sort: Option<Sort>, filter: Option<String>, request: u32) -> Result<OrderStats> {
+    sort: Option<Sort>, filter: Option<String>, filter_column: Option<u32>, request: u32) -> Result<OrderStats> {
     let doc = state.get(doc_id)?;
     let grid = doc.grid().ok_or(Error::NotReady { subject: Subject::Table })?;
+    if filter_column.is_some_and(|column| column >= grid.column_count()) { return Err(Error::NoSuchCell); }
     let (generation, cancel) = doc.start_order();
     let filter = filter.unwrap_or_default();
     if sort.is_none() && filter.is_empty() {
@@ -21,7 +22,7 @@ pub async fn grid_order(app: tauri::AppHandle, state: State<'_, AppState>, doc_i
         return Ok(OrderStats { shown: grid.row_count(), total: grid.row_count(), index_bytes: 0, peak_bytes: 0 });
     }
     let built = tauri::async_runtime::spawn_blocking(move || {
-        Order::build(grid.as_ref(), sort, &filter, &cancel, &mut |done, total| {
+        Order::build(grid.as_ref(), sort, &filter, filter_column, &cancel, &mut |done, total| {
             let _ = app.emit("grid:progress", Progress { doc_id, request, done, total });
         })
     }).await.map_err(Error::internal)??;

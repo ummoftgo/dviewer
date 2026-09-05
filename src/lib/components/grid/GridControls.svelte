@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { errorMessage, gridOrder, gridOrderCancel, on, type GridSort } from "../../ipc";
+  import { errorMessage, gridOrderCancel, on, type GridSort } from "../../ipc";
   import { nextSort } from "../../grid-order";
   import { n, t } from "../../i18n";
   import { formatBytes } from "../../format";
   import type { DocTab } from "../../state/docs.svelte";
 
-  let { tab, columnName, onchange, disabled = false }: {
+  let { tab, columnName, disabled = false }: {
     tab: DocTab; columnName: (column: number) => string;
-    onchange: () => Promise<void>; disabled?: boolean;
+    disabled?: boolean;
   } = $props();
-  let draft = $derived(tab.order.filter);
+  let draft = $derived.by(() => { void tab.order.revision; return tab.order.filter; });
+  let draftColumn = $derived.by(() => { void tab.order.revision; return tab.order.filterColumn; });
+  let input = $state<HTMLInputElement>();
   $effect(() => {
     const target = tab;
     let disposed = false;
@@ -23,30 +25,12 @@
   });
 
   async function apply(sort: GridSort | null, filter: string) {
-    if (disabled) return;
-    const target = tab;
-    const state = target.order;
-    const request = ++state.request;
-    state.running = true;
-    state.progress = null;
-    state.error = null;
-    target.tableSearch.reset();
-    try {
-      const stats = await gridOrder(target.id, sort, filter, request);
-      if (request !== state.request) return;
-      state.stats = sort || filter ? stats : null;
-      state.sort = sort;
-      state.filter = filter;
-      target.selectedCell = null;
-      target.pendingCell = null;
-      target.tableSearch.reset();
-      await onchange();
-    } catch (error) {
-      if (request === state.request) state.error = errorMessage(error);
-    } finally {
-      if (request === state.request) { state.running = false; state.progress = null; }
-    }
+    if (!disabled) await tab.applyOrder(sort, filter, draftColumn);
   }
+
+  export async function sortTo(sort: GridSort | null) { await apply(sort, draft); }
+  export function filterColumn(column: number) { draftColumn = column; input?.focus(); }
+  export async function clearFilter() { draft = ""; draftColumn = null; await apply(tab.order.sort, ""); }
 
   export async function sortColumn(column: number) {
     await apply(nextSort(tab.order.sort, column), draft);
@@ -62,7 +46,7 @@
         tab.selectedCell = null;
         tab.pendingCell = null;
         tab.tableSearch.reset();
-        await onchange();
+        tab.tableScrollTop = 0;
       }
     }
     catch (error) { if (request === state.request) state.error = errorMessage(error); }
@@ -71,9 +55,13 @@
 </script>
 
 <form class="grid-controls" onsubmit={(event) => { event.preventDefault(); void apply(tab.order.sort, draft); }}>
-  <input type="search" bind:value={draft} placeholder={t("grid.filter")} aria-label={t("grid.filter")}
+  {#if draftColumn !== null}
+    <button class="btn btn-ghost scope" type="button" title={t("grid.filterAll")} aria-label={t("grid.filterAll")}
+      {disabled} onclick={() => { draftColumn = null; input?.focus(); }}>{columnName(draftColumn)} ×</button>
+  {/if}
+  <input bind:this={input} type="search" bind:value={draft} placeholder={draftColumn === null ? t("grid.filter") : t("grid.filterIn", { column: columnName(draftColumn) })} aria-label={draftColumn === null ? t("grid.filter") : t("grid.filterIn", { column: columnName(draftColumn) })}
     {disabled} onkeydown={(event) => {
-      if (event.key === "Escape") { event.preventDefault(); draft = ""; void apply(tab.order.sort, ""); }
+      if (event.key === "Escape") { event.preventDefault(); void clearFilter(); }
     }} />
   <button class="btn btn-ghost" type="submit" {disabled}>{t("grid.apply")}</button>
   {#if tab.order.running}
@@ -84,6 +72,7 @@
     <span>{t("grid.shown", { shown: n(tab.order.stats.shown), total: n(tab.order.stats.total) })}</span>
     <span>{formatBytes(tab.order.stats.indexBytes)}</span>
   {/if}
+  {#if tab.order.filter && tab.order.filterColumn !== null}<span>{t("grid.filterIn", { column: columnName(tab.order.filterColumn) })}</span>{/if}
   {#if tab.order.sort}<span>{t("grid.sorted", { column: columnName(tab.order.sort.column) })}</span>{/if}
   {#if tab.order.error}<span class="error" role="alert">{tab.order.error}</span>{/if}
 </form>

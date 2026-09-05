@@ -7,8 +7,35 @@ fn grid(source: &str) -> JsonArrayGrid {
         &ScanLimits::default(), |_| {}, &|| false).unwrap();
     JsonArrayGrid::open(Arc::new(tree), 0, &AtomicBool::new(false)).unwrap()
 }
+
+#[test]
+fn column_filter_does_not_match_values_in_other_columns() {
+    let grid = grid(r#"[{"n":3,"tag":"KEEP"},{"n":"keep","tag":"drop"},{"n":2,"tag":"keep"}]"#);
+    let make = |column| Order::build(&grid, None, "keep", column, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(make(None).rows, [0, 1, 2]);
+    assert_eq!(make(Some(1)).rows, [0, 2]);
+    assert_eq!(make(Some(0)).rows, [1]);
+}
+
+#[test]
+fn column_filter_reads_sort_keys_without_matching_them() {
+    let grid = grid(r#"[{"n":3,"tag":"keep"},{"n":"keep","tag":"drop"},{"n":2,"tag":"keep"}]"#);
+    let make = |sort_column, filter_column| Order::build(&grid, Some(Sort { column: sort_column, descending: false }),
+        "keep", Some(filter_column), &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(make(0, 1).rows, [2, 0]);
+    assert_eq!(make(1, 0).rows, [1]);
+    assert_eq!(make(1, 1).rows, [0, 2]);
+}
+
+#[test]
+fn invalid_filter_column_is_rejected_even_for_an_empty_filter() {
+    let grid = grid("[1,2]");
+    for filter in ["", "1"] {
+        assert!(matches!(Order::build(&grid, None, filter, Some(1), &AtomicBool::new(false), &mut |_, _| {}), Err(Error::NoSuchCell)));
+    }
+}
 fn ordered(source: &str, descending: bool, filter: &str) -> Order {
-    Order::build(&grid(source), Some(Sort { column: 0, descending }), filter, &AtomicBool::new(false), &mut |_, _| {}).unwrap()
+    Order::build(&grid(source), Some(Sort { column: 0, descending }), filter, None, &AtomicBool::new(false), &mut |_, _| {}).unwrap()
 }
 
 #[test]
@@ -59,7 +86,7 @@ fn arena_refuses_the_next_key_before_exceeding_the_budget() {
 #[test]
 fn filter_is_case_insensitive_and_does_not_match_json_keys() {
     let grid = grid(r#"[{"secret":"VALUE"},{"secret":"other"}]"#);
-    let make = |filter| Order::build(&grid, None, filter, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    let make = |filter| Order::build(&grid, None, filter, None, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
     assert_eq!(make("value").rows, [0]);
     assert!(make("secret").rows.is_empty());
 }
@@ -71,7 +98,7 @@ fn filter_checks_beyond_the_preview_and_resolves_string_escapes() {
 #[test]
 fn filtering_and_sorting_compose() {
     let grid = grid(r#"[{"n":3,"tag":"keep"},{"n":1,"tag":"drop"},{"n":2,"tag":"keep"}]"#);
-    let order = Order::build(&grid, Some(Sort { column:0, descending:false }), "keep", &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    let order = Order::build(&grid, Some(Sort { column:0, descending:false }), "keep", None, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
     assert_eq!(order.rows, [2,0]);
     assert_eq!(order.inverse(&AtomicBool::new(false)).unwrap(), [1,u32::MAX,0]);
 }
@@ -79,12 +106,12 @@ fn filtering_and_sorting_compose() {
 fn reading_and_sorting_can_both_be_cancelled() {
     let grid = grid("[4,3,2,1]");
     let cancel = AtomicBool::new(true);
-    assert!(matches!(Order::build(&grid, None, "", &cancel, &mut |_,_|{}), Err(Error::Cancelled)));
+    assert!(matches!(Order::build(&grid, None, "", None, &cancel, &mut |_,_|{}), Err(Error::Cancelled)));
     let order = ordered("[4,3,2,1]", false, "");
     assert!(matches!(order.search(&grid, "4", false, Interpretation::Literal, &cancel), Err(Error::Cancelled)));
     assert!(order.inverse.get().is_none());
     cancel.store(false, AtomicOrdering::Relaxed);
-    let result = Order::build(&grid, Some(Sort {column:0,descending:false}), "", &cancel,
+    let result = Order::build(&grid, Some(Sort {column:0,descending:false}), "", None, &cancel,
         &mut |done,total| { if done == total { cancel.store(true, AtomicOrdering::Relaxed); } });
     assert!(matches!(result, Err(Error::Cancelled)));
 }
@@ -118,7 +145,7 @@ fn visible_hits_are_capped_after_filter_membership() {
     for _ in 0..MAX_SEARCH_HITS + 1 { source.push_str(r#"{"a":"needle","b":"hide"},"#); }
     source.push_str(r#"{"a":"needle","b":"keep"}]"#);
     let grid = grid(&source);
-    let order = Order::build(&grid, None, "keep", &AtomicBool::new(false), &mut |_,_|{}).unwrap();
+    let order = Order::build(&grid, None, "keep", None, &AtomicBool::new(false), &mut |_,_|{}).unwrap();
     let result = order.search(&grid, "needle", false, Interpretation::Literal, &AtomicBool::new(false)).unwrap();
     assert_eq!(result.hits.len(), 1);
     assert_eq!(result.hits[0].row, 0);

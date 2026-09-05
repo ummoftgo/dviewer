@@ -57,7 +57,7 @@ fn main() {
         ("filter_zero", None, "M19-never-matches-8df30"),
     ] {
         let at = Instant::now();
-        match Order::build(grid.as_ref(), sort, filter, &cancel, &mut |_, _| {}) {
+        match Order::build(grid.as_ref(), sort, filter, None, &cancel, &mut |_, _| {}) {
             Ok(order) => {
                 let stats = order.stats();
                 println!("order,{label},ms,{:.3},shown,{},index_bytes,{},peak_bytes,{}", at.elapsed().as_secs_f64() * 1000.0, stats.shown, stats.index_bytes, stats.peak_bytes);

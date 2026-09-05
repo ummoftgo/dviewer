@@ -1360,10 +1360,10 @@ mod tests {
         assert!(doc.cell_text(0, 4).is_none());
         assert!(doc.cell_text(2, 0).is_none());
         let order = crate::grid::order::Order::build(&doc,
-            Some(crate::grid::order::Sort { column: 3, descending: false }), "",
+            Some(crate::grid::order::Sort { column: 3, descending: false }), "", None,
             &AtomicBool::new(false), &mut |_, _| {}).unwrap();
         assert_eq!(order.rows, [1, 0]);
-        let filtered = crate::grid::order::Order::build(&doc, None, "3",
+        let filtered = crate::grid::order::Order::build(&doc, None, "3", None,
             &AtomicBool::new(false), &mut |_, _| {}).unwrap();
         assert_eq!(filtered.rows, [1]);
     }

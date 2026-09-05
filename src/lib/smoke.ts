@@ -130,12 +130,12 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
     tab.tableSearch.reset();
     const discarded = tab.tableSearch.hits.length === 0;
     const sort = { column: 0, descending: true };
-    const sorted = await ipc.gridOrder(tab.id, sort, "", ++tab.order.request);
+    const sorted = await ipc.gridOrder(tab.id, sort, "", null, ++tab.order.request);
     const ordered = await ipc.gridRows(tab.id, 0, sorted.shown);
     const numbers = ordered.rows.filter((row) => /^\d+$/.test(row.cells[0]?.text ?? ""));
     const descending = numbers.map((row) => row.cells[0].text).join(",") === "5,4,3,2,1";
     const query = "가나다"; // i18n-ignore: fixture cell, never interface text
-    const stats = await ipc.gridOrder(tab.id, sort, query, ++tab.order.request);
+    const stats = await ipc.gridOrder(tab.id, sort, query, null, ++tab.order.request);
     tab.order.stats = stats;
     tab.order.sort = sort;
     tab.order.filter = query;

@@ -30,11 +30,13 @@
     gridRowText,
     gridRows,
     type TableRow,
+    type GridSort,
   } from "../../ipc";
   import {
     columnLeft,
     columnWidth as widthOf,
     measureColumns as autoWidths,
+    fitColumn as fitWidth,
     startResize as beginResize,
     totalWidth as totalOf,
   } from "./columns";
@@ -58,9 +60,12 @@
     firstRowNumber?: 0 | 1;
     onsort?: (column: number) => void;
     sortAvailable?: boolean;
+    onsortTo?: (sort: GridSort | null) => void;
+    onfilterColumn?: (column: number) => void;
+    onfilterClear?: () => void;
   }
 
-  let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1, onsort, sortAvailable = true }: Props = $props();
+  let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1, onsort, onsortTo, onfilterColumn, onfilterClear, sortAvailable = true }: Props = $props();
 
   /** Extra rows fetched above and below the viewport to hide scroll latency. */
   const OVERSCAN = 24;
@@ -106,9 +111,13 @@
   $effect(() => {
     void rowCount;
     void columnCount;
+    void tab.order.revision;
     void rowHeight;
     void viewport;
-    untrack(() => void ensureWindow(true));
+    untrack(() => {
+      if (viewport) viewport.scrollTop = tab.tableScrollTop;
+      void ensureWindow(true);
+    });
   });
 
   $effect(() => {
@@ -199,7 +208,11 @@
   // --- columns ------------------------------------------------------------
 
   function measureColumns(sample: TableRow[]) {
-    autoWidths(tab, sample, columnCount, settings.docFontPx * settings.uiScale);
+    autoWidths(tab, sample, columnCount, settings.docFontPx * settings.uiScale, columnName);
+  }
+
+  function fitColumn(column: number) {
+    fitWidth(tab, rows, column, settings.docFontPx * settings.uiScale, columnName(column));
   }
 
   function columnWidth(column: number) {
@@ -253,13 +266,25 @@
 
   function openMenu(event: MouseEvent, row: number, column: number) {
     event.preventDefault();
-    selectCell(row, column);
+    if (row >= 0) selectCell(row, column);
     menu = { x: event.clientX, y: event.clientY, row, column };
   }
 
   const menuItems = $derived.by((): MenuItem[] => {
     if (!menu) return [];
     const { row, column } = menu;
+    if (row === -1) return [
+      ...([null, false, true] as const).map((descending) => ({
+        label: t(descending === null ? "grid.sortDefault" : descending ? "grid.sortDesc" : "grid.sortAsc"),
+        checked: descending === null ? tab.order.sort === null : tab.order.sort?.column === column && tab.order.sort.descending === descending,
+        disabled: !sortAvailable || tab.order.running,
+        hint: !sortAvailable ? t("grid.sortUnavailable") : undefined,
+        action: () => onsortTo?.(descending === null ? null : { column, descending }),
+      })),
+      { label: t("grid.filterColumn"), action: () => onfilterColumn?.(column) },
+      { label: t("grid.filterClear"), disabled: !tab.order.filter, action: () => onfilterClear?.() },
+      { label: t("grid.fitColumn"), action: () => fitColumn(column) },
+    ];
     return [
       { label: t("table.copyValue"), action: () => void copyCell(row, column), hint: "Ctrl C" },
       { label: t("table.copyRow"), action: () => void copyRow(row) },
@@ -379,17 +404,18 @@
   <div class="head" style="width: {totalWidth}px" role="row">
     <div class="cell num" role="columnheader"></div>
     {#each { length: columnCount } as _, column (column)}
-      <div class="cell" style="width: {columnWidth(column)}px" role="columnheader"
+      <div class="cell" style="width: {columnWidth(column)}px" role="columnheader" tabindex="-1"
+        oncontextmenu={(event) => openMenu(event, -1, column)}
         aria-sort={tab.order.sort?.column === column ? (tab.order.sort.descending ? "descending" : "ascending") : "none"}>
-        <button type="button" class="name" disabled={!sortAvailable || tab.order.running}
-          onclick={() => onsort?.(column)} title={sortAvailable ? columnName(column) : t("grid.sortUnavailable")}>
+        <button type="button" class="name" aria-disabled={!sortAvailable || tab.order.running}
+          onclick={() => { if (sortAvailable && !tab.order.running) onsort?.(column); }} title={sortAvailable ? columnName(column) : t("grid.sortUnavailable")}>
           {columnName(column)}{tab.order.sort?.column === column ? (tab.order.sort.descending ? " ▼" : " ▲") : ""}
         </button>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span
           class="grip"
           onpointerdown={(e) => startResize(e, column)}
-          ondblclick={() => measureColumns(rows)}
+          ondblclick={() => fitColumn(column)}
           title={t("table.resize")}
         ></span>
       </div>

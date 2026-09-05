@@ -1080,7 +1080,7 @@ mod tests {
         doc.set_table(Arc::new(TableDoc::build(bytes, crate::table::Records::Lines, |_|{}, &||false).unwrap()));
         let grid = doc.grid().unwrap();
         let (generation, cancel) = doc.start_order();
-        let order = crate::grid::order::Order::build(grid.as_ref(), None, "x", &cancel, &mut |_,_|{}).unwrap();
+        let order = crate::grid::order::Order::build(grid.as_ref(), None, "x", None, &cancel, &mut |_,_|{}).unwrap();
         doc.finish_order(generation, Some(Arc::new(order))).unwrap();
         assert!(doc.order().is_some());
         let (pending, _) = doc.start_order();

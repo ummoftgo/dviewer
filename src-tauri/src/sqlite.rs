@@ -1257,7 +1257,7 @@ lines', 'tab\there', -7, 0.5, x'');",
         let grid = grid_over(&dir,
             "CREATE TABLE t (a INTEGER, b TEXT); INSERT INTO t VALUES (3,'keep'),(1,'drop'),(2,'KEEP'); CREATE VIEW v AS SELECT * FROM t;", "v");
         let order = crate::grid::order::Order::build(&grid,
-            Some(crate::grid::order::Sort { column: 0, descending: false }), "keep",
+            Some(crate::grid::order::Sort { column: 0, descending: false }), "keep", None,
             &AtomicBool::new(false), &mut |_,_|{}).unwrap();
         assert_eq!(order.rows, [2,0]);
         let mut seen = Vec::new();

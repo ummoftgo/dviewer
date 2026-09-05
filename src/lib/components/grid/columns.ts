@@ -61,15 +61,20 @@ export function measureColumns(
   sample: TableRow[],
   columnCount: number,
   fontPx: number,
+  columnName: (column: number) => string,
 ): void {
+  tab.columnWidths = Array.from({ length: columnCount }, (_, column) => measuredWidth(sample, column, fontPx, columnName(column)));
+}
+
+function measuredWidth(sample: TableRow[], column: number, fontPx: number, name: string): number {
   const char = Math.max(6, fontPx * 0.62);
-  tab.columnWidths = Array.from({ length: columnCount }, (_, column) => {
-    let widest = visualLength(tab.header[column] ?? "");
-    for (const row of sample) {
-      widest = Math.max(widest, visualLength(row.cells[column]?.text ?? ""));
-    }
-    return Math.round(Math.min(MAX_AUTO_COLUMN, Math.max(MIN_COLUMN, widest * char + 26)));
-  });
+  let widest = visualLength(name);
+  for (const row of sample) widest = Math.max(widest, visualLength(row.cells[column]?.text ?? ""));
+  return Math.round(Math.min(MAX_AUTO_COLUMN, Math.max(MIN_COLUMN, widest * char + 26)));
+}
+
+export function fitColumn(tab: DocTab, sample: TableRow[], column: number, fontPx: number, name: string): void {
+  tab.columnWidths[column] = measuredWidth(sample, column, fontPx, name);
 }
 
 export function columnWidth(tab: DocTab, column: number): number {

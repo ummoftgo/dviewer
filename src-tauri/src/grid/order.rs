@@ -95,13 +95,18 @@ pub struct Order {
 pub struct OrderStats { pub shown: u32, pub total: u32, pub index_bytes: usize, pub peak_bytes: usize }
 
 impl Order {
-    pub fn build(grid: &dyn Grid, sort: Option<Sort>, filter: &str, cancel: &AtomicBool,
+    pub fn build(grid: &dyn Grid, sort: Option<Sort>, filter: &str, filter_column: Option<u32>, cancel: &AtomicBool,
         progress: &mut dyn FnMut(u32, u32)) -> Result<Self> {
         if sort.is_some_and(|s| s.column >= grid.column_count()) { return Err(Error::NoSuchCell); }
+        if filter_column.is_some_and(|column| column >= grid.column_count()) { return Err(Error::NoSuchCell); }
         check_cancel(cancel)?;
         let filter = filter.to_lowercase();
         let columns: Vec<u32> = if filter.is_empty() {
             sort.map(|s| vec![s.column]).unwrap_or_else(|| (0..grid.column_count().min(1)).collect())
+        } else if let Some(column) = filter_column {
+            let mut columns = vec![column];
+            if let Some(sort) = sort { if sort.column != column { columns.push(sort.column); } }
+            columns
         } else { (0..grid.column_count()).collect() };
         let mut rows = Vec::new();
         let mut keys = Vec::new();
@@ -132,7 +137,7 @@ impl Order {
                 text_key.clear();
                 if row % 4096 == 0 { progress(row, grid.row_count()); }
             }
-            if !matched && value.to_lowercase().contains(&filter) { matched = true; }
+            if !matched && filter_column.is_none_or(|wanted| wanted == column) && value.to_lowercase().contains(&filter) { matched = true; }
             if sort.is_some_and(|s| s.column == column) {
                 if let Some(number) = number(value) { key = number; }
                 else { text = true; text_key.push_str(prefix(value, KEY_BYTES)); }

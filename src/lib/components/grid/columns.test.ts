@@ -7,7 +7,7 @@
  * each, and a table of them came out with columns twice the width they needed.
  */
 import { describe, expect, test } from "vitest";
-import { MAX_AUTO_COLUMN, MIN_COLUMN, measureColumns, visualLength } from "./columns";
+import { MAX_AUTO_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength } from "./columns";
 import type { DocTab } from "../../state/docs.svelte";
 import type { TableRow } from "../../ipc";
 
@@ -38,6 +38,11 @@ describe("counting columns rather than characters", () => {
 });
 
 describe("guessing a width from one page", () => {
+  test("fitting one column uses its actual collection name and preserves other widths", () => {
+    const tab = { header: [], columnWidths: [95, 190, 285] } as unknown as DocTab;
+    fitColumn(tab, [], 1, 13, "collection column name ".repeat(8));
+    expect(tab.columnWidths).toEqual([95, MAX_AUTO_COLUMN, 285]);
+  });
   /** `measureColumns` reads `header` and writes `columnWidths`; nothing else on
    *  the tab is touched, so this is the whole tab as far as it is concerned. */
   function tabWith(header: string[]): DocTab {
@@ -49,15 +54,15 @@ describe("guessing a width from one page", () => {
 
   test("the widest of the header and the sampled rows decides", () => {
     const narrow = tabWith(["id"]);
-    measureColumns(narrow, [row("1")], 1, 13);
+    measureColumns(narrow, [row("1")], 1, 13, (column) => narrow.header[column] ?? "");
     const wide = tabWith(["id"]);
-    measureColumns(wide, [row("a much longer value than the header")], 1, 13);
+    measureColumns(wide, [row("a much longer value than the header")], 1, 13, (column) => wide.header[column] ?? "");
     expect(wide.columnWidths[0]).toBeGreaterThan(narrow.columnWidths[0]);
   });
 
   test("a column is never narrower than the floor or wider than the ceiling", () => {
     const tab = tabWith(["", "x".repeat(500)]);
-    measureColumns(tab, [], 2, 13);
+    measureColumns(tab, [], 2, 13, (column) => tab.header[column] ?? "");
     expect(tab.columnWidths[0]).toBe(MIN_COLUMN);
     expect(tab.columnWidths[1]).toBe(MAX_AUTO_COLUMN);
   });
@@ -65,7 +70,7 @@ describe("guessing a width from one page", () => {
   /** A short sample must not make a column that cannot hold its own header. */
   test("a header with no rows still gets measured", () => {
     const tab = tabWith(["지역", "매출"]);
-    measureColumns(tab, [], 2, 13);
+    measureColumns(tab, [], 2, 13, (column) => tab.header[column] ?? "");
     expect(tab.columnWidths).toHaveLength(2);
     expect(tab.columnWidths.every((width) => width >= MIN_COLUMN)).toBe(true);
   });
@@ -74,7 +79,7 @@ describe("guessing a width from one page", () => {
    *  `undefined` into the measurement. */
   test("a ragged row is not a hole", () => {
     const tab = tabWith(["a", "b", "c"]);
-    expect(() => measureColumns(tab, [row("1")], 3, 13)).not.toThrow();
+    expect(() => measureColumns(tab, [row("1")], 3, 13, (column) => tab.header[column] ?? "")).not.toThrow();
     expect(tab.columnWidths).toHaveLength(3);
   });
 });
