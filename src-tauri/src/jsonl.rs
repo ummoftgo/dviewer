@@ -18,17 +18,17 @@ use crate::tree::text;
 /// How much of the front of the document the guess is made from.
 const SAMPLE_BYTES: usize = 1024 * 1024;
 /// And no more lines than this, for a file whose lines are enormous.
-const SAMPLE_LINES: usize = 2_000;
+pub(crate) const SAMPLE_LINES: usize = 2_000;
 /// The share of sampled lines that must be objects for this to be a table.
 ///
 /// The same figure logs use, for the same reason: a handful of odd lines must
 /// not talk a real file out of being read, and a handful of good ones must not
 /// talk a file into a shape it does not have.
-const AGREEMENT: f64 = 0.7;
+pub(crate) const AGREEMENT: f64 = 0.7;
 /// Past this many columns a grid stops being a way to read anything. A file
 /// whose objects share no keys would otherwise produce one column per key in
 /// the sample.
-const MAX_COLUMNS: usize = 64;
+pub(crate) const MAX_COLUMNS: usize = 64;
 
 /// The columns a JSONL file was found to have.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,7 +90,7 @@ fn sample_lines(bytes: &[u8]) -> Vec<&[u8]> {
 fn object_keys(line: &[u8]) -> Option<Vec<String>> {
     let nodes = object_nodes(line)?;
     Some(
-        fields(&nodes)
+        fields(&nodes, 0)
             .map(|node| String::from_utf8_lossy(key_of(line, node)).into_owned())
             .collect(),
     )
@@ -111,18 +111,25 @@ fn object_nodes(line: &[u8]) -> Option<Vec<Node>> {
 }
 
 /// The object's own members, without anything nested inside them.
-fn fields(nodes: &[Node]) -> impl Iterator<Item = &Node> {
-    nodes.iter().skip(1).filter(|node| node.depth == 1)
+pub(crate) fn fields(nodes: &[Node], base: u32) -> impl Iterator<Item = &Node> {
+    let end = base + nodes[base as usize].subtree_size;
+    let mut next = base + 1;
+    std::iter::from_fn(move || {
+        if next >= end { return None; }
+        let node = &nodes[next as usize];
+        next += node.subtree_size;
+        Some(node)
+    })
 }
 
-fn key_of<'a>(line: &'a [u8], node: &Node) -> &'a [u8] {
+pub(crate) fn key_of<'a>(line: &'a [u8], node: &Node) -> &'a [u8] {
     &line[node.key_start as usize..(node.key_start + node.key_len) as usize]
 }
 
 /// Which node belongs in each column, by name.
-fn by_column<'a>(line: &[u8], nodes: &'a [Node], layout: &JsonlLayout) -> Vec<Option<&'a Node>> {
+pub(crate) fn by_column<'a>(line: &[u8], nodes: &'a [Node], base: u32, layout: &JsonlLayout) -> Vec<Option<&'a Node>> {
     let mut found = vec![None; layout.column_count()];
-    for node in fields(nodes) {
+    for node in fields(nodes, base) {
         // Compared as bytes: a key is matched, not decoded, and a name with an
         // escape in it is rare enough to be left to the tree.
         let name = key_of(line, node);
@@ -155,7 +162,7 @@ pub fn split(bytes: &[u8], start: u32, end: u32, layout: &JsonlLayout) -> Vec<(u
         return spans;
     };
 
-    for (column, node) in by_column(line, &nodes, layout).into_iter().enumerate() {
+    for (column, node) in by_column(line, &nodes, 0, layout).into_iter().enumerate() {
         let Some(node) = node else { continue };
         let mut from = node.val_start;
         let mut to = from + node.val_len;
@@ -199,8 +206,8 @@ pub fn value_text(
             .or(Some((String::new(), false)));
     };
 
-    Some(match by_column(line, &nodes, layout)[column] {
-        Some(node) => text::decode_full(line, node, max_bytes),
+    Some(match by_column(line, &nodes, 0, layout)[column] {
+        Some(node) => node_text(line, node, max_bytes),
         // A key this record does not have. Empty, like the cell.
         None => (String::new(), false),
     })
@@ -233,31 +240,28 @@ pub fn cells(bytes: &[u8], start: u32, end: u32, layout: &JsonlLayout) -> Vec<Ta
         return cells;
     };
 
-    by_column(line, &nodes, layout)
+    by_column(line, &nodes, 0, layout)
         .into_iter()
         .map(|node| match node {
-            Some(node) => {
-                // A scalar is decoded the way the tree decodes it, so the two
-                // views show one value one way. A container is not a value the
-                // tree ever draws — it summarises those as `{ 3 }` — so there
-                // is nothing to agree with, and what the cell claims to hold is
-                // the JSON itself. Running it through the scalar reader would
-                // escape its own quotes and give `[\"a\"]`, which is neither
-                // the source nor the value.
-                let (text, truncated) = if node.kind.is_container() {
-                    source_text(line, node, CELL_PREVIEW_CHARS)
-                } else {
-                    text::decode_scalar(line, node)
-                };
-                TableCell {
-                    text,
-                    truncated,
-                    null: false,
-                }
-            }
+            Some(node) => node_cell(line, node),
             None => empty(),
         })
         .collect()
+}
+
+/// Shared by a JSONL field and a field in a tree-backed row.
+pub(crate) fn node_text(bytes: &[u8], node: &Node, max_bytes: usize) -> (String, bool) {
+    text::decode_full(bytes, node, max_bytes)
+}
+
+pub(crate) fn node_cell(bytes: &[u8], node: &Node) -> TableCell {
+    // Containers keep their own punctuation; scalar strings lose their quotes.
+    let (text, truncated) = if node.kind.is_container() {
+        source_text(bytes, node, CELL_PREVIEW_CHARS)
+    } else {
+        text::decode_scalar(bytes, node)
+    };
+    TableCell { text, truncated, null: false }
 }
 
 /// A container's JSON, as the file wrote it.
