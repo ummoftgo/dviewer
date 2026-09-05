@@ -77,6 +77,16 @@ console.log("fixtures →", OUT);
 // ~1MB: the everyday case.
 await writeStream("small.json", arrayOf(1_500, record));
 
+// A name no tab can show whole. The two differ only at the end, which is the
+// half a browser drops first — so a tab strip that cuts from the right shows
+// the same thing for both, and one that cuts the middle does not.
+for (const which of ["final", "draft"]) {
+  await writeStream(
+    `2026-09-quarterly-revenue-report-${which}.json`,
+    arrayOf(200, record),
+  );
+}
+
 // Deep nesting, to exercise the depth limit and the indent rendering.
 {
   const depth = 500;
@@ -1117,6 +1127,7 @@ const SMOKE = [
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
   { file: "small.json", expect: "tree" },
+  { file: "2026-09-quarterly-revenue-report-final.json", expect: "tree" },
   { file: "strict.json", expect: "tree" },
   { file: "sample.jsonc", expect: "tree" },
   { file: "deep.json", expect: "tree" },

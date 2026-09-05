@@ -76,6 +76,8 @@ export const en: Messages = {
   "tab.close": "Close {title}",
   "tab.new": "New tab (Ctrl+T)",
   "tab.newLabel": "New tab",
+  "tab.list": "All open tabs",
+  "tab.listLabel": "Show all tabs",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "Rendered",

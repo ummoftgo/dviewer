@@ -76,6 +76,8 @@ export const ja: Messages = {
   "tab.close": "{title} タブを閉じる",
   "tab.new": "新しいタブ (Ctrl+T)",
   "tab.newLabel": "新しいタブ",
+  "tab.list": "開いているタブすべて",
+  "tab.listLabel": "タブ一覧を表示",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "プレビュー",

@@ -76,6 +76,8 @@ export const zhHans: Messages = {
   "tab.close": "关闭 {title} 标签页",
   "tab.new": "新标签页 (Ctrl+T)",
   "tab.newLabel": "新标签页",
+  "tab.list": "全部已打开标签页",
+  "tab.listLabel": "显示标签页列表",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "渲染",

@@ -13,6 +13,10 @@
   let menu = $state<HTMLElement>();
   let size = $state({ width: 0, height: 0 });
 
+  // The mark column exists only for menus that asked for one. Every other menu
+  // keeps the spacing it has always had, which is the point of asking.
+  const marks = $derived(items.some((item) => item.checked !== undefined));
+
   // Measure once per content change. Assigning unconditionally would make this
   // effect retrigger itself through `size`.
   $effect(() => {
@@ -63,10 +67,13 @@
   class="menu"
   style="left: {position.left}px; top: {position.top}px"
 >
-  {#each items as item (item.label)}
+  {#each items as item (item.key ?? item.label)}
     <li>
       <button disabled={item.disabled} onclick={() => choose(item)}>
-        <span>{item.label}</span>
+        {#if marks}
+          <span class="mark" aria-hidden="true">{item.checked ? "✓" : ""}</span>
+        {/if}
+        <span class="label">{item.label}</span>
         {#if item.hint}<span class="hint">{item.hint}</span>{/if}
       </button>
     </li>
@@ -84,6 +91,7 @@
     position: fixed;
     z-index: 31;
     min-width: 10rem;
+    max-width: 22rem;
     margin: 0;
     padding: 0.25rem;
     list-style: none;
@@ -123,7 +131,22 @@
     cursor: default;
   }
 
+  /* Fixed width so the labels line up whether or not a row is marked. */
+  .mark {
+    flex: none;
+    width: 0.9rem;
+    color: var(--accent);
+  }
+
+  /* Long enough entries are documents, not commands, so the menu is capped and
+     the name gives way rather than the window. */
+  .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .hint {
+    flex: none;
     color: var(--text-muted);
     font-size: 0.92em;
   }

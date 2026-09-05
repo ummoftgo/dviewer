@@ -81,6 +81,8 @@ export const ko = {
   "tab.close": "{title} 탭 닫기",
   "tab.new": "새 탭 (Ctrl+T)",
   "tab.newLabel": "새 탭",
+  "tab.list": "열린 탭 전부",
+  "tab.listLabel": "탭 목록 보기",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.rendered": "렌더링",
