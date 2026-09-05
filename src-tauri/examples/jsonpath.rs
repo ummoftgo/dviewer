@@ -24,7 +24,7 @@ use dviewer_lib::tree::TreeDoc;
 
 /// The expressions run when none is named: one of each selector, so the shapes
 /// can be read against each other.
-const SUITE: [&str; 10] = [
+const SUITE: [&str; 11] = [
     "$.items[0]",
     "$.items[-1]",
     "$.items[1000000]",
@@ -38,6 +38,11 @@ const SUITE: [&str; 10] = [
     // read against the plain comparison above them, which is the point of
     // having them in the same table.
     "$.items[?match(@.slug, 'item-23999[0-9]')]",
+    // The purest look at what reading a string costs: no regex, and the
+    // longest slug is twelve characters, so nothing matches and no hits are
+    // collected. A predicate that matched would hit the result cap, and the
+    // cap would be what the row measured.
+    "$.items[?length(@.slug) > 12]",
     "$.items[?count(@.tags[*]) == 3]",
 ];
 
