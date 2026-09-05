@@ -16,13 +16,16 @@
   <div class="subtabs" role="tablist" aria-label={t("subtab.label")} bind:this={strip}>
     {#each [group.parent, ...group.children] as tab (tab.key)}
       {@const self = tab === group.parent}
+      {@const source = tab.meta.source}
+      {@const stale = source.type === "treeSlice" && source.generation !== (group.parent.meta.generation ?? 0)}
       {@const label = self ? t(`subtab.self.${tab.view}`) : tab.subtabLabel}
       <div class="subtab" class:active={tab.id === workspace.activeId}>
         <button
           class="label"
+          class:stale
           role="tab"
           aria-selected={tab.id === workspace.activeId}
-          title={self ? tab.meta.title : tab.meta.source.type === "treeSlice" ? tab.meta.source.path : tab.meta.title}
+          title={self ? tab.meta.title : `${source.type === "treeSlice" ? source.path : tab.meta.title}${stale ? `\n${t("subtab.stale")}` : ""}`}
           onclick={() => workspace.activate(tab.id)}
           onauxclick={(event) => {
             if (!self && event.button === 1) { event.preventDefault(); void workspace.close(tab.id); }
@@ -45,5 +48,6 @@
   button { border: 0; background: transparent; color: inherit; font: inherit; }
   button:hover { background: var(--bg-hover); }
   .label { padding: 0.3rem 0.65rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .label.stale { color: var(--text-muted); font-style: italic; }
   .close { display: flex; flex: none; padding: 0.2rem; margin-right: 0.3rem; border-radius: var(--radius-sm); }
 </style>

@@ -6,6 +6,7 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
+  "subtab.stale": "형식/인코딩이 바뀌기 전의 표입니다.",
   "subtab.self.tree": "트리",
   "subtab.self.prose": "글",
   "subtab.self.table": "표",

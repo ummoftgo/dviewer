@@ -1,6 +1,7 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
+  "subtab.stale": "形式・文字コードを変更する前の表です。",
   "subtab.self.tree": "ツリー",
   "subtab.self.prose": "テキスト",
   "subtab.self.table": "表",

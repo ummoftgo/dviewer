@@ -1,6 +1,7 @@
 import type { Messages } from "./ko";
 
 export const en: Messages = {
+  "subtab.stale": "This table predates the format/encoding change.",
   "subtab.self.tree": "Tree",
   "subtab.self.prose": "Text",
   "subtab.self.table": "Table",
