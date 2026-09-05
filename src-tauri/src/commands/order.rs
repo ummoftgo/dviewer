@@ -32,7 +32,7 @@ pub async fn grid_order(app: tauri::AppHandle, state: State<'_, AppState>, doc_i
 
 #[tauri::command]
 pub fn grid_order_cancel(state: State<'_, AppState>, doc_id: DocId) -> Result<()> {
-    state.get(doc_id)?.start_order();
+    state.get(doc_id)?.clear_order();
     Ok(())
 }
 

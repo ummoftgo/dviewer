@@ -14,6 +14,7 @@
    */
   import DataGrid from "../grid/DataGrid.svelte";
   import SearchBar from "../grid/SearchBar.svelte";
+  import GridControls from "../grid/GridControls.svelte";
   import CollectionPicker from "./CollectionPicker.svelte";
   import Icon from "../Icon.svelte";
   import { formatBytes } from "../../format";
@@ -42,6 +43,7 @@
   let { tab, focusSearch = $bindable(null) }: Props = $props();
 
   let grid = $state<ReturnType<typeof DataGrid>>();
+  let controls = $state<ReturnType<typeof GridControls>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
 
   $effect(() => {
@@ -82,7 +84,7 @@
   const items = $derived(
     tab.collections.map((entry) => ({ name: entry.name, secondary: entry.isView })),
   );
-  const rowCount = $derived(tab.gridStats?.rowCount ?? 0);
+  const rowCount = $derived(tab.order.stats?.shown ?? tab.gridStats?.rowCount ?? 0);
   const columnCount = $derived(tab.gridStats?.columnCount ?? 0);
 
   // Opening the connection is what this does; the list comes back with it. A
@@ -113,6 +115,7 @@
    * row that another collection does not have — so all of it goes.
    */
   async function select(name: string) {
+    tab.order.reset();
     tab.collection = name;
     tab.schema = null;
     tab.gridStats = null;
@@ -147,6 +150,7 @@
   }
 
   async function toggleFormulas() {
+    tab.order.reset();
     loading = true;
     try {
       tab.gridStats = await xlsxSetFormulas(tab.id, !(tab.gridStats?.formulas ?? false));
@@ -201,7 +205,7 @@
     {/if}
     <button
       class="btn btn-ghost"
-      disabled={!tab.selectedCell}
+      disabled={!tab.selectedCell || tab.order.running}
       onclick={() =>
         tab.selectedCell && grid?.copyCell(tab.selectedCell.row, tab.selectedCell.column)}
     >
@@ -210,7 +214,7 @@
     </button>
     <button
       class="btn btn-ghost"
-      disabled={!tab.selectedCell}
+      disabled={!tab.selectedCell || tab.order.running}
       onclick={() => tab.selectedCell && grid?.copyRow(tab.selectedCell.row)}
     >
       {t("table.copyRow")}
@@ -233,12 +237,15 @@
       {t(columnar ? "table.noColumns" : workbook ? "table.noSheets" : "table.noCollections")}
     </p>
   {:else}
+    <GridControls {tab} {columnName} bind:this={controls} disabled={loading} onchange={async () => { await grid?.refresh(true); }} />
+    {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
     <DataGrid
       bind:this={grid}
       {tab}
       {rowCount}
       {columnCount}
       {columnName}
+      onsort={(column) => void controls?.sortColumn(column)}
       firstRowNumber={tab.gridStats?.firstRowNumber ?? 1}
       label={t("table.label", { title: tab.meta.title })}
     />

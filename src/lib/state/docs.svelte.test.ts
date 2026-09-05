@@ -76,6 +76,20 @@ beforeEach(() => {
 });
 
 describe("opening a file that is already open", () => {
+  test("invalidating the document discards order and supersedes pending results", () => {
+    const tab = new DocTab(meta({ type: "text" }));
+    tab.order.sort = { column: 1, descending: true };
+    tab.order.filter = "keep";
+    tab.order.stats = { shown: 1, total: 10, indexBytes: 4, peakBytes: 100 };
+    tab.order.running = true;
+    const request = tab.order.request;
+    tab.invalidate();
+    expect(tab.order.request).toBeGreaterThan(request);
+    expect(tab.order.sort).toBeNull();
+    expect(tab.order.stats).toBeNull();
+    expect(tab.order.filter).toBe("");
+    expect(tab.order.running).toBe(false);
+  });
   test("raises the tab instead of loading a second copy", async () => {
     await workspace.openPath("C:/a.json");
     await workspace.openPath("C:/a.json");

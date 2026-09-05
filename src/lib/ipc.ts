@@ -557,6 +557,13 @@ export const treeAsTable = (docId: number, nodeId: number) =>
   invoke<DocMeta>("tree_as_table", { docId, nodeId });
 export const treeTableStats = (docId: number) => invoke<GridStats>("tree_table_stats", { docId });
 
+export interface GridSort { column: number; descending: boolean }
+export interface OrderStats { shown: number; total: number; indexBytes: number; peakBytes: number }
+export const gridOrder = (docId: number, sort: GridSort | null, filter: string, request: number) =>
+  invoke<OrderStats>("grid_order", { docId, sort, filter, request });
+export const gridOrderCancel = (docId: number) => invoke<void>("grid_order_cancel", { docId });
+export const gridOrderStats = (docId: number) => invoke<OrderStats | null>("grid_order_stats", { docId });
+
 export const sqliteCollections = (docId: number) =>
   invoke<Collections>("sqlite_collections", { docId });
 export const sqliteSchema = (docId: number, name: string) =>
@@ -666,6 +673,7 @@ export interface TableReady {
 }
 
 type EventMap = {
+  "grid:progress": { docId: number; request: number; done: number; total: number };
   "tree:progress": IndexProgress;
   "tree:ready": IndexReady;
   "tree:error": DocErrorEvent;

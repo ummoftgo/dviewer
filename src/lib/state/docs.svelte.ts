@@ -6,6 +6,8 @@ import type {
   Collection,
   DocSource,
   GridStats,
+  GridSort,
+  OrderStats,
   Interpretation,
   DocKind,
   DocMeta,
@@ -111,6 +113,26 @@ class TableSearchState {
 
 let nextKey = 0;
 
+class GridOrderState {
+  sort = $state<GridSort | null>(null);
+  filter = $state("");
+  stats = $state<OrderStats | null>(null);
+  running = $state(false);
+  request = $state(0);
+  progress = $state<{ done: number; total: number } | null>(null);
+  error = $state<string | null>(null);
+
+  reset() {
+    this.request += 1;
+    this.sort = null;
+    this.filter = "";
+    this.stats = null;
+    this.running = false;
+    this.progress = null;
+    this.error = null;
+  }
+}
+
 /** One open document: its metadata plus everything the views need to resume. */
 export class DocTab {
   /**
@@ -153,6 +175,7 @@ export class DocTab {
 
   // Table (CSV, TSV)
   tableStats = $state<TableStats | null>(null);
+  readonly order = new GridOrderState();
   header = $state<string[]>([]);
   /** Pixel width per column, resizable by dragging a header edge. */
   columnWidths = $state<number[]>([]);
@@ -208,6 +231,7 @@ export class DocTab {
 
   /** Drop derived state so the tab reloads from scratch on the next view. */
   invalidate() {
+    this.order.reset();
     this.html = null;
     this.toc = [];
     this.raw = null;

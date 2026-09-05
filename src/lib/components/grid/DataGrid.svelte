@@ -56,9 +56,11 @@
     cellTone?: (column: number, text: string | undefined) => string | undefined;
     label: string;
     firstRowNumber?: 0 | 1;
+    onsort?: (column: number) => void;
+    sortAvailable?: boolean;
   }
 
-  let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1 }: Props = $props();
+  let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1, onsort, sortAvailable = true }: Props = $props();
 
   /** Extra rows fetched above and below the viewport to hide scroll latency. */
   const OVERSCAN = 24;
@@ -79,7 +81,7 @@
   const metrics = $derived({ rowHeight, totalRows: rowCount, viewportHeight });
   /** Wide enough for the largest row number the file can produce. */
   const numberWidth = $derived(
-    Math.max(44, Math.round(String(rowCount).length * settings.docFontPx * settings.uiScale * 0.65) + 18),
+    Math.max(44, Math.round(String(tab.order.stats?.total ?? rowCount).length * settings.docFontPx * settings.uiScale * 0.65) + 18),
   );
   const totalWidth = $derived(totalOf(tab, numberWidth));
 
@@ -137,6 +139,7 @@
 
   async function ensureWindow(force = false) {
     if (!viewport || rowCount === 0) {
+      requestSeq += 1;
       if (rowCount === 0) {
         rows = [];
         windowStart = 0;
@@ -310,6 +313,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
+    if (tab.order.running || rowCount === 0) return;
     if (event.ctrlKey || event.metaKey) {
       if (shortcutKey(event) === "c" && tab.selectedCell) {
         event.preventDefault();
@@ -359,6 +363,8 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 <div
   class="grid"
+  class:ordering={tab.order.running}
+  class:empty={rowCount === 0 && tab.order.stats !== null}
   bind:this={viewport}
   onscroll={onScroll}
   onkeydown={onKeydown}
@@ -367,13 +373,18 @@
   aria-rowcount={rowCount}
   aria-colcount={columnCount}
   aria-label={label}
+  aria-busy={tab.order.running}
   style="--row-height: {rowHeight}px; --number-width: {numberWidth}px"
 >
   <div class="head" style="width: {totalWidth}px" role="row">
     <div class="cell num" role="columnheader"></div>
     {#each { length: columnCount } as _, column (column)}
-      <div class="cell" style="width: {columnWidth(column)}px" role="columnheader">
-        <span class="name" title={columnName(column)}>{columnName(column)}</span>
+      <div class="cell" style="width: {columnWidth(column)}px" role="columnheader"
+        aria-sort={tab.order.sort?.column === column ? (tab.order.sort.descending ? "descending" : "ascending") : "none"}>
+        <button type="button" class="name" disabled={!sortAvailable || tab.order.running}
+          onclick={() => onsort?.(column)} title={sortAvailable ? columnName(column) : t("grid.sortUnavailable")}>
+          {columnName(column)}{tab.order.sort?.column === column ? (tab.order.sort.descending ? " ▼" : " ▲") : ""}
+        </button>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span
           class="grip"
@@ -430,6 +441,9 @@
 {/if}
 
 <style>
+  .grid.empty { display: none; }
+  .grid.ordering .body { pointer-events: none; }
+  button.name { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
   .grid {
     flex: 1;
     min-height: 0;

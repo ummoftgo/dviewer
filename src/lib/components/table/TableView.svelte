@@ -12,6 +12,7 @@
   import { n, t, type MessageKey } from "../../i18n";
   import DataGrid from "../grid/DataGrid.svelte";
   import SearchBar from "../grid/SearchBar.svelte";
+  import GridControls from "../grid/GridControls.svelte";
   import {
     errorMessage,
     tableOpen,
@@ -34,6 +35,7 @@
 
   let searchBar = $state<ReturnType<typeof SearchBar>>();
   let grid = $state<ReturnType<typeof DataGrid>>();
+  let controls = $state<ReturnType<typeof GridControls>>();
 
   $effect(() => {
     focusSearch = searchBar ? () => searchBar?.focus() : null;
@@ -53,7 +55,7 @@
   const inferred = $derived(
     tab.tableStats?.logLayout != null || tab.tableStats?.delimiter === "jsonl",
   );
-  const rowCount = $derived(tab.tableStats?.rowCount ?? 0);
+  const rowCount = $derived(tab.order.stats?.shown ?? tab.tableStats?.rowCount ?? 0);
   const columnCount = $derived(tab.tableStats?.columnCount ?? 0);
   const progressPercent = $derived(
     tab.indexing && tab.indexing.total > 0
@@ -87,6 +89,7 @@
    * switch already does with everything derived from the old reading.
    */
   async function applyShape(shape: TableShape, toTop = false) {
+    tab.order.reset();
     tab.tableStats = shape.stats;
     tab.header = shape.header;
     tab.selectedCell = null;
@@ -246,7 +249,7 @@
 
       <button
         class="btn btn-ghost"
-        disabled={!tab.selectedCell}
+        disabled={!tab.selectedCell || tab.order.running}
         onclick={() =>
           tab.selectedCell && grid?.copyCell(tab.selectedCell.row, tab.selectedCell.column)}
       >
@@ -255,19 +258,22 @@
       </button>
       <button
         class="btn btn-ghost"
-        disabled={!tab.selectedCell}
+        disabled={!tab.selectedCell || tab.order.running}
         onclick={() => tab.selectedCell && grid?.copyRow(tab.selectedCell.row)}
       >
         {t("table.copyRow")}
       </button>
     </div>
 
+    <GridControls {tab} {columnName} bind:this={controls} onchange={async () => { await grid?.refresh(true); }} />
+    {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
     <DataGrid
       bind:this={grid}
       {tab}
       {rowCount}
       {columnCount}
       {columnName}
+      onsort={(column) => void controls?.sortColumn(column)}
       cellTone={levelTone}
       label={t("table.label", { title: tab.meta.title })}
     />

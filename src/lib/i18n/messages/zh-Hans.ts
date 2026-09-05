@@ -1,6 +1,14 @@
 import type { Messages } from "./ko";
 
 export const zhHans: Messages = {
+  "grid.filter": "在所有列中筛选行",
+  "grid.apply": "应用",
+  "grid.working": "正在排序或筛选",
+  "grid.cancel": "取消",
+  "grid.shown": "共{total}行，显示{shown}行",
+  "grid.sorted": "按{column}排序",
+  "grid.filterEmpty": "没有匹配的行。",
+  "grid.sortUnavailable": "此文件不支持排序。",
   "error.sortTooLarge": "排序键超过256MB，无法对此列排序。",
   "tree.asTable": "以表格查看",
 

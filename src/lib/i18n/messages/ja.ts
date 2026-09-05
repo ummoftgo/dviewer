@@ -1,6 +1,14 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
+  "grid.filter": "すべての列で行を絞り込む",
+  "grid.apply": "適用",
+  "grid.working": "並べ替え・絞り込み中",
+  "grid.cancel": "キャンセル",
+  "grid.shown": "{total}行中{shown}行",
+  "grid.sorted": "{column}で並べ替え",
+  "grid.filterEmpty": "一致する行がありません。",
+  "grid.sortUnavailable": "このファイルは並べ替えできません。",
   "error.sortTooLarge": "並べ替えキーが256MBを超えるため、この列を並べ替えできません。",
   "tree.asTable": "表で表示",
 

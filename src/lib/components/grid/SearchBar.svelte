@@ -12,7 +12,7 @@
    */
   import Icon from "../Icon.svelte";
   import { n, t } from "../../i18n";
-  import { errorMessage, gridSearch } from "../../ipc";
+  import { errorMessage, gridSearch, gridOrderStats } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
 
   interface Props {
@@ -29,6 +29,7 @@
 
   async function runSearch(event?: Event) {
     event?.preventDefault();
+    if (tab.order.running) return;
     const search = tab.tableSearch;
     const query = search.query.trim();
     if (!query) {
@@ -48,6 +49,11 @@
       search.capped = result.capped;
       search.current = result.hits.length > 0 ? 0 : -1;
       if (result.hits.length > 0) tab.pendingCell = result.hits[0];
+      if (tab.order.stats) {
+        const request = tab.order.request;
+        const stats = await gridOrderStats(tab.id);
+        if (mine() && request === tab.order.request) tab.order.stats = stats;
+      }
     } catch (err) {
       if (!mine()) return;
       search.error = errorMessage(err);
@@ -98,7 +104,7 @@
     <input type="checkbox" bind:checked={tab.tableSearch.caseSensitive} />
     Aa
   </label>
-  <button class="btn btn-ghost" type="submit" disabled={tab.tableSearch.running}>
+  <button class="btn btn-ghost" type="submit" disabled={tab.tableSearch.running || tab.order.running}>
     {tab.tableSearch.running ? t("table.search.running") : t("table.search.run")}
   </button>
 

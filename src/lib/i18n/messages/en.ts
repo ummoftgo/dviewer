@@ -1,6 +1,14 @@
 import type { Messages } from "./ko";
 
 export const en: Messages = {
+  "grid.filter": "Filter rows across all columns",
+  "grid.apply": "Apply",
+  "grid.working": "Sorting / filtering",
+  "grid.cancel": "Cancel",
+  "grid.shown": "{shown} of {total} rows",
+  "grid.sorted": "Sorted by {column}",
+  "grid.filterEmpty": "No matching rows.",
+  "grid.sortUnavailable": "Sorting is unavailable for this file.",
   "error.sortTooLarge": "This column cannot be sorted because its sort keys exceed 256 MB.",
   "tree.asTable": "View as table",
 

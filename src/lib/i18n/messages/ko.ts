@@ -6,6 +6,14 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
+  "grid.filter": "모든 열에서 행 필터",
+  "grid.apply": "적용",
+  "grid.working": "정렬·필터 처리 중",
+  "grid.cancel": "취소",
+  "grid.shown": "{total}행 중 {shown}행",
+  "grid.sorted": "{column} 정렬",
+  "grid.filterEmpty": "일치하는 행이 없습니다.",
+  "grid.sortUnavailable": "이 파일에서는 정렬을 지원하지 않습니다.",
   "error.sortTooLarge": "정렬 키가 256MB를 넘어 이 열을 정렬할 수 없습니다.",
   "tree.asTable": "표로 보기",
 
