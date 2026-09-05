@@ -1,6 +1,7 @@
 import type { Messages } from "./ko";
 
 export const en: Messages = {
+  "error.sortTooLarge": "This column cannot be sorted because its sort keys exceed 256 MB.",
   "tree.asTable": "View as table",
 
   // --- 공통 / shared -------------------------------------------------------

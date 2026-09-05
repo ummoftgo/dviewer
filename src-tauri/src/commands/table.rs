@@ -108,15 +108,6 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
     Ok(())
 }
 
-fn table_doc(state: &State<'_, AppState>, doc_id: DocId) -> Result<Arc<TableDoc>> {
-    state
-        .get(doc_id)?
-        .table()
-        .ok_or(Error::NotReady {
-            subject: Subject::Table,
-        })
-}
-
 
 /// The grid behind this document, whichever kind it is.
 ///
@@ -142,7 +133,12 @@ pub fn grid_rows(
     count: u32,
 ) -> Result<TablePage> {
     // A viewport request should never be able to ask for the whole file.
-    grid_of(&state, doc_id)?.page(start, count.min(2000))
+    let doc = state.get(doc_id)?;
+    let grid = grid_of(&state, doc_id)?;
+    match doc.order() {
+        Some(order) => order.page(grid.as_ref(), start, count.min(2000)),
+        None => grid.page(start, count.min(2000)),
+    }
 }
 
 /// One cell's real text, for copying — for a delimited file that means quotes
@@ -294,8 +290,7 @@ pub fn table_set_expand(
     doc_id: DocId,
     expand: bool,
 ) -> Result<TableShape> {
-    let table = table_doc(&state, doc_id)?;
-    table.set_expand(expand);
+    let table = state.get(doc_id)?.change_table(|table| table.set_expand(expand))?;
     Ok(TableShape {
         stats: table.stats(),
         header: table.header(),
@@ -312,8 +307,7 @@ pub fn table_set_plain(
     doc_id: DocId,
     plain: bool,
 ) -> Result<TableShape> {
-    let table = table_doc(&state, doc_id)?;
-    table.set_plain(plain);
+    let table = state.get(doc_id)?.change_table(|table| table.set_plain(plain))?;
     Ok(TableShape {
         stats: table.stats(),
         header: table.header(),
@@ -328,8 +322,7 @@ pub fn table_set_has_header(
     doc_id: DocId,
     has_header: bool,
 ) -> Result<TableShape> {
-    let table = table_doc(&state, doc_id)?;
-    table.set_has_header(has_header);
+    let table = state.get(doc_id)?.change_table(|table| table.set_has_header(has_header))?;
     Ok(TableShape {
         stats: table.stats(),
         header: table.header(),
@@ -353,7 +346,11 @@ pub async fn grid_search(
     let grid = grid_of(&state, doc_id)?;
     let how = how.unwrap_or_default();
     let cancel = state.start_search_job(doc_id);
-    tauri::async_runtime::spawn_blocking(move || grid.search(&query, case_sensitive, how, &cancel))
+    let order = state.get(doc_id)?.order();
+    tauri::async_runtime::spawn_blocking(move || match order {
+        Some(order) => order.search(grid.as_ref(), &query, case_sensitive, how, &cancel),
+        None => grid.search(&query, case_sensitive, how, &cancel),
+    })
         .await
         .map_err(Error::internal)?
 }
@@ -445,6 +442,7 @@ pub async fn xlsx_set_formulas(
     formulas: bool,
 ) -> Result<GridStats> {
     let doc = state.get(doc_id)?;
+    doc.clear_order();
     let sheet = doc.sheet().ok_or(Error::NotReady {
         subject: Subject::Workbook,
     })?;
@@ -453,6 +451,7 @@ pub async fn xlsx_set_formulas(
     tauri::async_runtime::spawn_blocking(move || switching.set_formulas(formulas))
         .await
         .map_err(Error::internal)??;
+    doc.clear_order();
 
     Ok(GridStats {
         first_row_number: 1,
@@ -508,6 +507,7 @@ fn only(name: &str) -> crate::sqlite::Collection {
 /// The shape of the one thing a Parquet file holds.
 #[tauri::command]
 pub fn parquet_select(state: State<'_, AppState>, doc_id: DocId) -> Result<GridStats> {
+    state.get(doc_id)?.clear_order();
     let columnar = state.get(doc_id)?.columnar().ok_or(Error::NotReady {
         subject: Subject::Columnar,
     })?;

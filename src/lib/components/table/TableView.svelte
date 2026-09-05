@@ -292,7 +292,7 @@
         <span class="spacer"></span>
         <span class="where">
           {t("table.status.where", {
-            row: n(tab.selectedCell.row + 1),
+            row: n((tab.selectedCell.sourceRow ?? tab.selectedCell.row) + 1),
             column: columnName(tab.selectedCell.column),
           })}
         </span>

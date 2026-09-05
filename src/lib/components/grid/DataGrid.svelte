@@ -113,7 +113,7 @@
     const cell = tab.pendingCell;
     if (!cell || !viewport || rowCount === 0) return;
     tab.pendingCell = null;
-    tab.selectedCell = cell;
+    selectCell(cell.row, cell.column);
     // Park the target a third of the way down rather than at the very top.
     measure();
     viewport.scrollTop = scrollTopForRow(
@@ -164,6 +164,7 @@
       if (seq !== requestSeq) return;
       windowStart = start;
       rows = page.rows;
+      if (tab.selectedCell) selectCell(tab.selectedCell.row, tab.selectedCell.column);
       if (tab.columnWidths.length !== columnCount) measureColumns(page.rows);
     } catch (err) {
       if (seq === requestSeq) tab.error = errorMessage(err);
@@ -220,7 +221,7 @@
 
   export async function copyCell(row: number, column: number) {
     try {
-      const cell = await gridCellText(tab.id, row, column);
+      const cell = await gridCellText(tab.id, await sourceRow(row), column);
       await copyText(cell.text);
       toasts.show(cell.truncated ? t("toast.valueTruncated") : t("toast.valueCopied"));
     } catch (err) {
@@ -230,7 +231,7 @@
 
   export async function copyRow(row: number) {
     try {
-      const line = await gridRowText(tab.id, row);
+      const line = await gridRowText(tab.id, await sourceRow(row));
       await copyText(line.text);
       toasts.show(t("toast.rowCopied"));
     } catch (err) {
@@ -249,7 +250,7 @@
 
   function openMenu(event: MouseEvent, row: number, column: number) {
     event.preventDefault();
-    tab.selectedCell = { row, column };
+    selectCell(row, column);
     menu = { x: event.clientX, y: event.clientY, row, column };
   }
 
@@ -276,9 +277,21 @@
     const cell = tab.selectedCell ?? { row: -1, column: 0 };
     const row = Math.min(rowCount - 1, Math.max(0, cell.row + rowDelta));
     const column = Math.min(columnCount - 1, Math.max(0, cell.column + columnDelta));
-    tab.selectedCell = { row, column };
+    selectCell(row, column);
     scrollRowIntoView(row);
     scrollColumnIntoView(column);
+  }
+
+  function selectCell(row: number, column: number) {
+    tab.selectedCell = { row, column, sourceRow: rows[row - windowStart]?.index };
+  }
+
+  async function sourceRow(displayRow: number): Promise<number> {
+    const cached = rows[displayRow - windowStart];
+    if (cached) return cached.index;
+    const page = await gridRows(tab.id, displayRow, 1);
+    if (!page.rows[0]) throw { code: "noSuchRow" };
+    return page.rows[0].index;
   }
 
   function scrollRowIntoView(row: number) {
@@ -373,25 +386,26 @@
   </div>
 
   <div class="body" style="height: {spacerHeight(metrics)}px; width: {totalWidth}px">
-    {#each rows as row (row.index)}
-      <div class="row" style="top: {rowTop(metrics, scrollTop, row.index)}px" role="row">
+    {#each rows as row, at (row.index)}
+      {@const displayRow = windowStart + at}
+      <div class="row" style="top: {rowTop(metrics, scrollTop, displayRow)}px" role="row">
         <div class="cell num" role="rowheader">{n(row.index + firstRowNumber)}</div>
         {#each { length: columnCount } as _, column (column)}
           {@const cell = row.cells[column]}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div
             class="cell"
-            class:selected={tab.selectedCell?.row === row.index &&
+            class:selected={tab.selectedCell?.row === displayRow &&
               tab.selectedCell?.column === column}
-            class:hit={isHit(row.index, column)}
+            class:hit={isHit(displayRow, column)}
             class:null={cell?.null}
             data-level={cellTone?.(column, cell?.text)}
             style="width: {columnWidth(column)}px"
             role="gridcell"
             tabindex="-1"
             title={cell?.null ? "NULL" : (cell?.text ?? "")}
-            onclick={() => (tab.selectedCell = { row: row.index, column })}
-            oncontextmenu={(e) => openMenu(e, row.index, column)}
+            onclick={() => selectCell(displayRow, column)}
+            oncontextmenu={(e) => openMenu(e, displayRow, column)}
           >
             {#if cell?.null}
               <!-- Not the empty string it would otherwise be indistinguishable

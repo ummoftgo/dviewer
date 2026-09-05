@@ -74,6 +74,7 @@ pub enum Error {
     Internal { detail: String },
     NoSuchDoc { id: u32 },
     Cancelled,
+    SortTooLarge,
 
     // --- opening ------------------------------------------------------------
     EmptyPaste,
@@ -190,6 +191,7 @@ impl Error {
             Error::Internal { .. } => "internal",
             Error::NoSuchDoc { .. } => "noSuchDoc",
             Error::Cancelled => "cancelled",
+            Error::SortTooLarge => "sortTooLarge",
             Error::EmptyPaste => "emptyPaste",
             Error::UnknownEncoding { .. } => "unknownEncoding",
             Error::BadUrl { .. } => "badUrl",

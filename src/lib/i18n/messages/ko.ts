@@ -6,6 +6,7 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
+  "error.sortTooLarge": "정렬 키가 256MB를 넘어 이 열을 정렬할 수 없습니다.",
   "tree.asTable": "표로 보기",
 
   // --- 공통 / shared -------------------------------------------------------

@@ -273,7 +273,7 @@ fn source_text(line: &[u8], node: &Node, max_chars: usize) -> (String, bool) {
     let from = node.val_start as usize;
     let raw = &line[from..from + node.val_len as usize];
     let text = String::from_utf8_lossy(raw);
-    let mut out = String::with_capacity(text.len());
+    let mut out = String::with_capacity(text.len().min(max_chars.saturating_mul(6)));
     let mut taken = 0usize;
     for character in text.chars() {
         if taken == max_chars {

@@ -441,6 +441,27 @@ fn matches(row: &rusqlite::Row<'_>, column: usize, matcher: &Matcher) -> Result<
 }
 
 impl Grid for SqliteGrid {
+    fn scan(&self, columns: &[u32], cancel: &AtomicBool,
+        visit: &mut dyn FnMut(u32, u32, &str) -> Result<()>) -> Result<()> {
+        for &column in columns {
+            if column as usize >= self.columns.len() { return Err(Error::NoSuchCell); }
+        }
+        let connection = self.database.connect()?;
+        let mut statement = connection.prepare(&format!("SELECT * FROM {} {}", self.quoted, self.order())).map_err(query_failed)?;
+        let mut answered = statement.query([]).map_err(query_failed)?;
+        let mut index = 0;
+        while let Some(row) = answered.next().map_err(query_failed)? {
+            if index >= self.row_count { break; }
+            if index % 4096 == 0 { crate::grid::order::check_cancel(cancel)?; }
+            for &column in columns {
+                let cell = cell_of(row, column as usize, usize::MAX)?;
+                visit(index, column, crate::grid::order::prefix(&cell.text, crate::table::MAX_CELL_TEXT_BYTES))?;
+            }
+            index += 1;
+        }
+        crate::grid::order::check_cancel(cancel)
+    }
+
     fn row_count(&self) -> u32 {
         self.row_count
     }
@@ -1228,6 +1249,22 @@ lines', 'tab\there', -7, 0.5, x'');",
             grid.search("row", false, Interpretation::Literal, &cancelled),
             Err(Error::Cancelled)
         ));
+    }
+
+    #[test]
+    fn sorting_and_filtering_a_view_use_the_sequential_cursor() {
+        let dir = temp_dir("order-view-cursor");
+        let grid = grid_over(&dir,
+            "CREATE TABLE t (a INTEGER, b TEXT); INSERT INTO t VALUES (3,'keep'),(1,'drop'),(2,'KEEP'); CREATE VIEW v AS SELECT * FROM t;", "v");
+        let order = crate::grid::order::Order::build(&grid,
+            Some(crate::grid::order::Sort { column: 0, descending: false }), "keep",
+            &AtomicBool::new(false), &mut |_,_|{}).unwrap();
+        assert_eq!(order.rows, [2,0]);
+        let mut seen = Vec::new();
+        grid.scan(&[1], &AtomicBool::new(false), &mut |row, column, value| {
+            seen.push((row,column,value.to_owned())); Ok(())
+        }).unwrap();
+        assert_eq!(seen, [(0,1,"keep".into()),(1,1,"drop".into()),(2,1,"KEEP".into())]);
     }
 
     /// An empty query is not a search that found everything.

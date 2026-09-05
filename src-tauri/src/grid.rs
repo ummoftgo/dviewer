@@ -15,6 +15,7 @@
 use std::sync::atomic::AtomicBool;
 
 pub mod array;
+pub mod order;
 
 use crate::error::Result;
 use crate::query::Interpretation;
@@ -64,6 +65,22 @@ pub trait Grid: Send + Sync {
 
     /// A whole row as text.
     fn row_text(&self, row: u32) -> Result<CellText>;
+
+    /// Visit cells in row order, dropping each full value before reading the next.
+    fn scan(&self, columns: &[u32], cancel: &AtomicBool,
+        visit: &mut dyn FnMut(u32, u32, &str) -> Result<()>) -> Result<()> {
+        for &column in columns {
+            if column >= self.column_count() { return Err(crate::error::Error::NoSuchCell); }
+        }
+        for row in 0..self.row_count() {
+            if row % 4096 == 0 { order::check_cancel(cancel)?; }
+            for &column in columns {
+                let cell = self.cell_text(row, column)?;
+                visit(row, column, order::prefix(&cell.text, MAX_CELL_TEXT_BYTES))?;
+            }
+        }
+        order::check_cancel(cancel)
+    }
 
     /// Every cell matching `query`, up to the hit ceiling.
     ///

@@ -1,6 +1,7 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
+  "error.sortTooLarge": "並べ替えキーが256MBを超えるため、この列を並べ替えできません。",
   "tree.asTable": "表で表示",
 
   // --- 공통 / shared -------------------------------------------------------

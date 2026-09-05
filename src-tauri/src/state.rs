@@ -231,6 +231,9 @@ struct DocInner {
     generation: u32,
     badge_kind: Option<DocKind>,
     tree_table: Option<Arc<crate::grid::array::JsonArrayGrid>>,
+    order: Option<Arc<crate::grid::order::Order>>,
+    order_generation: u32,
+    order_cancel: Arc<AtomicBool>,
     /// UTF-8, which is what every scanner assumes. Shares its allocation with
     /// `source_bytes` unless the file had to be transcoded.
     bytes: Arc<DocBytes>,
@@ -278,6 +281,9 @@ impl Document {
                 generation: 0,
                 badge_kind: None,
                 tree_table: None,
+                order: None,
+                order_generation: 0,
+                order_cancel: Arc::new(AtomicBool::new(false)),
                 bytes: decoded.bytes,
                 encoding: decoded.encoding,
                 encoding_source: decoded.source,
@@ -305,6 +311,7 @@ impl Document {
     pub fn set_encoding(&self, encoding: &'static encoding_rs::Encoding) {
         let decoded = encoding::decode_as(Arc::clone(&self.source_bytes), encoding);
         let mut inner = self.inner.write();
+        Self::invalidate_order(&mut inner);
         inner.bytes = decoded.bytes;
         inner.encoding = decoded.encoding;
         inner.encoding_source = decoded.source;
@@ -324,6 +331,7 @@ impl Document {
     pub fn set_kind(&self, kind: DocKind) {
         let mut inner = self.inner.write();
         if inner.kind != kind {
+            Self::invalidate_order(&mut inner);
             inner.kind = kind;
             inner.tree = None;
             inner.table = None;
@@ -379,7 +387,9 @@ impl Document {
     }
 
     pub fn set_collection(&self, collection: Arc<crate::sqlite::SqliteGrid>) {
-        self.inner.write().collection = Some(collection);
+        let mut inner = self.inner.write();
+        Self::invalidate_order(&mut inner);
+        inner.collection = Some(collection);
     }
 
     pub fn workbook(&self) -> Option<Arc<crate::xlsx::XlsxDoc>> {
@@ -391,7 +401,9 @@ impl Document {
     }
 
     pub fn set_sheet(&self, sheet: Arc<crate::xlsx::XlsxGrid>) {
-        self.inner.write().sheet = Some(sheet);
+        let mut inner = self.inner.write();
+        Self::invalidate_order(&mut inner);
+        inner.sheet = Some(sheet);
     }
 
     pub fn sheet(&self) -> Option<Arc<crate::xlsx::XlsxGrid>> {
@@ -439,7 +451,40 @@ impl Document {
     }
 
     pub fn set_table(&self, table: Arc<TableDoc>) {
-        self.inner.write().table = Some(table);
+        let mut inner = self.inner.write();
+        Self::invalidate_order(&mut inner);
+        inner.table = Some(table);
+    }
+
+    fn invalidate_order(inner: &mut DocInner) {
+        inner.order_cancel.store(true, Ordering::Relaxed);
+        inner.order_generation += 1;
+        inner.order = None;
+    }
+
+    pub fn clear_order(&self) { Self::invalidate_order(&mut self.inner.write()); }
+    pub fn change_table(&self, change: impl FnOnce(&TableDoc)) -> Result<Arc<TableDoc>> {
+        let mut inner = self.inner.write();
+        let table = inner.table.clone().ok_or(Error::NotReady { subject: crate::error::Subject::Table })?;
+        Self::invalidate_order(&mut inner);
+        change(&table);
+        Ok(table)
+    }
+    pub fn order(&self) -> Option<Arc<crate::grid::order::Order>> { self.inner.read().order.clone() }
+
+    pub fn start_order(&self) -> (u32, Arc<AtomicBool>) {
+        let mut inner = self.inner.write();
+        inner.order_cancel.store(true, Ordering::Relaxed);
+        inner.order_generation += 1;
+        inner.order_cancel = Arc::new(AtomicBool::new(false));
+        (inner.order_generation, inner.order_cancel.clone())
+    }
+
+    pub fn finish_order(&self, generation: u32, order: Option<Arc<crate::grid::order::Order>>) -> Result<()> {
+        let mut inner = self.inner.write();
+        if generation != inner.order_generation || inner.order_cancel.load(Ordering::Relaxed) { return Err(Error::Cancelled); }
+        inner.order = order;
+        Ok(())
     }
 
     pub fn meta(&self) -> DocMeta {
@@ -720,6 +765,7 @@ impl AppState {
     }
 
     pub fn cancel_jobs(&self, id: DocId) {
+        if let Ok(doc) = self.get(id) { doc.clear_order(); }
         let mut jobs = self.jobs.write();
         for flag in [jobs.index.remove(&id), jobs.search.remove(&id)]
             .into_iter()
@@ -1020,5 +1066,26 @@ mod tests {
         assert_ne!(serde_json::to_value(&slice.source).unwrap(), serde_json::to_value(&newer.source).unwrap());
         drop(parent);
         assert_eq!(slice.grid().unwrap().cell_text(1, 0).unwrap().text, "2");
+    }
+
+    #[test]
+    fn old_order_requests_cannot_publish_after_replacement_or_mode_changes() {
+        let doc = stub(1);
+        let (old, cancelled) = doc.start_order();
+        let (new, _) = doc.start_order();
+        assert!(cancelled.load(Ordering::Relaxed));
+        assert!(matches!(doc.finish_order(old, None), Err(Error::Cancelled)));
+        assert!(doc.finish_order(new, None).is_ok());
+        let bytes = Arc::new(crate::bytes::DocBytes::from(b"name\nx\ny".to_vec()));
+        doc.set_table(Arc::new(TableDoc::build(bytes, crate::table::Records::Lines, |_|{}, &||false).unwrap()));
+        let grid = doc.grid().unwrap();
+        let (generation, cancel) = doc.start_order();
+        let order = crate::grid::order::Order::build(grid.as_ref(), None, "x", &cancel, &mut |_,_|{}).unwrap();
+        doc.finish_order(generation, Some(Arc::new(order))).unwrap();
+        assert!(doc.order().is_some());
+        let (pending, _) = doc.start_order();
+        doc.change_table(|table| table.set_has_header(true)).unwrap();
+        assert!(doc.order().is_none());
+        assert!(matches!(doc.finish_order(pending, None), Err(Error::Cancelled)));
     }
 }
