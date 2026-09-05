@@ -14,6 +14,8 @@
 
 use std::sync::atomic::AtomicBool;
 
+pub mod array;
+
 use crate::error::Result;
 use crate::query::Interpretation;
 use crate::table::{CellText, TablePage, TableSearch, MAX_CELL_TEXT_BYTES};
