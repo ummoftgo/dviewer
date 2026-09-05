@@ -1,6 +1,13 @@
 import type { Messages } from "./ko";
 
 export const en: Messages = {
+  "subtab.self.tree": "Tree",
+  "subtab.self.prose": "Text",
+  "subtab.self.table": "Table",
+  "subtab.self.collection": "Collection",
+  "subtab.self.archive": "Archive",
+  "subtab.close": "Close subtab {title}",
+  "subtab.label": "Document views",
   "grid.filter": "Filter rows across all columns",
   "grid.apply": "Apply",
   "grid.working": "Sorting / filtering",

@@ -1,6 +1,13 @@
 import type { Messages } from "./ko";
 
 export const zhHans: Messages = {
+  "subtab.self.tree": "树",
+  "subtab.self.prose": "文本",
+  "subtab.self.table": "表格",
+  "subtab.self.collection": "集合",
+  "subtab.self.archive": "压缩包",
+  "subtab.close": "关闭子标签 {title}",
+  "subtab.label": "文档视图",
   "grid.filter": "在所有列中筛选行",
   "grid.apply": "应用",
   "grid.working": "正在排序或筛选",

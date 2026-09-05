@@ -1,6 +1,13 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
+  "subtab.self.tree": "ツリー",
+  "subtab.self.prose": "テキスト",
+  "subtab.self.table": "表",
+  "subtab.self.collection": "コレクション",
+  "subtab.self.archive": "アーカイブ",
+  "subtab.close": "サブタブ {title} を閉じる",
+  "subtab.label": "文書の表示",
   "grid.filter": "すべての列で行を絞り込む",
   "grid.apply": "適用",
   "grid.working": "並べ替え・絞り込み中",

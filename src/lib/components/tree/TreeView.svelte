@@ -347,7 +347,7 @@
       ...(tab.kind !== "xml" && (row.kind === "array" || row.kind === "object") ? [{
         label: t("tree.asTable"),
         disabled: row.childCount === 0,
-        action: () => void workspace.openTreeTable(tab, row.id),
+        action: () => void workspace.openTreeTable(tab, row),
       }] : []),
       // Offered here as well as on the panel header: choosing which nodes to
       // compare happens in the tree, so that is where reaching for a second

@@ -95,13 +95,13 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
     const children = await ipc.treeChildren(tab.id, 0, 0, 100);
     const array = children?.rows.find((row) => row.key === "items");
     if (!array) return { ok: false, stage: what, error: "items array missing" };
-    const opened = await workspace.openTreeTable(tab, array.id);
+    const opened = await workspace.openTreeTable(tab, array);
     if (!opened) return { ok: false, stage: what, error: tab.error ?? "did not open" };
     const ready = await settle(opened, "collection");
     if (!ready.ok) return { ...ready, stage: what };
     const stats = await ipc.treeTableStats(opened.id);
     const page = await ipc.gridRows(opened.id, 0, 2);
-    const again = await workspace.openTreeTable(tab, array.id);
+    const again = await workspace.openTreeTable(tab, array);
     await workspace.close(tab.id);
     const surviving = await ipc.gridCellText(opened.id, 1, 0);
     const ok = stats.rowCount === 1500 && stats.firstRowNumber === 0 && stats.columns[0] === "id"

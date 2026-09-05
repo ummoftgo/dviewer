@@ -1,3 +1,4 @@
+import { subtabLabel } from "../subtabs";
 import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
 import { t } from "../i18n";
@@ -13,6 +14,7 @@ import type {
   DocMeta,
   DocView,
   TreeStats,
+  TreeRow,
   SearchHit,
   SearchScope,
   SearchSummary,
@@ -135,6 +137,7 @@ class GridOrderState {
 
 /** One open document: its metadata plus everything the views need to resume. */
 export class DocTab {
+  subtabLabel = $state("");
   /**
    * Stable across the placeholder → loaded swap, unlike `meta.id`, so the tab
    * strip does not tear itself down when the real document arrives.
@@ -355,14 +358,15 @@ class Workspace {
     return this.run(meta, () => ipc.openText(content, title ?? t("doc.pasted"), kind));
   }
 
-  async openTreeTable(parent: DocTab, nodeId: number) {
+  async openTreeTable(parent: DocTab, row: TreeRow) {
+    const nodeId = row.id;
     const wanted: DocSource = { type: "treeSlice", parent: parent.id,
       generation: parent.meta.generation ?? 0, node: nodeId, path: "" };
     const existing = this.findEntry(wanted);
     if (existing) { this.activeId = existing.id; return existing; }
     parent.openingEntry = nodeId;
     try {
-      return await this.run(placeholder(parent.meta.title, wanted), () => ipc.treeAsTable(parent.id, nodeId));
+      return await this.run(placeholder(parent.meta.title, wanted), () => ipc.treeAsTable(parent.id, nodeId), undefined, subtabLabel(row));
     } finally {
       parent.openingEntry = null;
     }
@@ -379,6 +383,7 @@ class Workspace {
     meta: DocMeta,
     load: () => Promise<DocMeta>,
     failedPath?: string,
+    label = "",
   ): Promise<DocTab | null> {
     // Opening from a blank tab fills that tab in rather than adding another —
     // the blank one is where the reader started, so it is where they expect
@@ -387,6 +392,7 @@ class Workspace {
     const tab = blank ?? new DocTab(meta);
     if (blank) blank.meta = meta;
     else this.tabs = [...this.tabs, tab];
+    tab.subtabLabel = label;
     tab.status = "opening";
     this.activeId = tab.id;
     this.notice = null;

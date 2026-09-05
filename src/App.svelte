@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SubTabBar from "./lib/components/SubTabBar.svelte";
+  import { family, nextMainTab, nextSubtab } from "./lib/subtabs";
   import { onMount } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import Icon from "./lib/components/Icon.svelte";
@@ -181,6 +183,15 @@
 
   // --- keyboard -----------------------------------------------------------
 
+  function onFamilyKey(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey) || !["PageDown", "PageUp"].includes(event.key)) return;
+    if (!family(workspace.tabs, workspace.activeId)?.children.length) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const next = nextSubtab(workspace.tabs, workspace.activeId, event.key === "PageDown" ? 1 : -1);
+    if (next !== null) workspace.activate(next);
+  }
+
   function onKeydown(event: KeyboardEvent) {
     const inField =
       event.target instanceof HTMLElement &&
@@ -233,10 +244,8 @@
         case "Tab": {
           if (workspace.tabs.length < 2) return;
           event.preventDefault();
-          const index = workspace.tabs.findIndex((t) => t.id === workspace.activeId);
-          const step = event.shiftKey ? -1 : 1;
-          const next = (index + step + workspace.tabs.length) % workspace.tabs.length;
-          workspace.activate(workspace.tabs[next].id);
+          const next = nextMainTab(workspace.tabs, workspace.activeId, event.shiftKey ? -1 : 1);
+          if (next !== null) workspace.activate(next);
           return;
         }
       }
@@ -248,13 +257,14 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydowncapture={onFamilyKey} onkeydown={onKeydown} />
 
 <ThemeStyles />
 
 <div class="app" class:dropping={dropActive}>
   {#if workspace.tabs.length > 0}
     <TabBar onNew={() => workspace.newTab()} />
+    <SubTabBar />
   {/if}
 
   {#if active && active.status !== "blank"}

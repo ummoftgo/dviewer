@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { family, mainTabs } from "../subtabs";
   import ContextMenu from "./ContextMenu.svelte";
   import Icon from "./Icon.svelte";
   import type { MenuItem } from "./menu";
@@ -13,6 +14,9 @@
 
   let { onNew }: Props = $props();
 
+  const tabs = $derived(mainTabs(workspace.tabs));
+  const activeId = $derived(family(workspace.tabs, workspace.activeId)?.parent.id);
+
   let strip = $state<HTMLElement>();
   /** Whether there are tabs the strip cannot show, and on which side. */
   let overflowing = $state(false);
@@ -21,7 +25,7 @@
   /** Where the tab list is open, or null when it is not. */
   let listAt = $state<{ x: number; y: number } | null>(null);
 
-  function labelOf(tab: (typeof workspace.tabs)[number]): string {
+  function labelOf(tab: (typeof tabs)[number]): string {
     return tab.status === "blank" ? t("tab.blank") : tab.meta.title;
   }
 
@@ -29,7 +33,7 @@
   // Empty for every tab whose name is already unique, which is most of them.
   const hints = $derived(
     disambiguate(
-      workspace.tabs.map((tab) => ({
+      tabs.map((tab) => ({
         id: tab.id,
         title: labelOf(tab),
         source: tab.meta.source,
@@ -56,13 +60,13 @@
    * label would take those two for one.
    */
   function tabList(): MenuItem[] {
-    return workspace.tabs.map((tab) => {
+    return tabs.map((tab) => {
       const hint = hints.get(tab.id);
       return {
         key: String(tab.key),
         label: hint ? `${labelOf(tab)} · ${hint}` : labelOf(tab),
         hint: tab.status === "opening" ? t("tab.opening") : kindBadge(tab.meta.badgeKind ?? tab.kind),
-        checked: tab.id === workspace.activeId,
+        checked: tab.id === activeId,
         action: () => workspace.activate(tab.id),
       };
     });
@@ -78,7 +82,7 @@
   });
 
   $effect(() => {
-    for (const tab of workspace.tabs) {
+    for (const tab of tabs) {
       void tab.status;
       void tab.meta.title;
     }
@@ -90,7 +94,7 @@
   // the DOM rather than bound per tab: there is only ever one of these, and
   // an effect runs after the class has landed on it.
   $effect(() => {
-    void workspace.activeId;
+    void activeId;
     strip
       ?.querySelector<HTMLElement>(".tab.active")
       ?.scrollIntoView({ inline: "nearest", block: "nearest" });
@@ -116,16 +120,16 @@
 <div class="tabbar">
   <div class="wrap" class:before={hiddenBefore} class:after={hiddenAfter}>
     <div class="strip" bind:this={strip} role="tablist" onwheel={onWheel} onscroll={measure}>
-      {#each workspace.tabs as tab (tab.key)}
+      {#each tabs as tab (tab.key)}
         {@const label = labelOf(tab)}
         {@const name = splitTitle(label)}
         {@const hint = hints.get(tab.id)}
         <div
           class="tab"
-          class:active={tab.id === workspace.activeId}
+          class:active={tab.id === activeId}
           role="tab"
-          tabindex={tab.id === workspace.activeId ? 0 : -1}
-          aria-selected={tab.id === workspace.activeId}
+          tabindex={tab.id === activeId ? 0 : -1}
+          aria-selected={tab.id === activeId}
           title={tab.subtitle}
           onclick={() => workspace.activate(tab.id)}
           onauxclick={(e) => onAuxClick(e, tab.id)}

@@ -6,6 +6,13 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
+  "subtab.self.tree": "트리",
+  "subtab.self.prose": "글",
+  "subtab.self.table": "표",
+  "subtab.self.collection": "컬렉션",
+  "subtab.self.archive": "압축",
+  "subtab.close": "{title} 서브탭 닫기",
+  "subtab.label": "문서의 보기",
   "grid.filter": "모든 열에서 행 필터",
   "grid.apply": "적용",
   "grid.working": "정렬·필터 처리 중",
