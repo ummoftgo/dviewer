@@ -39,7 +39,21 @@ export function splitTitle(title: string): { head: string; tail: string } {
   // Code points, not bytes and not UTF-16 units: a Korean name is as long as
   // it has characters, and cutting it by bytes would cut inside one.
   const characters = [...title];
-  const dot = characters.lastIndexOf(".");
+  let dot = characters.lastIndexOf(".");
+  if (dot > 0) {
+    // A double extension is one extension. This viewer opens gzip without
+    // being asked, so `access.log.gz` is an everyday name here and the two
+    // halves name the format together — keeping only `.gz` would spend the
+    // whole tail on the wrapper and leave nothing of the stem.
+    //
+    // Short and plain is what makes an inner segment part of the name rather
+    // than part of the document: `.json.gz` and `.tar.gz` qualify,
+    // `archive.backup2026.gz` does not. Two levels is as far as it goes.
+    const inner = characters.lastIndexOf(".", dot - 1);
+    if (inner > 0 && /^[a-z0-9]{1,5}$/i.test(characters.slice(inner + 1, dot).join(""))) {
+      dot = inner;
+    }
+  }
   // A dot at the front is a dotfile, not an extension — `.gitignore` has no
   // stem to keep the end of.
   const wanted = dot > 0 ? characters.length - dot + 4 : 8;

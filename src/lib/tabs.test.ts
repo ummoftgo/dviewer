@@ -45,13 +45,21 @@ describe("splitting a title so the end survives", () => {
     expect(splitTitle("Makefile-for-the-whole-project").tail).toBe("-project");
   });
 
-  test("only the last dot is the extension", () => {
-    // `.gz` plus four is `tar.gz`, which is most of `a.tar.gz` — so nothing.
+  test("a double extension counts as one", () => {
+    // The case this exists for: gzip is opened without being asked, so these
+    // are ordinary names here. Counting only `.gz` would leave `.log.gz` and
+    // no stem at all — the wrapper, and nothing about the document.
+    expect(splitTitle("2026-09-05-access.log.gz").tail).toBe("cess.log.gz");
+    expect(splitTitle("quarterly-revenue.json.gz").tail).toBe("enue.json.gz");
+    expect(splitTitle("2026-09-nightly-backup.tar.gz").tail).toBe("ckup.tar.gz");
+
+    // Only when the inner segment reads as part of a name: short and plain.
+    // Here it is ten characters, so it is the document's own name and the
+    // extension is just `.gz`.
+    expect(splitTitle("archive.backup2026.gz").tail).toBe("2026.gz");
+
+    // Two levels and no further, and a short name is still left whole.
     expect(splitTitle("a.tar.gz")).toEqual({ head: "a.tar.gz", tail: "" });
-    // And the limit of counting from the last dot, written down rather than
-    // hidden: the four characters kept are `.tar`, so a double extension
-    // spends the whole tail on itself and keeps none of the stem.
-    expect(splitTitle("2026-09-nightly-backup.tar.gz").tail).toBe(".tar.gz");
     // A leading dot is a dotfile, not an extension: there is no stem under it.
     expect(splitTitle(".gitignore")).toEqual({ head: ".gitignore", tail: "" });
   });
