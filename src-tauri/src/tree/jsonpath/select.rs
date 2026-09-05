@@ -45,7 +45,7 @@ pub(crate) fn select_from(
     let mut at = 0usize;
 
     while at < steps.len() {
-        let mut next: Vec<u32> = Vec::new();
+        let mut next: Vec<u32> = budget.buffer();
         match &steps[at] {
             // `..` followed by anything is read as one step. Collecting the
             // subtree and then filtering it would be the same answer by way of
@@ -115,7 +115,7 @@ pub(crate) fn select_from(
         }
         next.sort_unstable();
         next.dedup();
-        current = next;
+        budget.recycle(std::mem::replace(&mut current, next));
         if current.is_empty() {
             break;
         }

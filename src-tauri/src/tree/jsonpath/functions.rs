@@ -241,7 +241,9 @@ pub fn value<'a>(
         // that selects many is what was wanted.
         "count" => {
             let found = nodes(index, bytes, call, 0, current, budget)?;
-            Ok(Value::Int(found.len() as i64))
+            let total = found.len() as i64;
+            budget.recycle(found);
+            Ok(Value::Int(total))
         }
         // Exactly one node has a value; none and several do not. "Several"
         // being Nothing rather than an error is what lets `value(@..a)` be
@@ -249,9 +251,14 @@ pub fn value<'a>(
         // one, and what is it".
         "value" => {
             let found = nodes(index, bytes, call, 0, current, budget)?;
-            Ok(match found.as_slice() {
-                [only] => value_of(bytes, index, *only),
-                _ => Value::Nothing,
+            let only = match found.as_slice() {
+                [only] => Some(*only),
+                _ => None,
+            };
+            budget.recycle(found);
+            Ok(match only {
+                Some(id) => value_of(bytes, index, id),
+                None => Value::Nothing,
             })
         }
         // The type check above is what keeps `match` and `search` out of here.
@@ -327,8 +334,10 @@ fn argument<'a>(
         // Singular by the type check above, so at most one node.
         Arg::Query(query) => {
             let found = resolve(index, bytes, query, current, budget)?;
-            Ok(match found.first() {
-                Some(&id) => value_of(bytes, index, id),
+            let first = found.first().copied();
+            budget.recycle(found);
+            Ok(match first {
+                Some(id) => value_of(bytes, index, id),
                 None => Value::Nothing,
             })
         }

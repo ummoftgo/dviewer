@@ -471,7 +471,9 @@ pub(crate) fn matches(
         Expr::Not(inner) => Ok(!matches(index, bytes, inner, current, budget)?),
         Expr::Exists(query) => {
             let found = resolve(index, bytes, query, current, budget)?;
-            Ok(!found.is_empty())
+            let any = !found.is_empty();
+            budget.recycle(found);
+            Ok(any)
         }
         Expr::Compare(left, op, right) => {
             let left = operand(index, bytes, left, current, budget)?;
@@ -494,7 +496,9 @@ pub(super) fn resolve(
         Root::Current => current,
         Root::Document => 0,
     };
-    super::select::select_from(index, bytes, vec![from], &query.steps, budget)
+    let mut start = budget.buffer();
+    start.push(from);
+    super::select::select_from(index, bytes, start, &query.steps, budget)
 }
 
 fn operand<'a>(
@@ -511,9 +515,11 @@ fn operand<'a>(
             let found = resolve(index, bytes, query, current, budget)?;
             // A singular query, so at most one — and the parser has already
             // refused the shapes that could give more.
-            match found.first() {
+            let first = found.first().copied();
+            budget.recycle(found);
+            match first {
                 None => Ok(Value::Nothing),
-                Some(&id) => Ok(value_of(bytes, index, id)),
+                Some(id) => Ok(value_of(bytes, index, id)),
             }
         }
     }
@@ -534,11 +540,22 @@ pub(crate) struct Budget<'a> {
     /// every node in a run looks at the same `$.pattern`; see
     /// `functions::regex_for`.
     pub(super) regex: Option<(String, Arc<Regex>)>,
+    /// Node-id buffers handed out and given back rather than allocated per
+    /// candidate. A stack, not a pair: `select_from` re-enters itself through
+    /// a filter step, so each nesting level needs its own.
+    pool: Vec<Vec<u32>>,
 }
 
 /// Chosen the way the table search chose its own: often enough that a click
 /// feels answered, rarely enough to disappear into the walk.
 const CHECK_EVERY: u32 = 4_096;
+
+/// How large a node-id buffer may be and still be worth keeping.
+///
+/// Comfortably above what a filter's own query selects — that is one node for
+/// a singular query and a handful for a wildcard — and far below what a step
+/// over a subtree produces.
+const KEEP_CAPACITY: usize = 1_024;
 
 impl<'a> Budget<'a> {
     pub(crate) fn new(cancel: &'a AtomicBool) -> Self {
@@ -546,6 +563,7 @@ impl<'a> Budget<'a> {
             cancel,
             seen: 0,
             regex: None,
+            pool: Vec::new(),
         }
     }
 
@@ -555,6 +573,26 @@ impl<'a> Budget<'a> {
             return Err(Error::Cancelled);
         }
         Ok(())
+    }
+
+    /// An empty buffer to collect node ids into.
+    pub(crate) fn buffer(&mut self) -> Vec<u32> {
+        self.pool.pop().unwrap_or_default()
+    }
+
+    /// Give one back so the next candidate does not allocate.
+    ///
+    /// A big one is dropped rather than kept. `$..` collects a whole subtree,
+    /// which on this file is 38 million ids — holding that for the rest of the
+    /// search to save an allocation would trade 150MB for a few nanoseconds.
+    /// The buffers worth keeping are the per-candidate ones, and those hold a
+    /// handful of ids.
+    pub(crate) fn recycle(&mut self, mut buffer: Vec<u32>) {
+        if buffer.capacity() > KEEP_CAPACITY {
+            return;
+        }
+        buffer.clear();
+        self.pool.push(buffer);
     }
 
     /// For the steps that are not filters, which need no budget of their own.
