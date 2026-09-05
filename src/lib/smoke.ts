@@ -135,14 +135,16 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
     const numbers = ordered.rows.filter((row) => /^\d+$/.test(row.cells[0]?.text ?? ""));
     const descending = numbers.map((row) => row.cells[0].text).join(",") === "5,4,3,2,1";
     const query = "가나다"; // i18n-ignore: fixture cell, never interface text
-    const stats = await ipc.gridOrder(tab.id, sort, query, null, ++tab.order.request);
+    const otherColumn = await ipc.gridOrder(tab.id, sort, query, 0, ++tab.order.request);
+    const stats = await ipc.gridOrder(tab.id, sort, query, 1, ++tab.order.request);
     tab.order.stats = stats;
     tab.order.sort = sort;
     tab.order.filter = query;
+    tab.order.filterColumn = 1;
     const visible = await ipc.gridRows(tab.id, 0, 100);
     const hits = await ipc.gridSearch(tab.id, query, false, "literal");
     const copied = visible.rows[0] && await ipc.gridCellText(tab.id, visible.rows[0].index, 1);
-    const filtered = stats.shown === 1 && stats.shown < stats.total && copied?.text === query
+    const filtered = otherColumn.shown === 0 && stats.shown === 1 && stats.shown < stats.total && copied?.text === query
       && hits.hits.length === 1 && hits.hits[0].row === 0;
     return {
       ok: discarded && descending && filtered,

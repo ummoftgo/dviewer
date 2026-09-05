@@ -9,8 +9,8 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 | View | Formats | What it does |
 | --- | --- | --- |
 | Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle |
-| Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in a new grid tab (except XML) |
-| Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, column sorting and row filtering across grids (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
+| Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in grid subtabs (except XML) |
+| Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, header context menu for sorting, filtering one column and fitting its width (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
 | Archive | ZIP | What the archive holds, as a list. Pick one and it opens in a tab of its own, **as whichever of the four above it is** |
 
@@ -32,8 +32,8 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 - **A tab keeps the end of its name.** A long name is shortened in the **middle**, not at the end: `2026-09-report-final.json` reads as `2026-09-report-f…inal.json`, so two files that differ only after the part that fits can still be told apart. **Tabs that share a name carry their folder** dimmed beside it (`config.json · alpha`), reaching one level further up when the folder matches too. When there are more tabs than the window holds, the strip scrolls sideways — its ends fade — and a **tab list button** appears.
 - Dark/light (auto by default), interface scale, separate interface and content font sizes, and content/code fonts picked from the fonts installed on the system.
 
-- **Open arrays and maps as grids.** Right-click a nonempty array or object in the tree to open a new tab. Opening the same location again selects the existing tab. The grid survives closing its parent and keeps the old tree if the parent's format or encoding changes. Array row numbers start at zero, matching `[n]` paths.
-- **Every grid supports row filtering.** Apply a case-insensitive substring across cell values. Headers cycle through ascending, descending and original order (Parquet supports filtering only). Original row numbers and copied values stay intact, and search operates on visible rows. Cancelling a running operation restores original order; `Esc` in the filter input clears just the filter.
+- **Open arrays and maps as grid subtabs.** Right-click a nonempty array or object in the tree to open it below its parent main tab. The same location selects its existing subtab. Closing the parent closes its subtabs; closing a subtab selects the parent. A format or encoding change keeps old tables with a muted label and explanatory tooltip, while opening again creates a new generation. Array row numbers start at zero, matching `[n]` paths.
+- **Every grid supports row filtering.** Apply a case-insensitive substring across all columns or one selected column. The header context menu offers original, ascending and descending order; single-click cycling remains (Parquet supports filtering only). The column chip describes the input scope; the status describes the successfully applied scope. The chip’s × restores all columns, while Clear filter and `Esc` clear only the filter. Cancelling restores original order. Copied values and row numbers stay original, and search operates on visible rows. Fit column width and double-clicking its edge fit only that column using sampled cells and its actual header.
 
 ## Requirements
 
@@ -73,7 +73,8 @@ A second invocation does not draw a window: it hands its arguments to the proces
 | `Ctrl O` | Open a file |
 | `Ctrl T` | New tab (start screen) |
 | `Ctrl W` | Close tab |
-| `Ctrl Tab` / `Ctrl Shift Tab` | Switch tabs |
+| `Ctrl Tab` / `Ctrl Shift Tab` | Cycle main tabs |
+| `Ctrl PageDown` / `Ctrl PageUp` | Cycle the active document’s subtabs |
 | `Ctrl E` | Toggle Markdown raw/rendered |
 | `Enter` / `Shift Enter` | Next / previous search hit |
 | `Ctrl F` | Tree search (all / keys / values / paths), table search |

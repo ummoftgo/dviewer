@@ -483,8 +483,10 @@ class Workspace {
     const mains = mainTabs(this.tabs);
     const index = mains.findIndex((tab) => tab.id === id);
     this.tabs = this.tabs.filter((tab) => !closing.includes(tab.id));
-    if (closing.includes(this.activeId ?? 0)) {
-      this.activeId = isParent ? (mains[index + 1] ?? mains[index - 1])?.id ?? null : group.parent.id;
+    if (!isParent) {
+      this.activeId = group.parent.id;
+    } else if (closing.includes(this.activeId ?? 0)) {
+      this.activeId = (mains[index + 1] ?? mains[index - 1])?.id ?? null;
     }
     // Remove placeholders together with the family before any IPC yields.
     // run() closes their eventual documents when the pending open completes.

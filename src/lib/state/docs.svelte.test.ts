@@ -88,10 +88,11 @@ describe("closing a document family", () => {
     expect(closed).toEqual([first.id, second.id, parent.id]);
   });
 
-  test("closing a child activates its parent even with another child left", async () => {
+  test.each([true, false])("closing a child activates its parent even with another child left (active: %s)", async (active) => {
     const parent = (await workspace.openPath("C:/a.json"))!;
     const first = (await workspace.openTreeTable(parent, row))!;
     const second = (await workspace.openTreeTable(parent, { ...row, id: 8 }))!;
+    if (!active) workspace.activate(first.id);
     await workspace.close(second.id);
     expect(workspace.activeId).toBe(parent.id);
     expect(workspace.tabs.map((tab) => tab.id)).toEqual([parent.id, first.id]);
