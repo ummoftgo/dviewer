@@ -1,4 +1,4 @@
-import { subtabLabel } from "../subtabs";
+import { family, mainTabs, subtabLabel } from "../subtabs";
 import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
 import { t } from "../i18n";
@@ -444,21 +444,26 @@ class Workspace {
   }
 
   async close(id: number) {
-    const index = this.tabs.findIndex((tab) => tab.id === id);
-    if (index < 0) return;
-    this.tabs = this.tabs.filter((tab) => tab.id !== id);
-    if (this.activeId === id) {
-      const next = this.tabs[index] ?? this.tabs[index - 1] ?? null;
-      this.activeId = next?.id ?? null;
+    const group = family(this.tabs, id);
+    if (!group) return;
+    const isParent = group.parent.id === id;
+    const closing = isParent ? [...group.children.map((tab) => tab.id), id] : [id];
+    const mains = mainTabs(this.tabs);
+    const index = mains.findIndex((tab) => tab.id === id);
+    this.tabs = this.tabs.filter((tab) => !closing.includes(tab.id));
+    if (closing.includes(this.activeId ?? 0)) {
+      this.activeId = isParent ? (mains[index + 1] ?? mains[index - 1])?.id ?? null : group.parent.id;
     }
-    forgetDoc(id);
-    // A blank tab has no document behind it, and a placeholder id is one the
-    // backend has never heard of.
-    if (id <= 0) return;
-    try {
-      await ipc.closeDoc(id);
-    } catch (err) {
-      console.warn("[dviewer] close failed:", err);
+    // Remove placeholders together with the family before any IPC yields.
+    // run() closes their eventual documents when the pending open completes.
+    for (const docId of closing) {
+      forgetDoc(docId);
+      if (docId <= 0) continue;
+      try {
+        await ipc.closeDoc(docId);
+      } catch (err) {
+        console.warn("[dviewer] close failed:", err);
+      }
     }
   }
 

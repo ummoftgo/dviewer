@@ -14,7 +14,7 @@
  * so it is the honest seam.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { DocKind, DocMeta, DocSource } from "../ipc";
+import type { DocKind, DocMeta, DocSource, TreeRow } from "../ipc";
 
 /** Documents the fake backend has been asked to close. */
 const closed: number[] = [];
@@ -59,11 +59,58 @@ vi.mock("../ipc", async (importOriginal) => {
       meta({ type: "archiveEntry", root: { type: "file", path: "C:/a.zip" }, entries: [{ index, name: `e${index}` }] }),
     ),
     closeDoc: vi.fn(async (docId: number) => void closed.push(docId)),
+    treeAsTable: vi.fn(async (parent: number, node: number) => {
+      const waiting = gate;
+      gate = null;
+      if (waiting) await waiting;
+      return meta({ type: "treeSlice", parent, generation: 0, node, path: "$.items" });
+    }),
   };
 });
 
 const { DocTab, workspace } = await import("./docs.svelte");
 const ipc = await import("../ipc");
+
+describe("closing a document family", () => {
+  const row = { id: 7, key: "items", index: null, kind: "array" } as TreeRow;
+
+  test("removes the family together and closes children before the parent", async () => {
+    const parent = (await workspace.openPath("C:/a.json"))!;
+    const first = (await workspace.openTreeTable(parent, row))!;
+    const neighbor = (await workspace.openPath("C:/b.json"))!;
+    const second = (await workspace.openTreeTable(parent, { ...row, id: 8 }))!;
+    expect(first.subtabLabel).toBe("items[]");
+    const closing = workspace.close(parent.id);
+    expect(workspace.tabs.map((tab) => tab.id)).toEqual([neighbor.id]);
+    expect(workspace.activeId).toBe(neighbor.id);
+    await closing;
+    expect(closed).toEqual([first.id, second.id, parent.id]);
+  });
+
+  test("closing a child activates its parent even with another child left", async () => {
+    const parent = (await workspace.openPath("C:/a.json"))!;
+    const first = (await workspace.openTreeTable(parent, row))!;
+    const second = (await workspace.openTreeTable(parent, { ...row, id: 8 }))!;
+    await workspace.close(second.id);
+    expect(workspace.activeId).toBe(parent.id);
+    expect(workspace.tabs.map((tab) => tab.id)).toEqual([parent.id, first.id]);
+    expect(closed).toEqual([second.id]);
+  });
+
+  test("a child still opening disappears immediately and its late document is closed", async () => {
+    const parent = (await workspace.openPath("C:/a.json"))!;
+    holdTheNextOpen();
+    const opening = workspace.openTreeTable(parent, row);
+    expect(workspace.tabs).toHaveLength(2);
+    expect(workspace.tabs[1].subtabLabel).toBe("items[]");
+    await workspace.close(parent.id);
+    expect(workspace.tabs).toHaveLength(0);
+    expect(workspace.activeId).toBeNull();
+    release!();
+    expect(await opening).toBeNull();
+    expect(closed).toEqual([parent.id, nextId]);
+  });
+});
 
 beforeEach(() => {
   workspace.tabs = [];

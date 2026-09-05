@@ -103,10 +103,12 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
     const page = await ipc.gridRows(opened.id, 0, 2);
     const again = await workspace.openTreeTable(tab, array);
     await workspace.close(tab.id);
-    const surviving = await ipc.gridCellText(opened.id, 1, 0);
+    let childClosed = false;
+    try { await ipc.gridRows(opened.id, 0, 1); }
+    catch (error) { childClosed = typeof error === "object" && error !== null && "code" in error && error.code === "noSuchDoc"; }
     const ok = stats.rowCount === 1500 && stats.firstRowNumber === 0 && stats.columns[0] === "id"
       && page.rows[0]?.index === 0 && page.rows[1]?.cells[0]?.text === "1"
-      && again?.id === opened.id && surviving.text === "1";
+      && again?.id === opened.id && childClosed && !workspace.tabs.includes(opened);
     return { ok, stage: what, view: opened.view, error: ok ? undefined : "derived grid, identity or lifetime mismatch" };
   }
 
