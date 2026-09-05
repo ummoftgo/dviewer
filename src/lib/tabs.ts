@@ -151,6 +151,7 @@ function whole(source: DocSource): string[] {
         ...source.entries.flatMap((entry) => segments(entry.name)),
       ];
     case "text":
+    case "treeSlice":
       return [];
   }
 }

@@ -25,6 +25,7 @@
   import { anchorRow, rowTop, scrollTopForRow, spacerHeight } from "../../virtual";
   import type { MenuItem } from "../menu";
   import type { DocTab } from "../../state/docs.svelte";
+  import { workspace } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
 
   interface Props {
@@ -343,6 +344,11 @@
     const row = menu.row;
     return [
       ...copyMenuItems(tab.id, row),
+      ...(tab.kind !== "xml" && (row.kind === "array" || row.kind === "object") ? [{
+        label: t("tree.asTable"),
+        disabled: row.childCount === 0,
+        action: () => void workspace.openTreeTable(tab, row.id),
+      }] : []),
       // Offered here as well as on the panel header: choosing which nodes to
       // compare happens in the tree, so that is where reaching for a second
       // window occurs to you.

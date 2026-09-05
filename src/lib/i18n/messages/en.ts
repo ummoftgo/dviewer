@@ -1,6 +1,7 @@
 import type { Messages } from "./ko";
 
 export const en: Messages = {
+  "tree.asTable": "View as table",
 
   // --- 공통 / shared -------------------------------------------------------
   "action.copy": "Copy",

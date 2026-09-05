@@ -177,6 +177,8 @@ pub fn run() {
             commands::system_fonts,
             commands::tree_open,
             commands::tree_rows,
+            commands::tree_as_table,
+            commands::tree_table_stats,
             commands::tree_toggle,
             commands::tree_expand_all,
             commands::tree_collapse_all,

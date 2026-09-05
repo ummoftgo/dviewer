@@ -47,6 +47,13 @@ describe("building the way in", () => {
 });
 
 describe("recognising the same document", () => {
+  test("tree slices use the snapshot and node rather than a truncated path", () => {
+    const source: DocSource = { type: "treeSlice", parent: 1, generation: 0, node: 3, path: "$.items" };
+    expect(sameSource(source, { ...source, path: "different display" })).toBe(true);
+    expect(sameSource(source, { ...source, node: 4 })).toBe(false);
+    expect(sameSource(source, { ...source, parent: 2 })).toBe(false);
+    expect(sameSource(source, { ...source, generation: 1 })).toBe(false);
+  });
   test("the same chain, built twice", () => {
     expect(sameSource(twoStepsIn(), twoStepsIn())).toBe(true);
   });

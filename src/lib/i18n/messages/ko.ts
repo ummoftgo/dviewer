@@ -6,6 +6,7 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
+  "tree.asTable": "표로 보기",
 
   // --- 공통 / shared -------------------------------------------------------
   "action.copy": "복사",

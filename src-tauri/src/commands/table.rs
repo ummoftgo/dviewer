@@ -168,6 +168,7 @@ pub fn grid_row_text(state: State<'_, AppState>, doc_id: DocId, row: u32) -> Res
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GridStats {
+    pub first_row_number: u8,
     pub row_count: u32,
     pub column_count: u32,
     /// The column names the database itself gives.
@@ -206,6 +207,7 @@ pub async fn sqlite_select(
     .map_err(Error::internal)??;
 
     let stats = GridStats {
+        first_row_number: 1,
         row_count: grid.row_count(),
         column_count: grid.column_count(),
         columns: grid.columns().to_vec(),
@@ -419,6 +421,7 @@ pub async fn xlsx_select(
     .map_err(Error::internal)??;
 
     let stats = GridStats {
+        first_row_number: 1,
         row_count: sheet.row_count(),
         column_count: sheet.column_count(),
         columns: sheet.column_names(),
@@ -452,6 +455,7 @@ pub async fn xlsx_set_formulas(
         .map_err(Error::internal)??;
 
     Ok(GridStats {
+        first_row_number: 1,
         row_count: sheet.row_count(),
         column_count: sheet.column_count(),
         columns: sheet.column_names(),
@@ -508,6 +512,7 @@ pub fn parquet_select(state: State<'_, AppState>, doc_id: DocId) -> Result<GridS
         subject: Subject::Columnar,
     })?;
     Ok(GridStats {
+        first_row_number: 1,
         row_count: columnar.row_count(),
         column_count: columnar.column_count(),
         columns: columnar.columns().to_vec(),

@@ -61,7 +61,7 @@
       return {
         key: String(tab.key),
         label: hint ? `${labelOf(tab)} · ${hint}` : labelOf(tab),
-        hint: tab.status === "opening" ? t("tab.opening") : kindBadge(tab.kind),
+        hint: tab.status === "opening" ? t("tab.opening") : kindBadge(tab.meta.badgeKind ?? tab.kind),
         checked: tab.id === workspace.activeId,
         action: () => workspace.activate(tab.id),
       };
@@ -134,7 +134,7 @@
           {#if tab.status === "opening"}
             <span class="kind opening" title={t("tab.opening")}>…</span>
           {:else}
-            <span class="kind" data-kind={tab.kind}>{kindBadge(tab.kind)}</span>
+            <span class="kind" data-kind={tab.kind}>{kindBadge(tab.meta.badgeKind ?? tab.kind)}</span>
           {/if}
           <!-- Two spans so the browser cuts the middle: the head is allowed to
                shrink and ellipsise, the tail never is. -->

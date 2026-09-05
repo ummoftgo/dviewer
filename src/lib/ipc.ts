@@ -23,7 +23,8 @@ export type DocKind =
   | "tsv"
   | "text"
   | "sqlite"
-  | "zip";
+  | "zip"
+  | "treeTable";
 
 /**
  * How a document is read. Fourteen formats, five views — routing on the view is
@@ -60,7 +61,7 @@ export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
  * than shown and refused.
  */
 export function readsBytes(kind: DocKind): boolean {
-  return kind !== "sqlite" && kind !== "xlsx" && kind !== "parquet" && kind !== "zip";
+  return kind !== "sqlite" && kind !== "xlsx" && kind !== "parquet" && kind !== "zip" && kind !== "treeTable";
 }
 
 export function viewOf(kind: DocKind): DocView {
@@ -75,6 +76,7 @@ export function viewOf(kind: DocKind): DocView {
     case "sqlite":
     case "xlsx":
     case "parquet":
+    case "treeTable":
       return "collection";
     case "zip":
       return "archive";
@@ -112,6 +114,7 @@ const BADGES: Record<DocKind, string> = {
   xlsx: "XLS",
   parquet: "PQ",
   zip: "ZIP",
+  treeTable: "{ }",
 };
 
 export function kindBadge(kind: DocKind): string {
@@ -127,6 +130,7 @@ export interface EntryRef {
 }
 
 export type DocSource =
+  | { type: "treeSlice"; parent: number; generation: number; node: number; path: string }
   | { type: "file"; path: string }
   | { type: "url"; url: string }
   | { type: "text" }
@@ -158,6 +162,8 @@ export interface EncodingInfo {
 }
 
 export interface DocMeta {
+  generation?: number;
+  badgeKind?: DocKind;
   id: number;
   title: string;
   kind: DocKind;
@@ -536,6 +542,7 @@ export interface Collections {
 
 /** What the grid needs to draw one collection. */
 export interface GridStats {
+  firstRowNumber?: 0 | 1;
   rowCount: number;
   columnCount: number;
   columns: string[];
@@ -545,6 +552,10 @@ export interface GridStats {
   /** A workbook showing formulas rather than the values they produced. */
   formulas: boolean;
 }
+
+export const treeAsTable = (docId: number, nodeId: number) =>
+  invoke<DocMeta>("tree_as_table", { docId, nodeId });
+export const treeTableStats = (docId: number) => invoke<GridStats>("tree_table_stats", { docId });
 
 export const sqliteCollections = (docId: number) =>
   invoke<Collections>("sqlite_collections", { docId });

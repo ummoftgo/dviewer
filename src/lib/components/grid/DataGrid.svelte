@@ -55,9 +55,10 @@
     /** A tone for a cell, or undefined for the ordinary ones. */
     cellTone?: (column: number, text: string | undefined) => string | undefined;
     label: string;
+    firstRowNumber?: 0 | 1;
   }
 
-  let { tab, rowCount, columnCount, columnName, cellTone, label }: Props = $props();
+  let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1 }: Props = $props();
 
   /** Extra rows fetched above and below the viewport to hide scroll latency. */
   const OVERSCAN = 24;
@@ -374,7 +375,7 @@
   <div class="body" style="height: {spacerHeight(metrics)}px; width: {totalWidth}px">
     {#each rows as row (row.index)}
       <div class="row" style="top: {rowTop(metrics, scrollTop, row.index)}px" role="row">
-        <div class="cell num" role="rowheader">{n(row.index + 1)}</div>
+        <div class="cell num" role="rowheader">{n(row.index + firstRowNumber)}</div>
         {#each { length: columnCount } as _, column (column)}
           {@const cell = row.cells[column]}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->

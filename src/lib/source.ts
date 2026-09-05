@@ -23,6 +23,9 @@ import type { ArchiveEntry, DocSource } from "./ipc";
  * would quietly stop recognising a tab that is already open.
  */
 export function sameSource(a: DocSource, b: DocSource): boolean {
+  if (a.type === "treeSlice" && b.type === "treeSlice") {
+    return a.parent === b.parent && a.generation === b.generation && a.node === b.node;
+  }
   if (a.type === "file" && b.type === "file") return a.path === b.path;
   if (a.type === "url" && b.type === "url") return a.url === b.url;
   if (a.type === "archiveEntry" && b.type === "archiveEntry") {

@@ -1,6 +1,7 @@
 import type { Messages } from "./ko";
 
 export const zhHans: Messages = {
+  "tree.asTable": "以表格查看",
 
   // --- 공통 / shared -------------------------------------------------------
   "action.copy": "复制",

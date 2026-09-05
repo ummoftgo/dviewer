@@ -27,6 +27,7 @@
     parquetOpen,
     parquetSelect,
     parquetSchema,
+    treeTableStats,
     errorMessage,
   } from "../../ipc";
   import { n, t } from "../../i18n";
@@ -61,15 +62,17 @@
    */
   const workbook = $derived(tab.kind === "xlsx");
   const columnar = $derived(tab.kind === "parquet");
+  const treeTable = $derived(tab.kind === "treeTable");
   const list = $derived(
-    columnar ? parquetOpen : workbook ? xlsxSheets : sqliteCollections,
+    treeTable ? async (_id: number) => ({ items: [{ name: tab.meta.title, isView: false }] })
+      : columnar ? parquetOpen : workbook ? xlsxSheets : sqliteCollections,
   );
   /**
    * A Parquet file holds one thing, so choosing it takes no name — the command
    * signatures differ and the call site should not pretend otherwise.
    */
   const choose = $derived(
-    columnar
+    treeTable ? (id: number, _name: string) => treeTableStats(id) : columnar
       ? (id: number, _name: string) => parquetSelect(id)
       : workbook
         ? xlsxSelect
@@ -124,7 +127,7 @@
       await grid?.refresh(true);
       // The schema comes second: the rows are what the reader is waiting for,
       // and the panel is one they may never open.
-      if (!workbook) {
+      if (!workbook && !treeTable) {
         const described = columnar
           ? await parquetSchema(tab.id)
           : await sqliteSchema(tab.id, name);
@@ -236,6 +239,7 @@
       {rowCount}
       {columnCount}
       {columnName}
+      firstRowNumber={tab.gridStats?.firstRowNumber ?? 1}
       label={t("table.label", { title: tab.meta.title })}
     />
 
@@ -253,7 +257,7 @@
         <span class="spacer"></span>
         <span class="where">
           {t("table.status.where", {
-            row: n(tab.selectedCell.row + 1),
+            row: n(tab.selectedCell.row + (tab.gridStats?.firstRowNumber ?? 1)),
             column: columnName(tab.selectedCell.column),
           })}
         </span>

@@ -52,6 +52,7 @@ pub enum DocKind {
     /// multiplied: what it holds is documents, and picking one opens it the
     /// way a file from disk is opened.
     Zip,
+    TreeTable,
 }
 
 /// How a document is presented. Fourteen formats, but only five ways to read
@@ -97,7 +98,7 @@ impl DocKind {
     pub fn reads_bytes(self) -> bool {
         !matches!(
             self,
-            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet | DocKind::Zip
+            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet | DocKind::Zip | DocKind::TreeTable
         )
     }
 
@@ -108,7 +109,7 @@ impl DocKind {
                 DocView::Tree
             }
             DocKind::Csv | DocKind::Tsv | DocKind::Text | DocKind::Jsonl => DocView::Table,
-            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet => DocView::Collection,
+            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet | DocKind::TreeTable => DocView::Collection,
             DocKind::Zip => DocView::Archive,
         }
     }
@@ -132,6 +133,7 @@ pub enum DocSource {
     File { path: String },
     Url { url: String },
     Text,
+    TreeSlice { parent: DocId, generation: u32, node: u32, path: String },
     /// A document taken out of an archive, named by the whole way in.
     ///
     /// Complete in itself, and deliberately so: there is no document id here.
@@ -160,7 +162,7 @@ impl DocSource {
             DocSource::ArchiveEntry { root, entries } => (root.clone(), entries.clone()),
             // Pasted text arrives as a Rust String, so it is UTF-8 and was
             // never an archive. Reachable only if something upstream forgets.
-            DocSource::Text => {
+            DocSource::Text | DocSource::TreeSlice { .. } => {
                 return Err(Error::WrongView {
                     subject: crate::error::Subject::Archive,
                 })
@@ -200,6 +202,9 @@ pub struct DocMeta {
     pub id: DocId,
     pub title: String,
     pub kind: DocKind,
+    pub generation: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub badge_kind: Option<DocKind>,
     pub view: DocView,
     pub source: DocSource,
     /// Size on disk, not after decoding — it is the file the reader recognises.
@@ -223,6 +228,9 @@ pub struct Document {
 
 struct DocInner {
     kind: DocKind,
+    generation: u32,
+    badge_kind: Option<DocKind>,
+    tree_table: Option<Arc<crate::grid::array::JsonArrayGrid>>,
     /// UTF-8, which is what every scanner assumes. Shares its allocation with
     /// `source_bytes` unless the file had to be transcoded.
     bytes: Arc<DocBytes>,
@@ -267,6 +275,9 @@ impl Document {
             source_bytes,
             inner: RwLock::new(DocInner {
                 kind,
+                generation: 0,
+                badge_kind: None,
+                tree_table: None,
                 bytes: decoded.bytes,
                 encoding: decoded.encoding,
                 encoding_source: decoded.source,
@@ -300,6 +311,7 @@ impl Document {
         inner.encoding_warning = decoded.warning;
         inner.tree = None;
         inner.table = None;
+        inner.generation += 1;
     }
 
     pub fn kind(&self) -> DocKind {
@@ -315,11 +327,39 @@ impl Document {
             inner.kind = kind;
             inner.tree = None;
             inner.table = None;
+            inner.generation += 1;
         }
     }
 
     pub fn tree(&self) -> Option<Arc<TreeDoc>> {
         self.inner.read().tree.clone()
+    }
+
+    pub fn tree_table(&self) -> Option<Arc<crate::grid::array::JsonArrayGrid>> {
+        self.inner.read().tree_table.clone()
+    }
+
+    pub fn as_tree_table(&self, id: DocId, node: u32, cancel: &AtomicBool) -> Result<Document> {
+        let (tree, generation, kind, decoded) = {
+            let inner = self.inner.read();
+            let tree = inner.tree.clone().ok_or(Error::NotReady { subject: crate::error::Subject::Tree })?;
+            let decoded = Decoded {
+                bytes: Arc::clone(&tree.bytes), encoding: inner.encoding,
+                source: inner.encoding_source, warning: inner.encoding_warning.clone(),
+            };
+            (tree, inner.generation, inner.kind, decoded)
+        };
+        let path = tree.index.path_of(&tree.bytes, node);
+        let grid = crate::grid::array::JsonArrayGrid::open(tree, node, cancel)?;
+        let doc = Document::new(id, format!("{path} — {}", self.title),
+            DocSource::TreeSlice { parent: self.id, generation, node, path },
+            self.base_dir.clone(), DocKind::TreeTable, self.source_bytes.clone(), decoded);
+        {
+            let mut inner = doc.inner.write();
+            inner.badge_kind = Some(kind);
+            inner.tree_table = Some(Arc::new(grid));
+        }
+        Ok(doc)
     }
 
     pub fn set_tree(&self, tree: Arc<TreeDoc>) {
@@ -380,6 +420,9 @@ impl Document {
     /// record index or a database with a collection chosen.
     pub fn grid(&self) -> Option<Arc<dyn crate::grid::Grid>> {
         let inner = self.inner.read();
+        if let Some(grid) = &inner.tree_table {
+            return Some(grid.clone() as Arc<dyn crate::grid::Grid>);
+        }
         if let Some(table) = &inner.table {
             return Some(Arc::clone(table) as Arc<dyn crate::grid::Grid>);
         }
@@ -405,6 +448,8 @@ impl Document {
             id: self.id,
             title: self.title.clone(),
             kind: inner.kind,
+            generation: inner.generation,
+            badge_kind: inner.badge_kind,
             view: inner.kind.view(),
             source: self.source.clone(),
             byte_len: self.source_bytes.len(),
@@ -954,5 +999,26 @@ mod tests {
             assert!(!kind.reads_bytes(), "{kind:?} is not read as a run of bytes");
         }
         assert!(DocKind::Json.reads_bytes());
+    }
+
+    #[test]
+    fn a_tree_slice_keeps_its_snapshot_and_has_a_new_identity_after_reindexing() {
+        let parent = stub(7);
+        let bytes = Arc::new(crate::bytes::DocBytes::from(b"[1,2]".to_vec()));
+        let tree = Arc::new(TreeDoc::build(bytes, crate::tree::index::Syntax::Json,
+            &crate::tree::scanner::ScanLimits::default(), |_| {}, &|| false).unwrap());
+        parent.set_tree(tree.clone());
+        let slice = parent.as_tree_table(8, 0, &AtomicBool::new(false)).unwrap();
+        let again = parent.as_tree_table(9, 0, &AtomicBool::new(false)).unwrap();
+        assert_eq!(serde_json::to_value(&slice.source).unwrap(), serde_json::to_value(&again.source).unwrap());
+        assert_eq!(slice.meta().view, DocView::Collection);
+        assert_eq!(slice.meta().badge_kind, Some(DocKind::Json));
+        assert!(!slice.kind().reads_bytes());
+        parent.set_kind(DocKind::Jsonc);
+        parent.set_tree(tree);
+        let newer = parent.as_tree_table(10, 0, &AtomicBool::new(false)).unwrap();
+        assert_ne!(serde_json::to_value(&slice.source).unwrap(), serde_json::to_value(&newer.source).unwrap());
+        drop(parent);
+        assert_eq!(slice.grid().unwrap().cell_text(1, 0).unwrap().text, "2");
     }
 }

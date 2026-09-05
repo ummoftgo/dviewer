@@ -331,6 +331,19 @@ class Workspace {
     return this.run(meta, () => ipc.openText(content, title ?? t("doc.pasted"), kind));
   }
 
+  async openTreeTable(parent: DocTab, nodeId: number) {
+    const wanted: DocSource = { type: "treeSlice", parent: parent.id,
+      generation: parent.meta.generation ?? 0, node: nodeId, path: "" };
+    const existing = this.findEntry(wanted);
+    if (existing) { this.activeId = existing.id; return existing; }
+    parent.openingEntry = nodeId;
+    try {
+      return await this.run(placeholder(parent.meta.title, wanted), () => ipc.treeAsTable(parent.id, nodeId));
+    } finally {
+      parent.openingEntry = null;
+    }
+  }
+
   /**
    * Show the tab before the backend answers.
    *
@@ -464,6 +477,7 @@ class Workspace {
  * visible the moment it happens.
  */
 function describeSource(source: DocSource): string {
+  if (source.type === "treeSlice") return source.path;
   if (source.type === "file") return source.path;
   if (source.type === "url") return source.url;
   if (source.type === "text") return t("doc.pastedSource");

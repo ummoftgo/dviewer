@@ -1,6 +1,7 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
+  "tree.asTable": "表で表示",
 
   // --- 공통 / shared -------------------------------------------------------
   "action.copy": "コピー",

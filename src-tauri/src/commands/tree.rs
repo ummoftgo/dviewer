@@ -146,6 +146,27 @@ fn tree_doc(state: &State<'_, AppState>, doc_id: DocId) -> Result<Arc<TreeDoc>> 
 }
 
 #[tauri::command]
+pub async fn tree_as_table(window: tauri::Window, state: State<'_, AppState>, doc_id: DocId, node_id: u32) -> Result<crate::state::DocMeta> {
+    let parent = state.get(doc_id)?;
+    let id = state.next_id();
+    let doc = tauri::async_runtime::spawn_blocking(move ||
+        parent.as_tree_table(id, node_id, &std::sync::atomic::AtomicBool::new(false)))
+        .await.map_err(Error::internal)??;
+    Ok(state.insert(window.label(), doc).meta())
+}
+
+#[tauri::command]
+pub fn tree_table_stats(state: State<'_, AppState>, doc_id: DocId) -> Result<super::GridStats> {
+    use crate::grid::Grid;
+    let grid = state.get(doc_id)?.tree_table().ok_or(Error::NotReady { subject: Subject::Table })?;
+    Ok(super::GridStats {
+        row_count: grid.row_count(), column_count: grid.column_count(),
+        columns: grid.columns().to_vec(), index_bytes: grid.index_bytes(),
+        truncated: false, formulas: false, first_row_number: 0,
+    })
+}
+
+#[tauri::command]
 pub fn tree_rows(
     state: State<'_, AppState>,
     doc_id: DocId,
