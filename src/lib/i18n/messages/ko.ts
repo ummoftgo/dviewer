@@ -349,6 +349,7 @@ export const ko = {
   "error.updateManifest": "업데이트 정보를 읽을 수 없습니다. 릴리스 페이지에서 확인해 주세요.",
   "error.updateBadSignature": "업데이트 서명이 올바르지 않아 중단했습니다. 기존 앱은 그대로 유지됩니다.",
   "update.title": "업데이트",
+  "error.updateReopenArgs": "다시 열 문서의 경로가 설치 프로그램의 길이 제한을 넘습니다. 일부 문서를 닫고 다시 시도해 주세요.",
   "update.automatic": "업데이트 자동 확인",
   "update.flavor": "배포 형태: {flavor}",
   "update.lastCheck": "마지막 확인: {time}",

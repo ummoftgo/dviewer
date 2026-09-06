@@ -78,6 +78,7 @@ pub enum Error {
     UpdateManifest,
     UpdateBadSignature,
     UpdateUnavailable,
+    UpdateReopenArgs,
 
     // --- opening ------------------------------------------------------------
     EmptyPaste,
@@ -198,6 +199,7 @@ impl Error {
             Error::UpdateManifest => "updateManifest",
             Error::UpdateBadSignature => "updateBadSignature",
             Error::UpdateUnavailable => "updateUnavailable",
+            Error::UpdateReopenArgs => "updateReopenArgs",
             Error::EmptyPaste => "emptyPaste",
             Error::UnknownEncoding { .. } => "unknownEncoding",
             Error::BadUrl { .. } => "badUrl",
@@ -342,6 +344,7 @@ mod tests {
             Error::UpdateManifest,
             Error::UpdateBadSignature,
             Error::UpdateUnavailable,
+            Error::UpdateReopenArgs,
             Error::EmptyPaste,
             Error::UnknownEncoding { name: "x".into() },
             Error::BadUrl { url: "x".into() },

@@ -344,6 +344,7 @@ export const en: Messages = {
   "error.updateManifest": "The update information could not be read. Please check the release page.",
   "error.updateBadSignature": "The update was stopped because its signature is invalid. The existing app is unchanged.",
   "update.title": "Updates",
+  "error.updateReopenArgs": "The document paths exceed the installer's command-line limit. Close some documents and try again.",
   "update.automatic": "Check for updates automatically",
   "update.flavor": "Distribution: {flavor}",
   "update.lastCheck": "Last checked: {time}",

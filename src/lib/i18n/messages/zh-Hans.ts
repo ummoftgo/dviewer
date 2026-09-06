@@ -344,6 +344,7 @@ export const zhHans: Messages = {
   "error.updateManifest": "无法读取更新信息，请查看发布页面。",
   "error.updateBadSignature": "更新签名无效，已停止更新。现有应用未被更改。",
   "update.title": "更新",
+  "error.updateReopenArgs": "要重新打开的文档路径超过了安装程序的命令行长度限制。请关闭部分文档后重试。",
   "update.automatic": "自动检查更新",
   "update.flavor": "分发形式：{flavor}",
   "update.lastCheck": "上次检查：{time}",

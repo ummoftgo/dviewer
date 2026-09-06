@@ -31,7 +31,7 @@ pub fn reopen_args<'a>(sources: impl IntoIterator<Item = &'a DocSource>) -> Vec<
         }
         let arg = match source {
             DocSource::File { path } => format!("--open={path}"),
-            DocSource::Url { url } => format!("--open-url={url}"),
+            DocSource::Url { url } => format!("--open-url={}", url.replace('"', "%22")),
             _ => continue,
         };
         if seen.insert(arg.clone()) {
@@ -72,7 +72,13 @@ fn quote_nsis(arg: &str) -> Result<String> {
 pub fn nsis_parameters(args: &[String]) -> Result<String> {
     let mut parameters = String::from("/S /UPDATE /R");
     if !args.is_empty() {
-        parameters.push_str(" /ARGS ");
+        // GetOptions strips matching first/last quotes from the WHOLE tail.
+        // Our CLI ignores `--`; this prefix preserves each argument's quotes.
+        // NSIS does not understand backslash-escaped quotes (Windows does).
+        if args.iter().any(|arg| arg.contains('"')) {
+            return Err(Error::UpdateManifest);
+        }
+        parameters.push_str(" /ARGS -- ");
         parameters.push_str(
             &args
                 .iter()
@@ -86,6 +92,22 @@ pub fn nsis_parameters(args: &[String]) -> Result<String> {
         return Err(Error::UpdateManifest);
     }
     Ok(parameters)
+}
+
+#[cfg(any(windows, test))]
+fn validate_nsis_command(installer: &std::path::Path, parameters: &str) -> Result<()> {
+    // The bundled NSIS 3.11 has NSIS_MAX_STRLEN=1024, including the NUL.
+    let length = installer
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .count()
+        + 3
+        + parameters.encode_utf16().count();
+    if length >= 1024 {
+        return Err(Error::UpdateReopenArgs);
+    }
+    Ok(())
 }
 
 pub fn apply(
@@ -107,6 +129,7 @@ pub fn apply(
                 *app.state::<RestartAfterExit>().0.lock() = Some(args);
             }
             Flavor::Nsis => {
+                validate_nsis_command(download.path(), &parameters)?;
                 use std::os::windows::ffi::OsStrExt;
                 use windows_sys::Win32::UI::Shell::ShellExecuteW;
                 let parameters: Vec<u16> = parameters.encode_utf16().chain(Some(0)).collect();
@@ -263,13 +286,13 @@ mod tests {
             path: "C:/한글 파일/data.json".into(),
         };
         let url = DocSource::Url {
-            url: "https://example.com/a?q=1&x=2".into(),
+            url: "https://example.com/a?q=\"1\"&x=2".into(),
         };
         let entry = file.entry(0, "inner.json".into()).unwrap();
         let args = reopen_args([&file, &url, &DocSource::Text, &entry]);
         let parsed = crate::cli::parse(&args);
         assert_eq!(parsed.request.files, ["C:/한글 파일/data.json"]);
-        assert_eq!(parsed.request.urls, ["https://example.com/a?q=1&x=2"]);
+        assert_eq!(parsed.request.urls, ["https://example.com/a?q=%221%22&x=2"]);
         assert!(!parsed.new_window);
     }
 
@@ -287,7 +310,26 @@ mod tests {
         assert_eq!(quote_nsis("a\"b").unwrap(), "\"a\\\"b\"");
         assert_eq!(quote_nsis("C:\\last\\").unwrap(), "\"C:\\last\\\\\"");
         assert!(nsis_parameters(&["bad\0argument".into()]).is_err());
+        assert!(nsis_parameters(&["bad\"argument".into()]).is_err());
+        assert_eq!(
+            nsis_parameters(&["--open=C:/한글 파일/a.json".into(), "--open-url=http://127.0.0.1/a".into()]).unwrap(),
+            "/S /UPDATE /R /ARGS -- \"--open=C:/한글 파일/a.json\" \"--open-url=http://127.0.0.1/a\""
+        );
         assert!(nsis_parameters(&["😀".repeat(16000)]).is_err());
+    }
+
+    #[test]
+    fn nsis_cannot_silently_truncate_reopened_documents() {
+        let path = std::path::Path::new("C:/update.exe");
+        assert!(validate_nsis_command(path, &"a".repeat(1007)).is_ok());
+        assert_eq!(
+            validate_nsis_command(path, &"a".repeat(1008)),
+            Err(Error::UpdateReopenArgs)
+        );
+        assert_eq!(
+            validate_nsis_command(path, &"😀".repeat(504)),
+            Err(Error::UpdateReopenArgs)
+        );
     }
 
     #[test]

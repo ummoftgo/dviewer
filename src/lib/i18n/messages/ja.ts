@@ -344,6 +344,7 @@ export const ja: Messages = {
   "error.updateManifest": "更新情報を読み取れません。リリースページで確認してください。",
   "error.updateBadSignature": "署名が正しくないため更新を中止しました。既存のアプリは変更されていません。",
   "update.title": "アップデート",
+  "error.updateReopenArgs": "開き直す文書のパスがインストーラーの長さ制限を超えています。一部の文書を閉じて再試行してください。",
   "update.automatic": "更新を自動確認",
   "update.flavor": "配布形式: {flavor}",
   "update.lastCheck": "最終確認: {time}",
