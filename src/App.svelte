@@ -1,4 +1,6 @@
 <script lang="ts">
+  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
+  import { updates } from "./lib/state/updates.svelte";
   import SubTabBar from "./lib/components/SubTabBar.svelte";
   import { family, nextMainTab, nextSubtab } from "./lib/subtabs";
   import { onMount } from "svelte";
@@ -35,6 +37,7 @@
   // --- settings -----------------------------------------------------------
 
   onMount(() => watchSystemTheme());
+  onMount(() => updates.watch());
   onMount(() => detectSystemLocale());
 
   $effect(() => {
@@ -322,6 +325,7 @@
 {/if}
 
 <Toast />
+{#if updates.dialogOpen && updates.status?.available}<UpdateDialog />{/if}
 
 <style>
   .app {

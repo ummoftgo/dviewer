@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { updates } from "../state/updates.svelte";
+  import { errorMessage } from "../ipc";
   import FontPicker from "./FontPicker.svelte";
   import Icon from "./Icon.svelte";
   import { i18n, LOCALES, localeLabel, t, type LocaleSetting, type MessageKey } from "../i18n";
@@ -58,6 +60,26 @@
   </header>
 
   <div class="body">
+    <section>
+      <h3>{t("update.title")}</h3>
+      {#if updates.status}
+        <label><input type="checkbox" checked={updates.status.check}
+          onchange={(event) => updates.setCheck(event.currentTarget.checked)} /> {t("update.automatic")}</label>
+        <p class="hint">{t("update.flavor", { flavor: t(`update.flavor.${updates.status.flavor}`) })}</p>
+        <p class="hint">{t("update.lastCheck", { time: updates.status.lastCheck
+          ? new Date(updates.status.lastCheck * 1000).toLocaleString(i18n.locale) : t("update.never") })}</p>
+        {#if !updates.status.configured}<p class="hint">{t("update.noKey")}</p>{/if}
+        <button class="btn" disabled={!updates.status.configured || updates.status.phase !== "idle"}
+          onclick={() => updates.checkNow()}>
+          {t(updates.status.phase === "checking" ? "update.checking" : "update.checkNow")}
+        </button>
+        {#if updates.error ?? updates.status.error}
+          <p class="hint" role="alert">{errorMessage(updates.error ?? updates.status.error)}</p>
+        {:else if updates.checked && !updates.status.available && updates.status.phase === "idle"}
+          <p class="hint" role="status">{t("update.current")}</p>
+        {/if}
+      {/if}
+    </section>
     <section>
       <h3>{t("settings.language")}</h3>
       <select

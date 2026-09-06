@@ -1,4 +1,5 @@
 <script lang="ts">
+  import UpdateBadge from "./UpdateBadge.svelte";
   import { family, mainTabs } from "../subtabs";
   import ContextMenu from "./ContextMenu.svelte";
   import Icon from "./Icon.svelte";
@@ -184,6 +185,7 @@
   <button class="icon-btn new" onclick={onNew} title={t("tab.new")} aria-label={t("tab.newLabel")}>
     <Icon name="plus" />
   </button>
+  <UpdateBadge />
 </div>
 
 {#if listAt}

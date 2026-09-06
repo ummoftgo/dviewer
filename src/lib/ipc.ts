@@ -673,6 +673,7 @@ export interface TableReady {
 }
 
 type EventMap = {
+  "update:state": UpdateStatus;
   "grid:progress": { docId: number; request: number; done: number; total: number };
   "tree:progress": IndexProgress;
   "tree:ready": IndexReady;
@@ -686,6 +687,32 @@ type EventMap = {
   /** A second `dviewer` handed its arguments to this window. */
   "open-request": LaunchRequest;
 };
+
+export interface UpdateStatus {
+  revision: number;
+  configured: boolean;
+  flavor: "nsis" | "msi" | "portableExe" | "macApp" | "appImage" | "package" | "unknown";
+  check: boolean;
+  lastCheck: number | null;
+  skipped: string | null;
+  phase: "idle" | "checking" | "downloading" | "installing";
+  available: {
+    version: string;
+    notes: string;
+    publishedAt: string | null;
+    canInstall: boolean;
+    releaseUrl: string;
+  } | null;
+  progress: { received: number; total: number | null } | null;
+  error: BackendError | null;
+}
+
+export const updateStatus = () => invoke<UpdateStatus>("update_status");
+export const updateCheck = () => invoke<UpdateStatus>("update_check");
+export const updateSetCheck = (check: boolean) => invoke<UpdateStatus>("update_set_check", { check });
+export const updateSkip = (version: string) => invoke<UpdateStatus>("update_skip", { version });
+export const updateInstall = (version: string) => invoke<UpdateStatus>("update_install", { version });
+export const updateCancel = () => invoke<void>("update_cancel");
 
 export function on<K extends keyof EventMap>(
   name: K,

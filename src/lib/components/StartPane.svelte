@@ -1,4 +1,5 @@
 <script lang="ts">
+  import UpdateBadge from "./UpdateBadge.svelte";
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
   import { pickFiles } from "../open";
@@ -88,6 +89,7 @@
       </div>
       <!-- The toolbar only exists once a document is open, so without this the
            settings are unreachable from a cold start. -->
+      <UpdateBadge />
       <button class="icon-btn" onclick={onOpenSettings} title={t("toolbar.settings")}
         aria-label={t("toolbar.settings")}>
         <Icon name="settings" />
