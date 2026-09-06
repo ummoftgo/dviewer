@@ -50,7 +50,7 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD -R ummoftgo/dviewer
 Get-Content -Raw "$HOME/.tauri/dviewer.key.pub"
 ```
 
-마지막 명령의 공개키 **내용**을 `src-tauri/tauri.conf.json`의 `plugins.updater.pubkey`에 넣는다. 개인키는 저장소에 넣지 않고 별도로 백업한다. 지금 이 필드는 빈 문자열이어서 일반 개발 앱은 업데이트 확인을 시작하지 않는다. 태그 빌드는 공개키·비밀키 누락 또는 태그/앱 버전 불일치 때 실패한다. 암호가 없는 키는 암호 시크릿을 비워 둔다.
+마지막 명령의 공개키 **내용**을 `src-tauri/tauri.conf.json`의 `plugins.updater.pubkey`에 넣는다. 개인키는 저장소에 넣지 않고 별도로 백업한다. v0.14.0 부터 이 필드에 공개키가 들어 있다(키 ID `3AF6FA7C02D64C69`). 이 필드가 비어 있으면 앱은 업데이트 확인을 시작하지 않는다. 태그 빌드는 공개키·비밀키 누락 또는 태그/앱 버전 불일치 때 실패한다. 암호가 없는 키는 암호 시크릿을 비워 둔다.
 
 일반 개발·PR·수동 번들은 서명 자산 생성을 끈다. 태그 빌드만 별도 설정을 합쳐 `createUpdaterArtifacts: true`와 시크릿을 전달한다. NSIS·MSI·AppImage와 macOS `.app.tar.gz`의 `.sig`를 수집하고, Windows 포터블 exe 자체를 별도 자산으로 복사해 서명한다. 포터블 ZIP은 기존 배포용으로 유지한다.
 
