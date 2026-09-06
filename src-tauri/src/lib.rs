@@ -19,6 +19,7 @@ pub mod markdown;
 pub mod table;
 pub mod xlsx;
 pub mod xml;
+pub mod update;
 
 mod commands;
 #[cfg(test)]

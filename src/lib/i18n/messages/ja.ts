@@ -341,6 +341,7 @@ export const ja: Messages = {
   "error.emptyPaste": "貼り付けた内容が空です。",
   "error.unknownEncoding": "不明なエンコーディングです: {name}",
   "error.badUrl": "アドレスの形式が正しくありません: {url}",
+  "error.updateManifest": "更新情報を読み取れません。リリースページで確認してください。",
   "error.unsupportedScheme": "http または https のアドレスのみ開けます。",
   "error.fetchFailed": "アドレスを読み込めませんでした: {detail}",
   "error.httpStatus": "サーバーが {status} を返しました。",

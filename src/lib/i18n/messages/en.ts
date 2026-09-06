@@ -341,6 +341,7 @@ export const en: Messages = {
   "error.emptyPaste": "The pasted content is empty.",
   "error.unknownEncoding": "Unknown encoding: {name}",
   "error.badUrl": "That is not a valid URL: {url}",
+  "error.updateManifest": "The update information could not be read. Please check the release page.",
   "error.unsupportedScheme": "Only http and https addresses can be opened.",
   "error.fetchFailed": "Could not fetch the URL: {detail}",
   "error.httpStatus": "The server answered {status}.",

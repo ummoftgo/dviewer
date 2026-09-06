@@ -1201,6 +1201,7 @@ dependencies = [
  "quick-xml 0.42.0",
  "regex",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml_ng",

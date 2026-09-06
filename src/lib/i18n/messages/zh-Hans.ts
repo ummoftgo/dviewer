@@ -341,6 +341,7 @@ export const zhHans: Messages = {
   "error.emptyPaste": "粘贴的内容为空。",
   "error.unknownEncoding": "未知的编码：{name}",
   "error.badUrl": "网址格式不正确：{url}",
+  "error.updateManifest": "无法读取更新信息，请查看发布页面。",
   "error.unsupportedScheme": "只能打开 http 或 https 网址。",
   "error.fetchFailed": "无法获取该网址：{detail}",
   "error.httpStatus": "服务器返回了 {status}。",

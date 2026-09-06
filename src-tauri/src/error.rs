@@ -75,6 +75,7 @@ pub enum Error {
     NoSuchDoc { id: u32 },
     Cancelled,
     SortTooLarge,
+    UpdateManifest,
 
     // --- opening ------------------------------------------------------------
     EmptyPaste,
@@ -192,6 +193,7 @@ impl Error {
             Error::NoSuchDoc { .. } => "noSuchDoc",
             Error::Cancelled => "cancelled",
             Error::SortTooLarge => "sortTooLarge",
+            Error::UpdateManifest => "updateManifest",
             Error::EmptyPaste => "emptyPaste",
             Error::UnknownEncoding { .. } => "unknownEncoding",
             Error::BadUrl { .. } => "badUrl",
@@ -333,6 +335,7 @@ mod tests {
             Error::Internal { detail: "x".into() },
             Error::NoSuchDoc { id: 1 },
             Error::Cancelled,
+            Error::UpdateManifest,
             Error::EmptyPaste,
             Error::UnknownEncoding { name: "x".into() },
             Error::BadUrl { url: "x".into() },

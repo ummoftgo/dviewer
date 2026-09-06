@@ -346,6 +346,7 @@ export const ko = {
   "error.emptyPaste": "붙여넣은 내용이 비어 있습니다.",
   "error.unknownEncoding": "모르는 인코딩입니다: {name}",
   "error.badUrl": "주소 형식이 올바르지 않습니다: {url}",
+  "error.updateManifest": "업데이트 정보를 읽을 수 없습니다. 릴리스 페이지에서 확인해 주세요.",
   "error.unsupportedScheme": "http 또는 https 주소만 열 수 있습니다.",
   "error.fetchFailed": "주소를 불러오지 못했습니다: {detail}",
   "error.httpStatus": "서버가 {status} 응답을 보냈습니다.",
