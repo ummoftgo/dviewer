@@ -77,6 +77,7 @@ pub enum Error {
     SortTooLarge,
     UpdateManifest,
     UpdateBadSignature,
+    UpdateUnavailable,
 
     // --- opening ------------------------------------------------------------
     EmptyPaste,
@@ -196,6 +197,7 @@ impl Error {
             Error::SortTooLarge => "sortTooLarge",
             Error::UpdateManifest => "updateManifest",
             Error::UpdateBadSignature => "updateBadSignature",
+            Error::UpdateUnavailable => "updateUnavailable",
             Error::EmptyPaste => "emptyPaste",
             Error::UnknownEncoding { .. } => "unknownEncoding",
             Error::BadUrl { .. } => "badUrl",
@@ -339,6 +341,7 @@ mod tests {
             Error::Cancelled,
             Error::UpdateManifest,
             Error::UpdateBadSignature,
+            Error::UpdateUnavailable,
             Error::EmptyPaste,
             Error::UnknownEncoding { name: "x".into() },
             Error::BadUrl { url: "x".into() },

@@ -343,6 +343,7 @@ export const en: Messages = {
   "error.badUrl": "That is not a valid URL: {url}",
   "error.updateManifest": "The update information could not be read. Please check the release page.",
   "error.updateBadSignature": "The update was stopped because its signature is invalid. The existing app is unchanged.",
+  "error.updateUnavailable": "The update cannot proceed right now. Please check the update status again.",
   "error.unsupportedScheme": "Only http and https addresses can be opened.",
   "error.fetchFailed": "Could not fetch the URL: {detail}",
   "error.httpStatus": "The server answered {status}.",

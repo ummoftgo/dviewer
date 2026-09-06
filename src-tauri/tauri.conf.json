@@ -28,6 +28,9 @@
       }
     }
   },
+  "plugins": {
+    "updater": { "pubkey": "" }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

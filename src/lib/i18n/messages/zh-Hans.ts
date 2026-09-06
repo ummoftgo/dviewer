@@ -343,6 +343,7 @@ export const zhHans: Messages = {
   "error.badUrl": "网址格式不正确：{url}",
   "error.updateManifest": "无法读取更新信息，请查看发布页面。",
   "error.updateBadSignature": "更新签名无效，已停止更新。现有应用未被更改。",
+  "error.updateUnavailable": "目前无法继续更新，请重新检查更新状态。",
   "error.unsupportedScheme": "只能打开 http 或 https 网址。",
   "error.fetchFailed": "无法获取该网址：{detail}",
   "error.httpStatus": "服务器返回了 {status}。",

@@ -141,6 +141,7 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            app.manage(update::service::Updater::start(app.handle(), smoke.is_some()));
             if let Some(smoke) = &smoke {
                 // A harness that cannot write its results has nothing to say,
                 // and saying it by opening a window would be worse than not
@@ -164,6 +165,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            update::service::update_status,
+            update::service::update_check,
+            update::service::update_set_check,
+            update::service::update_skip,
+            update::service::update_cancel,
+            update::service::update_install,
             commands::open_path,
             commands::open_url,
             commands::open_text,
@@ -229,6 +236,9 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(updater) = app.try_state::<std::sync::Arc<update::service::Updater>>() {
+                    updater.stop();
+                }
                 update::install::on_exit(app);
             }
         });

@@ -9,6 +9,7 @@ use url::Url;
 
 pub mod download;
 pub mod install;
+pub mod service;
 
 pub const MANIFEST_URL: &str =
     "https://github.com/ummoftgo/dviewer/releases/latest/download/latest.json";

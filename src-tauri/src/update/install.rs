@@ -99,6 +99,7 @@ pub fn apply(
     }
     #[cfg(windows)]
     {
+        let parameters = nsis_parameters(&args)?;
         validate_executable(&download, flavor)?;
         match flavor {
             Flavor::PortableExe => {
@@ -108,7 +109,6 @@ pub fn apply(
             Flavor::Nsis => {
                 use std::os::windows::ffi::OsStrExt;
                 use windows_sys::Win32::UI::Shell::ShellExecuteW;
-                let parameters = nsis_parameters(&args)?;
                 let parameters: Vec<u16> = parameters.encode_utf16().chain(Some(0)).collect();
                 let file: Vec<u16> = download
                     .path()
