@@ -86,6 +86,14 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
         env:
           DVIEWER_FIXTURES: required
+      - name: Check updater release metadata and signer compatibility
+        if: runner.os == 'Linux'
+        run: |
+          node --test scripts/updater-manifest.test.mjs
+          node scripts/test-updater-signature.mjs
+      - name: Check portable replacement
+        if: runner.os == 'Windows'
+        run: node scripts/test-updater-replace.mjs
 
   # Tags only. Manual runs can opt in with the `bundle` input to rehearse a
   # release without cutting one.
@@ -144,14 +152,21 @@ jobs:
 
       - run: npm ci
 
+      - name: Require signing keys for a release
+        run: node scripts/updater-manifest.mjs --prepare updater-build.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+
       # `bundle.targets: "all"` means deb+rpm+AppImage, msi+nsis, or app+dmg
       # depending on the runner. `npm run build` runs first via
       # `beforeBuildCommand`.
       - name: Build bundles
-        run: npm run tauri build -- ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        run: npm run tauri build -- --config "${{ github.workspace }}/updater-build.json" ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
         env:
           # appimagetool cannot mount its own image on a runner without FUSE.
           APPIMAGE_EXTRACT_AND_RUN: 1
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       # The release binary, against every fixture, in a real window. This is
       # the build the smoke harness was written for: the defects it targets —
@@ -196,6 +211,9 @@ jobs:
           # An AppImage is already the portable form: one file, runs in place.
           cp "$b"/appimage/*.AppImage "$out/dviewer_${version}_linux-x86_64_portable.AppImage"
           chmod +x "$out"/*.AppImage
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            cp "$b"/appimage/*.AppImage.sig "$out/dviewer_${version}_linux-x86_64_portable.AppImage.sig"
+          fi
 
       - name: Collect (macOS)
         if: runner.os == 'macOS'
@@ -208,6 +226,10 @@ jobs:
           # and a plain zip drops both — the unpacked copy then will not launch.
           ditto -c -k --keepParent "$b/macos/dviewer.app" \
             "$out/dviewer_${version}_macos-universal_portable.zip"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            cp "$b"/macos/*.app.tar.gz "$out/dviewer_${version}_macos-universal.app.tar.gz"
+            cp "$b"/macos/*.app.tar.gz.sig "$out/dviewer_${version}_macos-universal.app.tar.gz.sig"
+          fi
 
       - name: Collect (Windows)
         if: runner.os == 'Windows'
@@ -222,6 +244,21 @@ jobs:
           # The frontend is compiled into the binary and nothing else ships
           # beside it, so the portable build is that one file.
           Compress-Archive -Path "src-tauri/target/release/dviewer.exe" -DestinationPath "$out/dviewer_${version}_windows-x64_portable.zip" -Force
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            Copy-Item (Get-ChildItem "$b/msi/*.msi.sig")[0].FullName "$out/dviewer_${version}_windows-x64.msi.sig"
+            Copy-Item (Get-ChildItem "$b/nsis/*-setup.exe.sig")[0].FullName "$out/dviewer_${version}_windows-x64_setup.exe.sig"
+            Copy-Item "src-tauri/target/release/dviewer.exe" "$out/dviewer_${version}_windows-x64_portable.exe"
+          }
+
+      - name: Sign portable executable
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $version = node -p "require('./src-tauri/tauri.conf.json').version"
+          npm run tauri signer sign -- "artifacts/dviewer_${version}_windows-x64_portable.exe"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -238,10 +275,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+
+      - name: Generate and sign update manifest
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node scripts/updater-manifest.mjs artifacts "$GITHUB_REF_NAME"
+          npm run tauri signer sign -- artifacts/latest.json
+          test -s artifacts/latest.json.sig
 
       - run: ls -lh artifacts
 
