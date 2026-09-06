@@ -2,6 +2,68 @@
 
 ← [README](../README.md)
 
+## M22 — 업데이트 확인과 자기 갱신
+
+| 검사 | 결과 |
+| --- | --- |
+| Rust (`DVIEWER_FIXTURES=required`) | 479개, 세 번 모두 통과(기준 445 + 신규 34) |
+| vitest | 116개 통과(기준 113 + 신규 3) |
+| svelte-check / i18n | 오류·경고 0 / 4 × 353키 |
+| 새 빌드 스모크 | 픽스처 37개 + 단일 인스턴스 전달·새 창 왕복 2개 |
+| clippy all-target 고유 경고 | 21 → 21, 업데이트 신규 0 |
+| 실제 Windows 갱신 | 포터블·NSIS 모두 0.13.0 → 0.14.0, 파일·URL 원본 2개 재열림 |
+
+매니페스트·버전·호스트·서명·실제 수신량·취소·형태·파일 잠금·백업·상태 역전과 중복 작업을 검사했다. 실제 Tauri CLI 서명의 정상 파일 수용과 변조 거절도 통과했다. MSI·macOS·Linux 설치 시험은 하지 않았으며 이 형태의 설치 코드는 없다. Windows 시험은 별도 제품명·식별자·시험키를 쓴 개발 번들이다. 공개 릴리스·실제 GitHub Actions 실행·배포 키 등록은 하지 않았다.
+
+| 깨뜨린 것 | 실패한 검사 수 |
+| --- | ---: |
+| URL 호스트 가드 | 3 |
+| 서명 finalize 생략 | 3 |
+| 선언 길이·실제 수신량 상한 제거 | 2 |
+| 원본 인자·PE 형태·정리 범위 | 3 |
+| 상태 중복·키 없음·노트 길이·변경 번호 | 4 |
+| 프런트 응답 역전·늦은 구독 해제·건너뛰기 표시 | 3 |
+| CI 자산 크기 상한 | 1 |
+| NSIS 전체 인용·명령줄 상한 | 2 |
+
+모두 복원 후 통과했다. self-replace가 없는 후보를 복사하려다 기존 exe 경로를 잃는 실패도 별도 복사 바이너리에서 재현한 뒤 백업 복원으로 고쳤다. 실제 NSIS 첫 시험에서는 버전만 바뀌고 원본 탭이 사라졌다. 재실행 명령줄과 NSIS `GetOptions`를 대조해 바깥 따옴표 제거를 확인했고 수정 뒤 두 원본의 탭과 본문이 다시 열렸다. 실제 앱에서 변조 매니페스트는 `updateBadSignature`로 거절됐고, 528,384바이트를 받은 중간 취소는 버전을 유지한 채 대기로 돌아왔다.
+
+Windows debug, 정적 loopback 매니페스트·실제 minisign 서명, 조건별 세 번의 중앙값이다. 파일 크기만 바꾸고 **파일을 받지 않는 확인**을 대조군으로 두었다. 메모리는 프로브 프로세스의 PeakWorkingSet을 10ms 간격으로 읽었다. 짧은 확인도 고수위값을 읽을 수 있도록 예제가 측정 종료 뒤 100ms 기다리며 표의 시간에는 넣지 않는다.
+
+| 자산 크기 | 작업 | 시간 중앙값(ms) | 메모리 중앙값(MiB) | 최대(MiB) |
+| --- | --- | ---: | ---: | ---: |
+| 1MiB | 확인만(대조군) | 10.93 | 17.84 | 17.84 |
+| 1MiB | 확인·다운로드·검증 | 37.77 | 17.06 | 17.89 |
+| 100MiB | 확인만(대조군) | 10.89 | 16.80 | 16.95 |
+| 100MiB | 확인·다운로드·검증 | 2226.05 | 17.05 | 17.05 |
+
+전체 최댓값은 17.89MiB이며 100MiB 전문을 모으지 않는다. 웹뷰를 포함한 앱 전체 메모리나 인터넷 다운로드 속도를 뜻하지는 않는다. 초기에 서버가 요청마다 서명하던 측정은 서명 CLI 비용이 섞여 제외했고, 정적 파일을 제공하는 서버로 다시 측정했다.
+
+### 업데이트 끝까지 시험
+
+배포키와 격리된 시험이다. 긴 명령은 백그라운드로 실행하고 결과를 파일에 남긴다. 먼저 실제 dviewer를 닫고 다음 스크립트로 두 버전의 개발 포터블·NSIS를 만든다. 버전·공개키·제품명·식별자는 설정 오버레이로만 주입한다.
+
+```powershell
+node scripts/test-updater-windows.mjs 0.13.0 0.14.0
+node scripts/serve-updater-test.mjs
+```
+
+산출물은 `.agent-works/m22-e2e`이고 서버 주소는 그곳의 `server.json`에 기록된다. 시험키는 OS 임시 디렉터리에 있으며 내용은 출력하지 않는다. 서버는 별도 터미널/백그라운드로 유지하고 앱을 띄우는 셸에서 다음 환경을 설정한다.
+
+```powershell
+$probe = Join-Path $PWD '.agent-works/m22-e2e'
+$server = Get-Content "$probe/server.json" | ConvertFrom-Json
+$env:DVIEWER_UPDATE_MANIFEST = "$($server.origin)/latest.json"
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9231'
+```
+
+1. 포터블 0.13.0 exe를 별도 디렉터리의 `dviewer.exe`로 복사해 실행한다. 설정의 배포 형태가 포터블인지, 시작 화면의 배지가 나오는지 확인한다.
+2. 생성된 `원본 문서.txt` 파일과 서버의 같은 문서 URL을 연다. 지금 확인→배지→지금 업데이트를 누른 뒤 앱이 0.14.0으로 다시 시작하고 두 원본의 탭·본문이 나타나는지 확인한다. 교체된 exe의 SHA-256은 서명한 `portable-0.14.0.exe`와 같아야 한다.
+3. 포터블 시험 앱을 닫고 `setup-0.13.0.exe /S`로 별도 제품 **dviewer M22 test**를 설치한다. 기본 설치 경로는 `$env:LOCALAPPDATA/dviewer M22 test`이다. 그 앱에서 같은 두 원본을 열어 같은 갱신을 반복하고 NSIS 형태·버전·재열림을 확인한다. `/D`를 쓰면 Windows 역슬래시 경로로 전달하고 실제 설치 경로를 확인한다.
+4. 자동화할 때는 `agent-browser --session m22 --cdp 9231 snapshot -i`로 실제 버튼을 찾는다. `eval 'window.__TAURI_INTERNALS__.invoke("plugin:app|version")'`는 실행 중인 앱의 버전을 읽는다. PowerShell에서는 참조를 `'@e2'`처럼 인용한다. `scenario.json`의 `tamper: true`는 서명한 매니페스트를 변조하고 `slow: true`는 취소 시험을 위해 파일 전송을 늦춘다. 시험 뒤 `{}`로 되돌린다.
+5. 서버를 유지한 채 `./scripts/measure-updater.ps1`을 실행하면 1MiB·100MiB 및 확인 대조군을 각 세 번 측정해 `perf-results.json`에 남긴다. 이 예제의 로컬 URL은 debug에서만 허용된다.
+6. 시험 앱과 서버를 닫고 시험 제품의 `uninstall.exe /S`로 제거한다. `node scripts/test-updater-windows.mjs --cleanup-keys`로 시험키를 제거한다. 시험 설정은 `com.xenia.dviewer.m22test` 식별자만 정리하며 일반 dviewer 설정은 건드리지 않는다. 개발용 환경변수를 지우고 일반 프런트·`cargo build --features custom-protocol`을 다시 빌드한 뒤 스모크를 돌린다.
+
 ## M20 — 서브탭과 머리글 메뉴
 
 | 검사 | 결과 |
@@ -20,14 +82,14 @@
 grid-cases.json 생성기에 점·대괄호·따옴표 키, 빈 키, 배열 안 컨테이너, 다른 열에 같은 값이 있는 필터 조합을 추가했다. 별도 성능 실측은 하지 않았으며 M19의 메모리 상한·순차 처리·Parquet 정렬 제한을 유지했다.
 
 ```bash
-cd src-tauri && cargo test          # 445개: 스캐너, 검색, 형식별 격자, 배열·맵, 정렬·필터, 취소·세대
-npm test                            # 113개: 프론트의 순수 모듈과 상태 로직
+cd src-tauri && cargo test          # 479개: 문서 엔진과 서명·업데이트 상태·설치 경계
+npm test                            # 116개: 프론트의 순수 모듈과 상태 로직
 npm run smoke                       # 진짜 창에서 픽스처 전수 (아래)
 ```
 
 ## 프론트 테스트
 
-`npm test` 는 vitest 를 돌립니다. 테스트는 검사하는 코드 **옆에** 삽니다(`src/**/*.test.ts`) — Rust 쪽 445개가 소스 옆 `#[cfg(test)]` 모듈에 있는 것과 같은 방식입니다.
+`npm test` 는 vitest 를 돌립니다. 테스트는 검사하는 코드 **옆에** 삽니다(`src/**/*.test.ts`) — Rust 쪽 479개가 소스 옆 `#[cfg(test)]` 모듈에 있는 것과 같은 방식입니다.
 
 **러너를 vitest 로 고른 이유는 하나뿐입니다: 이 저장소의 `vite.config.ts` 를 그대로 쓴다는 것.** 그래서 테스트가 앱과 **같은 방식으로 컴파일**되고, `.svelte.ts` 의 runes 가 추가 설정 없이 돕니다. 그것이 상태 로직을 테스트할 수 있게 하는 전부입니다. 설정은 `vitest.config.ts` 로 분리했습니다 — `vite.config.ts` 는 Tauri 빌드가 읽는 파일이라 테스트 전용 설정으로 불리지 않는 편이 안전합니다.
 

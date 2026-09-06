@@ -316,5 +316,5 @@ jobs:
             - macOS: `_portable.zip` — 압축을 풀고 `dviewer.app` 실행
             - Linux: `.AppImage` — `chmod +x` 후 실행
 
-            서명하지 않은 빌드입니다. macOS는 처음 열 때 우클릭 → 열기,
+            업데이트 서명은 포함하지만 OS 배포 인증은 없습니다. macOS는 처음 열 때 우클릭 → 열기,
             Windows는 SmartScreen에서 추가 정보 → 실행이 필요합니다.

@@ -30,6 +30,8 @@ Vite 8은 번들러가 rollup에서 rolldown으로 바뀌었고 esbuild를 더 �
 
 CSV·TSV는 크레이트를 쓰지 않습니다. 필요한 것이 레코드의 **바이트 위치**인데 그건 파서가 내주는 값이 아니고, 따옴표를 다루는 상태 기계는 JSON 스캐너와 같은 방식으로 60줄이면 끝납니다.
 
+업데이트는 기존 `ureq`·`semver`·`base64`·`tempfile`을 직접 사용한다. 추가 런타임 의존은 `minisign-verify`(Tauri의 Base64 봉투를 푼 스트리밍 서명 검증)와 Windows의 `self-replace`다. `windows-sys`는 NSIS 실행에 필요한 ShellExecuteW를 호출한다. 공식 업데이터는 파일 전체를 모아 검증하므로 디스크 스트리밍 조건에 맞지 않았다. 서명 시험의 `minisign`은 dev-dependency라 배포 바이너리에 포함되지 않는다. 실제 Tauri CLI의 서명 산출물도 별도 호환 시험으로 검증한다.
+
 취약점 점검:
 
 ```bash
@@ -40,4 +42,3 @@ cd src-tauri && cargo audit     # cargo install cargo-audit
 작성 시점 기준 양쪽 모두 **취약점 0건**입니다. `cargo audit` 이 남기는 19건은 전부 "미관리(unmaintained)" 또는 unsound 경고이고, 대부분 Tauri의 리눅스 백엔드가 쓰는 GTK3 바인딩이라 Windows 빌드에는 아예 컴파일되지 않습니다. 나머지(`unic-*`, `bincode`, `proc-macro-error`)도 전이 의존성이라 직접 손댈 수 없습니다.
 
 직접 줄인 것은 하나입니다. syntect의 `yaml-load`·`plist-load` 기능을 껐습니다 — 내장 문법·테마 덤프만 쓰고 런타임에 `.sublime-syntax` 를 읽지 않으므로 필요 없고, 그 결과 미관리 크레이트 `yaml-rust` 가 컴파일 대상에서 빠집니다. `cargo audit` 은 Cargo.lock 을 훑기 때문에 경고 수는 그대로지만, 바이너리에는 들어가지 않습니다.
-

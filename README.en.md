@@ -66,6 +66,20 @@ dviewer --new --open=a.csv             # a new window instead of a tab
 
 A second invocation does not draw a window: it hands its arguments to the process already running, and the file arrives **as a tab in the current window**. Pass `--new` to get another window. How this works is covered in [Design and structure](doc/architecture.md#명령줄-그리고-이미-열려-있는-창).
 
+## Updates
+
+The app quietly checks for a newer stable version five minutes after startup and then every hour. Click the `↑ v…` badge on the start screen or tab bar to see release notes and update options. Installation requires a click. Settings provides **Check for updates automatically** and **Check now**; **Skip this version** hides only that version's automatic notification.
+
+| Distribution | Moving to a newer version |
+| --- | --- |
+| Windows x64 portable exe | Verify, replace the executable and restart |
+| Windows x64 NSIS installation | Verify, run the updater installer and restart |
+| Windows MSI | Notification and release-page link |
+| macOS app (DMG or portable ZIP) | Notification and release-page link |
+| Linux AppImage, deb or rpm | Notification and release-page link |
+
+Both the manifest and update file are authenticated with the embedded public key. Downloads stream directly to disk, are capped at 256MiB, and can be cancelled. Restarting reopens original files and URLs. Pasted documents, derived tabs, window layouts and selections are not restored. Development builds without a public key do not start checking; Settings explains why.
+
 ## Shortcuts
 
 | Key | Action |
@@ -101,6 +115,8 @@ The technical documentation lives in `doc/` (Korean).
 | [Dependencies](doc/dependencies.md) | Why each package was chosen, and vulnerability checks |
 
 ## Known limits
+
+- Self-update is available only for Windows x64 portable exe and NSIS installations. Update files are limited to 256MiB and manifests to 64KiB. NSIS rejects installation when the installer path and document arguments exceed its 1,024 UTF-16-unit command-line buffer, including NUL. Close some documents and retry.
 
 - An array grid samples its first 2,000 elements. If at least 70% are objects, it collects up to 64 columns in first-seen order; otherwise it has one value column. Maps add a `key` column. Empty arrays/maps and XML cannot become grid tabs. A derived grid cannot change format or encoding.
 - Sorting preserves integer precision. Text compares the first 128 UTF-8 bytes in byte order; equal prefixes keep original order. Empty cells and SQL NULL stay last in both directions. Text keys have a 256MiB arena limit; exceeding it refuses the sort. The permutation, temporary keys and search inverse map use separate memory. Filtering reads at most 8MiB per cell, the same ceiling as copying.

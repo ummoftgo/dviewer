@@ -30,13 +30,33 @@ macOS는 `universal-apple-darwin` 하나로 Apple Silicon과 Intel을 모두 덮
 
 ### 제약
 
-**서명은 하지 않습니다.** macOS는 처음 열 때 우클릭 → 열기, Windows는 SmartScreen에서 추가 정보 → 실행이 필요합니다. macOS를 제대로 배포하려면 Apple Developer ID를 받아 `APPLE_CERTIFICATE`·`APPLE_SIGNING_IDENTITY`·`APPLE_ID`·`APPLE_PASSWORD`·`APPLE_TEAM_ID` 시크릿을 넣으면 공증까지 처리됩니다.
+업데이트용 minisign 서명과 OS 코드 서명은 별개입니다. Windows Authenticode·macOS Developer ID 공증은 하지 않으며 macOS는 애드혹 서명입니다. macOS는 처음 열 때 우클릭 → 열기, Windows는 SmartScreen에서 추가 정보 → 실행이 필요할 수 있습니다. macOS를 공증하려면 Apple Developer ID를 받아 `APPLE_CERTIFICATE`·`APPLE_SIGNING_IDENTITY`·`APPLE_ID`·`APPLE_PASSWORD`·`APPLE_TEAM_ID` 시크릿을 설정합니다.
 
 Windows 포터블은 WebView2 런타임이 시스템에 있어야 합니다. Windows 11에는 기본 포함이고 Windows 10도 대부분 Edge와 함께 들어와 있지만, 없는 환경이 걱정되면 설치본을 쓰거나 `webviewInstallMode` 를 `fixedRuntime` 으로 바꿔 런타임을 동봉하면 됩니다.
 
 Linux ARM(aarch64)은 아직 없습니다. 크로스 컴파일보다 ARM 러너를 한 줄 추가하는 편이 낫습니다.
 
-이식성 면에서 이 코드에는 플랫폼 분기가 없습니다. 경로 구분자는 양쪽을 모두 받고, CSP는 asset 프로토콜의 두 형태(`asset:` 와 `http://asset.localhost`)를 모두 허용하며, 글꼴 열거는 `fontdb` 가 OS별 디렉터리를 알아서 찾습니다.
+문서 경로 구분자는 양쪽을 모두 받고, CSP는 asset 프로토콜의 두 형태(`asset:` 와 `http://asset.localhost`)를 모두 허용하며, 글꼴 열거는 `fontdb`가 OS별 디렉터리를 알아서 찾습니다. 자기 갱신 설치 코드는 실제 시험한 Windows x64 포터블·NSIS에만 있습니다. MSI·macOS·AppImage·deb/rpm은 알림과 릴리스 링크만 제공합니다.
+
+## 업데이트 릴리스 절차
+
+배포 키 생성·시크릿 등록·공개키 커밋·태그·공개는 사용자가 맡는다. 다음은 PowerShell 명령이며 구현 검증에서 실행한 것은 격리 시험키 생성뿐이다.
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME/.tauri" | Out-Null
+npm run tauri -- signer generate -w "$HOME/.tauri/dviewer.key"
+Get-Content -Raw "$HOME/.tauri/dviewer.key" | gh secret set TAURI_SIGNING_PRIVATE_KEY -R ummoftgo/dviewer
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD -R ummoftgo/dviewer
+Get-Content -Raw "$HOME/.tauri/dviewer.key.pub"
+```
+
+마지막 명령의 공개키 **내용**을 `src-tauri/tauri.conf.json`의 `plugins.updater.pubkey`에 넣는다. 개인키는 저장소에 넣지 않고 별도로 백업한다. 지금 이 필드는 빈 문자열이어서 일반 개발 앱은 업데이트 확인을 시작하지 않는다. 태그 빌드는 공개키·비밀키 누락 또는 태그/앱 버전 불일치 때 실패한다. 암호가 없는 키는 암호 시크릿을 비워 둔다.
+
+일반 개발·PR·수동 번들은 서명 자산 생성을 끈다. 태그 빌드만 별도 설정을 합쳐 `createUpdaterArtifacts: true`와 시크릿을 전달한다. NSIS·MSI·AppImage와 macOS `.app.tar.gz`의 `.sig`를 수집하고, Windows 포터블 exe 자체를 별도 자산으로 복사해 서명한다. 포터블 ZIP은 기존 배포용으로 유지한다.
+
+`scripts/updater-manifest.mjs`가 형태별 자산의 존재·크기·서명 형식을 검사해 `latest.json`을 만들고 CI가 이 파일에도 서명해 `latest.json.sig`를 올린다. 플랫폼 키는 Windows 형태별 3개, macOS 두 아키텍처, Linux x86_64다. macOS 두 키는 같은 universal 아카이브를 가리킨다. `notes`는 비워 두므로 앱은 릴리스 페이지 링크를 제공한다. 나중에 노트를 매니페스트에 넣으면 매니페스트를 다시 서명해야 한다.
+
+릴리스 전에 [Windows 끝까지 시험](verification.md#업데이트-끝까지-시험)을 반복한다. 초안 자산은 고정 개수로 판정하지 않고, 매니페스트가 참조하는 모든 파일과 서명 및 `latest.json.sig`가 있는지 검사한다. 내려받은 자산 폴더에 `node scripts/updater-manifest.mjs <폴더> <태그>`를 실행하면 참조 검사를 반복할 수 있다(로컬 매니페스트를 재생성하므로 공개할 때는 다시 서명한다). 릴리스 공개 시 `gh release edit <태그> --draft=false --latest -R ummoftgo/dviewer`로 최신 릴리스임을 명시한다. `releases/latest/download/latest.json`과 `.sig`가 그 릴리스의 자산을 반환하는지 확인한다.
 
 
 ## 저장소에 들어가는 것
@@ -51,4 +71,3 @@ Linux ARM(aarch64)은 아직 없습니다. 크로스 컴파일보다 ARM 러너�
 `.gitattributes` 는 줄바꿈을 LF로 고정합니다. 없으면 Windows에서 체크아웃할 때 전부 CRLF로 바뀌어, 다음 커밋에 트리 전체가 변경된 것으로 잡힙니다.
 
 `package-lock.json` 과 `src-tauri/Cargo.lock` 은 **넣습니다**. 애플리케이션이라 빌드가 재현돼야 합니다.
-

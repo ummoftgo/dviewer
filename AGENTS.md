@@ -12,6 +12,8 @@ dviewer 는 개발자·기획자가 **다양한 형식의 문서를 확인하는
 1. **큰 파일을 통째로 올리지 않는다.** 500MB JSON·CSV, 200MB 로그를 mmap 위의 색인으로 다룬다. 새 기능이 "전부 읽어서 메모리에 만든다"를 요구하면 그 자체가 설계 문제다. 예외는 있지만 **전부 상한과 함께 문서화돼 있다** — gzip 해제와 압축 항목은 512MB(`source.rs` `MAX_DECOMPRESSED_BYTES`), Excel 은 변환이라 64MB(`xlsx.rs`), URL 내려받기 512MB. 새 예외를 만들려면 같은 모양(상한 + README 알려진 한계 한 줄)이어야 하고, 그것도 "다른 길이 없을 때"다.
 2. **형식이 아니라 읽는 방식으로 묶는다.** 형식마다 화면을 만들지 않는다. 새 형식은 다섯 보기 중 하나에 얹고, 새 동작은 보기에 붙인다.
 
+업데이트는 전문 메모리 적재의 예외가 아니다. 파일은 디스크로 스트리밍하며 별도 자원 상한은 256MiB, 서명된 매니페스트는 64KiB다. 자기 갱신은 끝까지 시험한 Windows x64 포터블 exe·NSIS만 활성이고 다른 형태는 링크만 제공한다.
+
 자세한 설계는 `doc/architecture.md`, 검증과 실측은 `doc/verification.md`, 빌드·릴리스는 `doc/release.md`, 의존성 선택 이유는 `doc/dependencies.md`. README 는 한국어(`README.md`)와 영어(`README.en.md`) 두 벌이고 **항상 같이** 고친다.
 
 ## 2. 너의 역할 — 시니어 구현자
@@ -28,13 +30,14 @@ dviewer 는 개발자·기획자가 **다양한 형식의 문서를 확인하는
 ## 3. 검증 — 세 층, 그리고 두 가지 관례
 
 ```bash
-cd src-tauri && cargo test                 # Rust 단위·통합 (현재 413개)
-npm test                                   # vitest — 프론트 순수 모듈과 runes 상태 (97개)
+cd src-tauri && cargo test                 # Rust 단위·통합 (현재 479개)
+npm test                                   # vitest — 프론트 순수 모듈과 runes 상태 (116개)
 npm run check                              # svelte-check + i18n 4로케일 키 일치 + 사전 밖 문자열
 npm run smoke                              # 실제 바이너리로 픽스처 전수 열기 + 단일 인스턴스 왕복 둘
 ```
 
 - **픽스처는 생성기가 만든다.** `node scripts/gen-fixtures.mjs` 와 `cd src-tauri && cargo run --release --example parquet -- write ../fixtures`. `fixtures/` 는 gitignore 대상이고, **거기 있는 파일을 훑어 목록이나 매니페스트를 만들지 마라** — 옛 생성기가 남긴 유령 파일이 섞인다. 목록의 출처는 언제나 생성기 코드다. `--huge` 는 실측용 대용량(1.5GB 남짓)이다.
+- 업데이트를 바꾸면 `scripts/test-updater-signature.mjs`와 Windows 포터블·NSIS의 실제 갱신을 반복한다([절차](doc/verification.md#업데이트-끝까지-시험)). 시험키만 격리 생성할 수 있고 종료 후 제거한다. `--smoke`와 공개키 없는 빌드는 업데이트 네트워크 작업을 시작하지 않는다.
 - **`DVIEWER_FIXTURES=required cargo test`** 로 돌리면 픽스처가 없을 때 조용히 건너뛰는 테스트(xlsx·parquet 11개)가 실패로 바뀐다. CI 가 그렇게 돈다. 로컬 최종 확인도 그렇게 하라.
 - **`cargo test` 는 한 번이 아니라 세 번.** 병렬 테스트의 충돌(같은 임시 디렉터리 태그 등)은 한 번으로 안 보인다. sqlite.rs 의 `temp_dir` 태그를 새로 낼 때는 `grep 'temp_dir("'` 로 중복을 먼저 본다(겹치면 이제 그 자리에서 패닉한다).
 - **스모크 전에 반드시 빌드한다**, 그리고 스모크는 **저장소 루트에서** 돌린다(`smoke.mjs` 가 현재 디렉터리로 픽스처·바이너리 경로를 만든다): `npm run build && (cd src-tauri && cargo build --features custom-protocol) && npm run smoke`. 스모크 러너는 바이너리를 **찾기만 하고 빌드하지 않는다** — 건너뛰면 옛 프런트가 새 매니페스트 수로 통과해 초록이 새 코드의 것처럼 보인다. 그리고 **dviewer 가 떠 있으면 스모크의 왕복 검사가 성립하지 않으니** 먼저 닫는다.

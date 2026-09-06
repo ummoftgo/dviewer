@@ -1,5 +1,5 @@
 // Builds isolated, signed Windows test bundles; never creates a deployment key.
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, openSync, closeSync, rmSync, truncateSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, openSync, closeSync, rmSync, truncateSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -60,8 +60,7 @@ for (const version of [from,to]) {
   assert.equal(result.status,0,`build ${version} failed; see isolated build log`);
   copyFileSync(join(root,'src-tauri/target/debug/dviewer.exe'),join(out,`portable-${version}.exe`));
   const bundle = join(root,'src-tauri/target/debug/bundle/nsis');
-  const name = readdirSync(bundle).find(name=>name.includes(`_${version}_`)&&name.endsWith('-setup.exe'));
-  assert.ok(name,'expected NSIS bundle missing');
+  const name = `dviewer M22 test_${version}_x64-setup.exe`;
   copyFileSync(join(bundle,name),join(out,`setup-${version}.exe`));
   if (version===to) {
     copyFileSync(join(bundle,`${name}.sig`),join(out,`setup-${version}.exe.sig`));
