@@ -210,6 +210,14 @@ pub struct VerifiedDownload {
 }
 
 impl VerifiedDownload {
+    #[cfg(windows)]
+    pub(crate) fn retain_for_installer(self) -> File {
+        let Self {
+            file, directory, ..
+        } = self;
+        let _ = directory.keep();
+        file
+    }
     pub fn path(&self) -> &Path {
         &self.path
     }

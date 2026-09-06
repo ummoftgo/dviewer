@@ -8,6 +8,7 @@ use tauri::utils::config::BundleType;
 use url::Url;
 
 pub mod download;
+pub mod install;
 
 pub const MANIFEST_URL: &str =
     "https://github.com/ummoftgo/dviewer/releases/latest/download/latest.json";

@@ -87,3 +87,7 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
 minisign = "0.9.1"
+
+[target.'cfg(windows)'.dependencies]
+self-replace = "1.5"
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

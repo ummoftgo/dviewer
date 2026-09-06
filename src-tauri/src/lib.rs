@@ -95,6 +95,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::default())
+        .manage(update::install::RestartAfterExit::default())
         .on_window_event(|window, event| {
             // A panel outlives neither its opener nor its document. Without
             // this, closing the main window would leave the app running with
@@ -159,6 +160,7 @@ pub fn run() {
             // The window from tauri.conf.json is called "main"; it collects
             // this the moment its frontend mounts.
             app.state::<AppState>().queue("main", launch.request.clone());
+            update::install::cleanup_installers();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -223,6 +225,11 @@ pub fn run() {
             commands::smoke_done,
             commands::smoke_close_self,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                update::install::on_exit(app);
+            }
+        });
 }
