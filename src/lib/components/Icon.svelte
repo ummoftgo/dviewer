@@ -1,10 +1,10 @@
-<script lang="ts">
+<script module lang="ts">
   /**
    * A handful of inline icons. Small enough that pulling in an icon package
    * would cost more than it saves, and inline SVG inherits currentColor so the
    * theme switch needs no extra work.
    */
-  type IconName =
+  export type IconName =
     | "file"
     | "link"
     | "clipboard"
@@ -23,6 +23,12 @@
     | "copy"
     | "list"
     | "filter"
+    | "table"
+    | "sort-none"
+    | "sort-asc"
+    | "sort-desc"
+    | "filter-off"
+    | "fit-width"
     | "warning"
     | "external"
     | "chevron-left";
@@ -50,9 +56,18 @@
     copy: "M5.5 5.5V3.6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-1.9 M3.5 5.5h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z",
     list: "M3 4.5h10 M3 8h10 M3 11.5h6",
     filter: "M2.5 3.5h11L9.5 8.4v4.1l-3 1.5V8.4z",
+    table: "M2.5 2.5h11v11h-11z M2.5 6h11 M2.5 10h11 M6 2.5v11 M10 2.5v11",
+    "sort-none": "M3 4h10 M3 8h10 M3 12h10",
+    "sort-asc": "M2.5 4h2 M2.5 8h4 M2.5 12h6 M12 12V3 M9.5 5.5 12 3l2.5 2.5",
+    "sort-desc": "M2.5 4h6 M2.5 8h4 M2.5 12h2 M12 3v9 M9.5 9.5 12 12l2.5-2.5",
+    "filter-off": "M2.5 3.5h11L9.5 8.4v4.1l-3 1.5V8.4z M2 2l12 12",
+    "fit-width": "M2 3v10 M14 3v10 M4 8h8 M6 5.5 3.5 8 6 10.5 M10 5.5 12.5 8 10 10.5",
     warning: "M8 2.5 14.5 13.5h-13L8 2.5Z M8 6.5v3.2 M8 11.6v.4",
   };
 
+</script>
+
+<script lang="ts">
   interface Props {
     name: IconName;
     size?: number;

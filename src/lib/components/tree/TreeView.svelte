@@ -346,6 +346,7 @@
       ...copyMenuItems(tab.id, row),
       ...(tab.kind !== "xml" && (row.kind === "array" || row.kind === "object") ? [{
         label: t("tree.asTable"),
+        icon: "table" as const,
         disabled: row.childCount === 0,
         action: () => void workspace.openTreeTable(tab, row),
       }] : []),
@@ -354,6 +355,7 @@
       // window occurs to you.
       {
         label: t("inspector.detach"),
+        icon: "external",
         action: () => void detach(row.id),
       },
     ];

@@ -275,20 +275,21 @@
     const { row, column } = menu;
     if (row === -1) return [
       ...([null, false, true] as const).map((descending) => ({
+        icon: descending === null ? "sort-none" as const : descending ? "sort-desc" as const : "sort-asc" as const,
         label: t(descending === null ? "grid.sortDefault" : descending ? "grid.sortDesc" : "grid.sortAsc"),
         checked: descending === null ? tab.order.sort === null : tab.order.sort?.column === column && tab.order.sort.descending === descending,
         disabled: !sortAvailable || tab.order.running,
         hint: !sortAvailable ? t("grid.sortUnavailable") : undefined,
         action: () => onsortTo?.(descending === null ? null : { column, descending }),
       })),
-      { label: t("grid.filterColumn"), action: () => onfilterColumn?.(column) },
-      { label: t("grid.filterClear"), disabled: !tab.order.filter, action: () => onfilterClear?.() },
-      { label: t("grid.fitColumn"), action: () => fitColumn(column) },
+      { label: t("grid.filterColumn"), icon: "filter", action: () => onfilterColumn?.(column) },
+      { label: t("grid.filterClear"), icon: "filter-off", disabled: !tab.order.filter, action: () => onfilterClear?.() },
+      { label: t("grid.fitColumn"), icon: "fit-width", action: () => fitColumn(column) },
     ];
     return [
-      { label: t("table.copyValue"), action: () => void copyCell(row, column), hint: "Ctrl C" },
-      { label: t("table.copyRow"), action: () => void copyRow(row) },
-      { label: t("table.copyColumn"), action: () => void copyColumnName(column) },
+      { label: t("table.copyValue"), icon: "copy", action: () => void copyCell(row, column), hint: "Ctrl C" },
+      { label: t("table.copyRow"), icon: "copy", action: () => void copyRow(row) },
+      { label: t("table.copyColumn"), icon: "copy", action: () => void copyColumnName(column) },
     ];
   });
 

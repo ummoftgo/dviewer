@@ -62,9 +62,9 @@ export async function copyValue(docId: number, row: TreeRow) {
 
 export function copyMenuItems(docId: number, row: TreeRow): MenuItem[] {
   return [
-    { label: t("tree.copyPath"), action: () => void copyPath(docId, row) },
+    { label: t("tree.copyPath"), icon: "copy", action: () => void copyPath(docId, row) },
     // Array elements have an index, not a key, so there is nothing to copy.
-    { label: t("tree.copyKey"), action: () => void copyKey(row), disabled: row.key === null },
-    { label: t("tree.copyValue"), action: () => void copyValue(docId, row), hint: "Ctrl C" },
+    { label: t("tree.copyKey"), icon: "copy", action: () => void copyKey(row), disabled: row.key === null },
+    { label: t("tree.copyValue"), icon: "copy", action: () => void copyValue(docId, row), hint: "Ctrl C" },
   ];
 }

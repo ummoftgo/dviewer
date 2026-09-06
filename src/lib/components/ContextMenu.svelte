@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MenuItem } from "./menu";
+  import Icon from "./Icon.svelte";
 
   interface Props {
     x: number;
@@ -16,6 +17,7 @@
   // The mark column exists only for menus that asked for one. Every other menu
   // keeps the spacing it has always had, which is the point of asking.
   const marks = $derived(items.some((item) => item.checked !== undefined));
+  const icons = $derived(items.some((item) => item.icon !== undefined));
 
   // Measure once per content change. Assigning unconditionally would make this
   // effect retrigger itself through `size`.
@@ -65,11 +67,15 @@
 <menu
   bind:this={menu}
   class="menu"
+  class:icons
   style="left: {position.left}px; top: {position.top}px"
 >
   {#each items as item (item.key ?? item.label)}
     <li>
       <button disabled={item.disabled} onclick={() => choose(item)}>
+        {#if icons}
+          <span class="icon" aria-hidden="true">{#if item.icon}<Icon name={item.icon} />{/if}</span>
+        {/if}
         {#if marks}
           <span class="mark" aria-hidden="true">{item.checked ? "✓" : ""}</span>
         {/if}
@@ -108,7 +114,6 @@
   button {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 1.5rem;
     width: 100%;
     padding: 0.3rem 0.55rem;
@@ -131,6 +136,22 @@
     cursor: default;
   }
 
+  .icons button {
+    gap: 0.5rem;
+  }
+
+  .icon {
+    flex: none;
+    width: 1rem;
+    display: flex;
+    align-items: center;
+  }
+
+  .icon :global(svg) {
+    width: 1rem;
+    height: 1rem;
+  }
+
   /* Fixed width so the labels line up whether or not a row is marked. */
   .mark {
     flex: none;
@@ -141,6 +162,8 @@
   /* Long enough entries are documents, not commands, so the menu is capped and
      the name gives way rather than the window. */
   .label {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
