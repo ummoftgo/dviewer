@@ -7,6 +7,8 @@ use std::{collections::BTreeMap, path::Path};
 use tauri::utils::config::BundleType;
 use url::Url;
 
+pub mod download;
+
 pub const MANIFEST_URL: &str =
     "https://github.com/ummoftgo/dviewer/releases/latest/download/latest.json";
 pub const RELEASES_URL: &str = "https://github.com/ummoftgo/dviewer/releases";

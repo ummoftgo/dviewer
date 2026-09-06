@@ -76,6 +76,7 @@ pub enum Error {
     Cancelled,
     SortTooLarge,
     UpdateManifest,
+    UpdateBadSignature,
 
     // --- opening ------------------------------------------------------------
     EmptyPaste,
@@ -194,6 +195,7 @@ impl Error {
             Error::Cancelled => "cancelled",
             Error::SortTooLarge => "sortTooLarge",
             Error::UpdateManifest => "updateManifest",
+            Error::UpdateBadSignature => "updateBadSignature",
             Error::EmptyPaste => "emptyPaste",
             Error::UnknownEncoding { .. } => "unknownEncoding",
             Error::BadUrl { .. } => "badUrl",
@@ -336,6 +338,7 @@ mod tests {
             Error::NoSuchDoc { id: 1 },
             Error::Cancelled,
             Error::UpdateManifest,
+            Error::UpdateBadSignature,
             Error::EmptyPaste,
             Error::UnknownEncoding { name: "x".into() },
             Error::BadUrl { url: "x".into() },

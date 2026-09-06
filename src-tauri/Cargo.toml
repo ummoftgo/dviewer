@@ -38,6 +38,9 @@ comrak = { version = "0.54.0", features = ["syntect"] }
 ureq = { version = "3.4.0", features = ["rustls", "gzip", "brotli", "charset"] }
 url = "2.5.8"
 semver = "1"
+base64 = "0.22"
+minisign-verify = "0.2.5"
+tempfile = "3"
 fontdb = "0.24.0"
 serde_yaml_ng = "0.10"
 toml = { version = "1.1", features = ["preserve_order"] }
@@ -81,3 +84,6 @@ bytes = "1"
 # opens on an empty page unless vite happens to be running.
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+minisign = "0.9.1"

@@ -342,6 +342,7 @@ export const ja: Messages = {
   "error.unknownEncoding": "不明なエンコーディングです: {name}",
   "error.badUrl": "アドレスの形式が正しくありません: {url}",
   "error.updateManifest": "更新情報を読み取れません。リリースページで確認してください。",
+  "error.updateBadSignature": "署名が正しくないため更新を中止しました。既存のアプリは変更されていません。",
   "error.unsupportedScheme": "http または https のアドレスのみ開けます。",
   "error.fetchFailed": "アドレスを読み込めませんでした: {detail}",
   "error.httpStatus": "サーバーが {status} を返しました。",

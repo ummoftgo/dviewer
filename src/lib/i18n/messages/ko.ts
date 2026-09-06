@@ -347,6 +347,7 @@ export const ko = {
   "error.unknownEncoding": "모르는 인코딩입니다: {name}",
   "error.badUrl": "주소 형식이 올바르지 않습니다: {url}",
   "error.updateManifest": "업데이트 정보를 읽을 수 없습니다. 릴리스 페이지에서 확인해 주세요.",
+  "error.updateBadSignature": "업데이트 서명이 올바르지 않아 중단했습니다. 기존 앱은 그대로 유지됩니다.",
   "error.unsupportedScheme": "http 또는 https 주소만 열 수 있습니다.",
   "error.fetchFailed": "주소를 불러오지 못했습니다: {detail}",
   "error.httpStatus": "서버가 {status} 응답을 보냈습니다.",

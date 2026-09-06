@@ -1,6 +1,6 @@
 use super::*;
 
-fn manifest(version: &str) -> Vec<u8> {
+pub(super) fn manifest(version: &str) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({
         "version": version,
         "platforms": {
