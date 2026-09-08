@@ -156,6 +156,12 @@ export const en: Messages = {
 
   // --- 마크다운 / markdown ---------------------------------------------------
   "settings.markdownTables": "Markdown tables",
+  "settings.markdownPageWidth": "Markdown page width",
+  "markdown.width.narrow": "Narrow (44rem)",
+  "markdown.width.normal": "Normal (52rem)",
+  "markdown.width.wide": "Wide (72rem)",
+  "markdown.width.full": "Full width",
+  "markdown.width.current": "Page width: {width}",
   "settings.markdownTablesHint": "Default view for newly opened documents.",
   "markdown.table.scroll": "Horizontal scrolling",
   "markdown.table.fill": "Fill document width",

@@ -156,6 +156,12 @@ export const ja: Messages = {
 
   // --- 마크다운 / markdown ---------------------------------------------------
   "settings.markdownTables": "マークダウンの表",
+  "settings.markdownPageWidth": "マークダウンの本文幅",
+  "markdown.width.narrow": "狭い (44rem)",
+  "markdown.width.normal": "標準 (52rem)",
+  "markdown.width.wide": "広い (72rem)",
+  "markdown.width.full": "全幅",
+  "markdown.width.current": "本文幅: {width}",
   "settings.markdownTablesHint": "新しく開く文書の既定の表示方式です。",
   "markdown.table.scroll": "横スクロール",
   "markdown.table.fill": "文書の幅に合わせる",

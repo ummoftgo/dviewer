@@ -6,6 +6,7 @@
   import { i18n, LOCALES, localeLabel, t, type LocaleSetting, type MessageKey } from "../i18n";
   import {
     nearestScaleStep,
+    pageWidthLabel,
     settings,
     UI_SCALE_STEPS,
     type ThemeMode,
@@ -42,7 +43,7 @@
     settings.save();
   }
 
-  function set(key: "uiScale" | "uiFontPx" | "docFontPx", value: number) {
+  function set(key: "uiScale" | "uiFontPx" | "docFontPx" | "markdownPageWidth", value: number) {
     settings[key] = value;
     settings.save();
   }
@@ -179,6 +180,15 @@
         aria-label={t("settings.docFont")}
       />
       <p class="hint">{t("settings.docFont.hint")}</p>
+    </section>
+
+    <section>
+      <h3>{t("settings.markdownPageWidth")} <span class="value">{pageWidthLabel(settings.markdownPageWidth)}</span></h3>
+      <input type="range" min="40" max="124" step="4"
+        value={settings.markdownPageWidth || 124}
+        oninput={(e) => set("markdownPageWidth", Number(e.currentTarget.value) === 124 ? 0 : Number(e.currentTarget.value))}
+        aria-label={t("settings.markdownPageWidth")}
+        aria-valuetext={pageWidthLabel(settings.markdownPageWidth)} />
     </section>
 
     <FontPicker

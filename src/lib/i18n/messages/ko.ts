@@ -161,6 +161,12 @@ export const ko = {
 
   // --- 마크다운 / markdown ---------------------------------------------------
   "settings.markdownTables": "마크다운 표",
+  "settings.markdownPageWidth": "마크다운 본문 너비",
+  "markdown.width.narrow": "좁게 (44rem)",
+  "markdown.width.normal": "보통 (52rem)",
+  "markdown.width.wide": "넓게 (72rem)",
+  "markdown.width.full": "전체",
+  "markdown.width.current": "본문 너비: {width}",
   "settings.markdownTablesHint": "새로 여는 문서의 기본 보기 방식입니다.",
   "markdown.table.scroll": "가로 스크롤",
   "markdown.table.fill": "문서 너비 채우기",

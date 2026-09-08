@@ -156,6 +156,12 @@ export const zhHans: Messages = {
 
   // --- 마크다운 / markdown ---------------------------------------------------
   "settings.markdownTables": "Markdown 表格",
+  "settings.markdownPageWidth": "Markdown 正文宽度",
+  "markdown.width.narrow": "窄 (44rem)",
+  "markdown.width.normal": "标准 (52rem)",
+  "markdown.width.wide": "宽 (72rem)",
+  "markdown.width.full": "全宽",
+  "markdown.width.current": "正文宽度：{width}",
   "settings.markdownTablesHint": "新打开文档的默认显示方式。",
   "markdown.table.scroll": "横向滚动",
   "markdown.table.fill": "填满文档宽度",

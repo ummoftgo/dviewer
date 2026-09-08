@@ -31,7 +31,7 @@ dviewer 는 개발자·기획자가 **다양한 형식의 문서를 확인하는
 
 ```bash
 cd src-tauri && cargo test                 # Rust 단위·통합 (현재 479개)
-npm test                                   # vitest — 프론트 순수 모듈과 runes 상태 (139개)
+npm test                                   # vitest — 프론트 순수 모듈과 runes 상태 (144개)
 npm run check                              # svelte-check + i18n 4로케일 키 일치 + 사전 밖 문자열
 npm run smoke                              # 실제 바이너리로 픽스처 전수 열기 + 단일 인스턴스 왕복 둘
 ```

@@ -93,7 +93,7 @@
     bind:this={scroller}
     onscroll={(e) => (tab.scrollTop = e.currentTarget.scrollTop)}
   >
-    <div class="page">
+    <div class="page" style:max-width={settings.markdownPageWidth === 0 ? "none" : `${settings.markdownPageWidth}rem`}>
       {#if tab.error}
         <p class="status error" role="alert">{tab.error}</p>
       {:else if tab.html === null}
@@ -130,7 +130,6 @@
   }
 
   .page {
-    max-width: 52rem;
     margin: 0 auto;
     padding: 2rem 2.5rem 6rem;
   }

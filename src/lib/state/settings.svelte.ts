@@ -1,4 +1,4 @@
-import { i18n, LOCALES, type Locale, type LocaleSetting } from "../i18n";
+import { i18n, LOCALES, t, type Locale, type LocaleSetting, type MessageKey } from "../i18n";
 import { errorMessage, systemFonts, type FontFamily } from "../ipc";
 import { getValue, setValue } from "../persist";
 import type { TableMode } from "../components/markdown/tables";
@@ -23,6 +23,7 @@ const DEFAULTS = {
   inspectorWidth: 320,
   inspectorKeyRatio: 0.4,
   markdownTableMode: "scroll" as TableMode,
+  markdownPageWidth: 52,
 };
 
 type Persisted = typeof DEFAULTS;
@@ -33,6 +34,8 @@ const STORE_KEY = "settings";
 export class Settings {
   private loading?: Promise<void>;
   markdownTableMode = $state<TableMode>(DEFAULTS.markdownTableMode);
+  /** Maximum rendered page width in rem; zero removes the maximum. */
+  markdownPageWidth = $state(DEFAULTS.markdownPageWidth);
   /**
    * Kept in `i18n` rather than here, because `t()` has to read it and the
    * settings store imports too much to be reachable from there. This pair of
@@ -95,6 +98,10 @@ export class Settings {
     if (saved.markdownTableMode === "scroll" || saved.markdownTableMode === "fill") {
       this.markdownTableMode = saved.markdownTableMode;
     }
+    if (typeof saved.markdownPageWidth === "number" && Number.isFinite(saved.markdownPageWidth)
+      && (saved.markdownPageWidth === 0 || (saved.markdownPageWidth >= 40 && saved.markdownPageWidth <= 120))) {
+      this.markdownPageWidth = saved.markdownPageWidth;
+    }
 
     if (saved.locale && (saved.locale === "system" || LOCALE_VALUES.includes(saved.locale))) {
       this.locale = saved.locale;
@@ -130,6 +137,7 @@ export class Settings {
       inspectorWidth: this.inspectorWidth,
       inspectorKeyRatio: this.inspectorKeyRatio,
       markdownTableMode: this.markdownTableMode,
+      markdownPageWidth: this.markdownPageWidth,
     } satisfies Persisted);
   }
 
@@ -168,6 +176,18 @@ export function nearestScaleStep(value: number): number {
   return UI_SCALE_STEPS.reduce((best, step) =>
     Math.abs(step - value) < Math.abs(best - value) ? step : best,
   );
+}
+
+export function nextPageWidth(current: number): number {
+  return [44, 52, 72].find((width) => width > current) ?? 0;
+}
+
+export function pageWidthLabel(width: number): string {
+  const labels: Record<number, MessageKey> = {
+    44: "markdown.width.narrow", 52: "markdown.width.normal",
+    72: "markdown.width.wide", 0: "markdown.width.full",
+  };
+  return labels[width] ? t(labels[width]) : `${width}rem`;
 }
 
 function clamp(n: number, min: number, max: number) {

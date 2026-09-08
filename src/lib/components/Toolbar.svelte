@@ -5,7 +5,7 @@
   import { DOC_KINDS, encodingChoices, readsBytes, warningMessage, type DocKind } from "../ipc";
   import { t } from "../i18n";
   import { workspace, type DocTab } from "../state/docs.svelte";
-  import { settings } from "../state/settings.svelte";
+  import { nextPageWidth, pageWidthLabel, settings } from "../state/settings.svelte";
 
   interface Props {
     tab: DocTab;
@@ -26,6 +26,7 @@
    * A BOM, valid UTF-8, or the reader's own choice are all settled facts.
    */
   const encodingUncertain = $derived(tab.meta.encoding.source === "guessed");
+  const pageWidthTitle = $derived(t("markdown.width.current", { width: pageWidthLabel(settings.markdownPageWidth) }));
 
   const encodingHint = $derived.by(() => {
     const encoding = tab.meta.encoding;
@@ -70,6 +71,15 @@
           aria-label={t("toolbar.toc.show")}
         >
           <Icon name="list" />
+        </button>
+      {/if}
+      {#if tab.mode === "rendered"}
+        <button class="icon-btn" data-action="page-width" title={pageWidthTitle} aria-label={pageWidthTitle}
+          onclick={() => {
+            settings.markdownPageWidth = nextPageWidth(settings.markdownPageWidth);
+            settings.save();
+          }}>
+          <Icon name="fit-width" />
         </button>
       {/if}
     {/if}
