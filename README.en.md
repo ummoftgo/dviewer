@@ -8,7 +8,7 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 
 | View | Formats | What it does |
 | --- | --- | --- |
-| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle |
+| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle; table column resizing, content fitting, and scrolling/fill-width modes |
 | Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in grid subtabs (except XML) |
 | Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, header context menu for sorting, filtering one column and fitting its width (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
@@ -131,6 +131,7 @@ The technical documentation lives in `doc/` (Korean).
 - JSONPath is not offered for XML. An XML path is XPath-shaped, so an expression would mean something else there.
 - Literal search folds case in the ASCII range only. The regular-expression side follows Unicode, as the crate does.
 - Markdown rendering up to 16MB. Larger files do not open.
+- Markdown column controls apply to rectangular tables without merged cells or nested tables. Horizontal scrolling is the default; buttons above each table switch modes and reset widths. Use arrow keys on a column boundary to resize, or double-click / Enter to fit its content. Fill mode preserves a minimum of 3rem per column, so wide tables can still scroll. Sticky headers are not provided. Table state lasts for the open tab and resets on format or encoding changes. The default mode in Settings applies to newly opened documents.
 - The expand-depth presets go up to 9, which is also the default. Deeper levels are opened node by node.
 - Files are mmap-ed, so a file changed externally while open needs to be reopened. Edited content only mixes old and new bytes, but **truncating the file kills the process outright on Linux and macOS** (SIGBUS). Windows is unaffected: the OS refuses to shrink a file that has a mapping open.
 - Remote images in markdown are allowed. `img-src` includes `https:`, so badges and the like render as they would on the web — at the cost of telling the server that hosts them that the document was opened. A deliberate choice in favour of showing documents as they are written.

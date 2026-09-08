@@ -31,7 +31,7 @@ dviewer 는 개발자·기획자가 **다양한 형식의 문서를 확인하는
 
 ```bash
 cd src-tauri && cargo test                 # Rust 단위·통합 (현재 479개)
-npm test                                   # vitest — 프론트 순수 모듈과 runes 상태 (116개)
+npm test                                   # vitest — 프론트 순수 모듈과 runes 상태 (139개)
 npm run check                              # svelte-check + i18n 4로케일 키 일치 + 사전 밖 문자열
 npm run smoke                              # 실제 바이너리로 픽스처 전수 열기 + 단일 인스턴스 왕복 둘
 ```
@@ -51,7 +51,7 @@ npm run smoke                              # 실제 바이너리로 픽스처 �
 
 - **파일 길이 1,500~2,000줄 상한.** 넘을 것 같으면 기능을 넣기 전에 도메인·계층 경계로 나눈다(예: `tree/jsonpath/{mod,parse,filter,functions,select,values}.rs`). 디렉터리 이름은 형식이 아니라 역할.
 - Rust: `Node` 구조체(36바이트)는 건드리지 않는다 — 모든 형식이 그 크기를 치른다. 부가 정보는 사이드 테이블로. 검색·필터 같은 긴 작업은 `cancel`/`Budget` 을 지나가야 하고, 4,096 단위로 취소를 본다. 표시용 디코더(`decode_scalar`·`decode_key`)는 미리보기 길이로 **잘라내므로** 비교·계산에 쓰지 않는다.
-- 프론트: Svelte 5 runes. 순수 로직은 `src/lib/*.ts` 로 빼서 vitest 로 잠근다. 컴포넌트 렌더 테스트(jsdom)는 들이지 않는다 — 그 자리는 스모크가 덮는다. 픽셀을 JS 로 재지 않는다(CSS 가 배율·글꼴을 따라간다).
+- 프론트: Svelte 5 runes. 순수 로직은 `src/lib/*.ts` 로 빼서 vitest 로 잠근다. 컴포넌트 렌더 테스트(jsdom)는 들이지 않는다 — 그 자리는 스모크가 덮는다. 픽셀을 JS 로 재지 않는다(CSS 가 배율·글꼴을 따라간다). 마크다운 표의 열 조절·맞춤·채우기는 실제 DOM 기하 측정만 좁게 허용한다. 글자 수 추정과 큰 표 복제는 하지 않으며 숨은 표는 표시될 때까지 측정을 미룬다.
 - i18n: 문자열은 `src/lib/i18n/messages/{ko,en,ja,zh-Hans}.ts` 네 로케일에 **같은 키로** 넣는다. `npm run check` 가 키 수 불일치와 사전 밖 한글을 잡는다(테스트 파일은 예외).
 - 오류는 `Error` 변형과 코드(`error.rs`)로, 프론트는 코드→메시지 매핑. 새 오류 코드 = 새 i18n 키 넷.
 - 문서: 동작을 바꾸면 **같은 마일스톤 안에서** `README.md`·`README.en.md`(기능 줄·알려진 한계), `doc/architecture.md`(왜 그렇게 했는가), `doc/verification.md`(테스트 수·픽스처·실측)를 고친다. 없다고 적어 둔 것을 만들었으면 그 문장을 지운다.
