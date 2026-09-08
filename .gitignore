@@ -31,3 +31,6 @@ Thumbs.db
 # Vite writes these while resolving a TypeScript config
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Update signing keys must never enter the repository (generate with -w ~/.tauri/...).
+.tauri/
