@@ -218,6 +218,35 @@ author: 검증용
 | JSON | 바이트 스캐너 + 오프셋 인덱스 | 4GB | 500MB 실측 대상 |
 | 검색 | aho-corasick | — | 키/값 범위 지정 |
 
+## 넓은 표 (열 12개)
+
+| id | ${Array.from({ length: 11 }, (_, i) => `항목 ${i + 1}`).join(" | ")} |
+| ${Array(12).fill("---").join(" | ")} |
+| 1 | ${Array.from({ length: 11 }, (_, i) => `긴 셀 ${i + 1}: 문서 너비와 최소 열 폭을 함께 확인합니다`).join(" | ")} |
+| 2 | ${Array.from({ length: 11 }, (_, i) => `column_${i + 1}_abcdefghijklmnopqrstuvwxyz0123456789`).join(" | ")} |
+
+## 긴 표 (본문 60행)
+
+| id | 설명 | 비고 |
+|---|---|---|
+${Array.from({ length: 60 }, (_, i) => `| ${i + 1} | 행 ${i + 1}의 긴 설명으로 열 너비와 줄바꿈을 확인합니다. | [링크](https://tauri.app) |`).join("\n")}
+
+## 단일 열
+
+| 설명 |
+|---|
+| 채우기 방식에서는 이웃 열이 없으므로 너비를 조절하지 않습니다. |
+
+## 병합·중첩·불규칙 표 (기존 표시)
+
+<table><tr><th colspan="2">병합 머리글</th></tr><tr><td>a</td><td>b</td></tr></table>
+
+<table><tr><td rowspan="2">병합 행</td><td>a</td></tr><tr><td>b</td></tr></table>
+
+<table><tr><td>바깥<table><tr><td>안쪽</td></tr></table></td></tr></table>
+
+<table><tr><th>a</th><th>b</th></tr><tr><td>하나</td></tr></table>
+
 ## 체크리스트
 
 - [x] 표가 읽히는가

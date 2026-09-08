@@ -243,8 +243,32 @@
 .markdown-body .table-tools button:disabled { opacity: 0.45; cursor: default; }
 .markdown-body .table-tools svg { width: 1rem; height: 1rem; }
 
+.markdown-body .table-viewport :is(th, td) { position: relative; }
+.markdown-body .table-viewport th { overflow: hidden; }
+
+.markdown-body .table-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 0.4rem;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  border-right: 2px solid transparent;
+}
+
+.markdown-body .table-grip:is(:hover, :focus-visible) {
+  border-right-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.markdown-body .table-grip[aria-disabled="true"] { display: none; }
+.markdown-body .table-resizing { user-select: none; }
+.markdown-body .table-resizing .table-tools { opacity: 1; }
+
 @media print {
-  .markdown-body .table-tools { display: none; }
+  .markdown-body :is(.table-tools, .table-grip) { display: none; }
   .markdown-body .table-wrap { padding-top: 0; }
 }
 

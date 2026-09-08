@@ -15,6 +15,8 @@
 import * as ipc from "./ipc";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
+import { enhanceTables } from "./components/markdown/enhance";
+import { settings } from "./state/settings.svelte";
 
 /**
  * How long one document may take before it counts as stuck.
@@ -192,6 +194,13 @@ export async function runSmoke(): Promise<void> {
       workspace.notice = null;
     } else {
       outcome = await settle(tab, step.expect);
+      if (outcome.ok && step.file === "sample.md") {
+        try {
+          await checkMarkdownTables(tab);
+        } catch (error) {
+          outcome = { ok: false, stage: "markdownTables", error: ipc.errorMessage(error) };
+        }
+      }
       if (outcome.ok && step.then) {
         try { outcome = await follow(tab, step.then); }
         catch (error) { outcome = { ok: false, stage: step.then, error: ipc.errorMessage(error) }; }
@@ -212,6 +221,105 @@ export async function runSmoke(): Promise<void> {
   }
 
   await ipc.smokeDone();
+}
+
+/** This uses the rendered fixture, including hidden and unsupported HTML tables. */
+async function checkMarkdownTables(tab: DocTab) {
+  const require = (condition: unknown, message: string) => {
+    if (!condition) throw new Error(message);
+  };
+  const waitFor = async (condition: () => boolean) => {
+    const deadline = Date.now() + STEP_TIMEOUT_MS;
+    while (!condition()) {
+      if (Date.now() >= deadline) throw new Error("markdown table DOM did not settle");
+      await sleep(POLL_MS);
+    }
+  };
+  const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  const root = () => document.querySelector<HTMLElement>(".markdown-body")!;
+  await waitFor(() => root()?.querySelectorAll(".table-wrap").length === 5);
+  const host = root();
+  const handle = enhanceTables(host, tab.tables, tab.markdownTableMode);
+  require(enhanceTables(host, tab.tables, tab.markdownTableMode) === handle, "table enhancement was not idempotent");
+  require(host.querySelectorAll(".table-wrap").length === 5, "table wrappers were duplicated");
+  require(!host.querySelector(".table-wrap .table-wrap"), "nested tables were enhanced");
+  require(!host.querySelector(".table-wrap [colspan], .table-wrap [rowspan]"), "merged table was enhanced");
+  for (const wrap of host.querySelectorAll<HTMLElement>(".table-wrap")) {
+    const table = wrap.querySelector("table")!;
+    require(table.querySelectorAll(":scope > colgroup > col").length === table.rows[0].cells.length, "colgroup does not match first row");
+    require(table.querySelectorAll(".table-grip").length === table.rows[0].cells.length, "column handles do not match first row");
+  }
+
+  const wrap = host.querySelector<HTMLElement>(".table-wrap")!;
+  const table = wrap.querySelector("table")!;
+  const viewport = wrap.querySelector<HTMLElement>(".table-viewport")!;
+  const toggle = wrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!;
+  const reset = wrap.querySelector<HTMLButtonElement>('[data-action="reset"]')!;
+  const grip = wrap.querySelector<HTMLElement>(".table-grip")!;
+  const firstCell = table.rows[0].cells[0];
+  const widths = () => [...table.rows[0].cells].map((cell) => cell.getBoundingClientRect().width);
+  const key = (target: HTMLElement, key: string) => target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  const close = (a: number, b: number) => Math.abs(a - b) < 1;
+  const state = tab.tables.get(Number(wrap.dataset.table))!;
+  if (state.mode !== "scroll") toggle.click();
+  key(grip, "ArrowRight");
+  require(state.scrollWidths && !reset.disabled, "keyboard resize did not save scroll widths");
+  const scrollWidths = [...state.scrollWidths!];
+  const originalTotal = table.getBoundingClientRect().width;
+  key(grip, "ArrowRight");
+  require(close(table.getBoundingClientRect().width, originalTotal + 8), "scroll resize did not grow the table");
+  toggle.click();
+  const fillBefore = widths();
+  key(grip, "ArrowRight");
+  const fillAfter = widths();
+  require(close(fillAfter[0], fillBefore[0] + 8) && close(fillAfter[1], fillBefore[1] - 8), "fill resize did not compensate its neighbor");
+  require(state.fillRatios && close(state.fillRatios.reduce((sum, value) => sum + value, 0), 100), "fill ratios do not total 100");
+  require(close(table.getBoundingClientRect().width, viewport.clientWidth), "fill did not match the document width");
+  require(table.rows[0].cells[0] === firstCell, "resizing replaced the table DOM");
+  key(grip, "Home");
+  const minimum = 3 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+  require(close(widths()[0], minimum), "minimum column width was not enforced");
+  const fitted = widths()[0];
+  key(grip, "Enter");
+  require(widths()[0] > fitted, "content fitting did not use the natural width");
+  const ratios = [...state.fillRatios!];
+  toggle.click();
+  require(close(widths()[0], scrollWidths[0] + 8), "scroll widths were lost across mode changes");
+  toggle.click();
+  require(JSON.stringify(state.fillRatios) === JSON.stringify(ratios), "fill ratios were lost across mode changes");
+  reset.click();
+  require(state.mode === "fill" && !state.scrollWidths && !state.fillRatios && reset.disabled, "reset changed the mode or kept manual widths");
+
+  const wide = [...host.querySelectorAll<HTMLTableElement>(".table-wrap table")].find((candidate) => candidate.rows[0].cells.length === 12)!;
+  const wideWrap = wide.closest<HTMLElement>(".table-wrap")!;
+  const wideState = tab.tables.get(Number(wideWrap.dataset.table))!;
+  if (wideState.mode !== "fill") wideWrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!.click();
+  require([...wide.rows[0].cells].every((cell) => cell.getBoundingClientRect().width >= minimum - 1), "wide table violated minimum widths");
+  const wideViewport = wide.parentElement!;
+  require(wideViewport.scrollWidth >= 12 * minimum - 1, "wide table did not preserve minimum total width");
+
+  const single = [...host.querySelectorAll<HTMLTableElement>(".table-wrap table")].find((candidate) => candidate.rows[0].cells.length === 1)!;
+  const singleWrap = single.closest<HTMLElement>(".table-wrap")!;
+  if (tab.tables.get(Number(singleWrap.dataset.table))!.mode !== "fill") singleWrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!.click();
+  require(single.querySelector(".table-grip")?.getAttribute("aria-disabled") === "true", "single fill column was resizable");
+
+  const details = host.querySelector("details")!;
+  details.open = true;
+  await frame();
+  const hiddenWrap = details.querySelector<HTMLElement>(".table-wrap")!;
+  if (tab.tables.get(Number(hiddenWrap.dataset.table))!.mode !== "fill") hiddenWrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!.click();
+  require([...hiddenWrap.querySelectorAll<HTMLTableColElement>("col")].every((col) => parseFloat(col.style.width) >= minimum - 1), "opened details table has invalid widths");
+
+  const font = settings.docFontPx;
+  settings.docFontPx = font + 1;
+  await frame();
+  require(table.rows[0].cells[0] === firstCell && state.mode === "fill", "font refresh replaced the DOM or reset the mode");
+  settings.docFontPx = font;
+  tab.mode = "raw";
+  await waitFor(() => !document.querySelector(".markdown-body"));
+  tab.mode = "rendered";
+  await waitFor(() => root()?.querySelectorAll(".table-wrap").length === 5);
+  require(tab.tables.get(0)?.mode === "fill" && root().querySelector<HTMLElement>(".table-wrap")?.dataset.mode === "fill", "raw round trip lost table state");
 }
 
 /**

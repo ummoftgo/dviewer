@@ -1,9 +1,8 @@
 /**
  * Post-processing applied to the HTML Rust hands us.
  *
- * Rust does the parsing, sanitising and syntax highlighting; these three things
- * genuinely need the browser: resolving image paths against the app's asset
- * protocol, laying out diagrams, and typesetting maths.
+ * Rust does the parsing, sanitising and syntax highlighting; the browser
+ * resolves image paths, lays out diagrams, typesets maths and sizes table columns.
  */
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { t } from "../../i18n";
@@ -11,7 +10,7 @@ import { toasts } from "../../state/toast.svelte";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DocMeta } from "../../ipc";
 import { ICON_PATHS } from "../Icon.svelte";
-import { fillWidths, rectangularColumns, type TableMode, type TableState } from "./tables";
+import { fillWidths, rectangularColumns, resizeWidths, widthRatios, type TableMode, type TableState } from "./tables";
 
 /** Collapse `.` and `..` segments so a path is safe to hand to the asset protocol. */
 function normalizeSegments(path: string): string {
@@ -225,7 +224,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     for (const group of oldGroups) group.remove();
     const group = document.createElement("colgroup");
     const cols = Array.from({ length: count }, () => document.createElement("col"));
-    group.append(...cols);
+    for (const col of cols) group.append(col);
     const caption = table.querySelector(":scope > caption");
     if (caption) caption.after(group);
     else table.prepend(group);
@@ -233,6 +232,71 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     let natural: number[] | undefined;
     let border = 0;
     let minimum = 0;
+    const grips = cells.map((cell, column) => {
+      const grip = document.createElement("span");
+      grip.className = "table-grip";
+      grip.setAttribute("role", "separator");
+      grip.setAttribute("aria-orientation", "vertical");
+      cell.append(grip);
+      grip.onkeydown = (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End", "Enter"].includes(event.key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Enter" || event.key === "End") fit(column);
+        else {
+          const widths = currentWidths();
+          const step = event.shiftKey ? 24 : 8;
+          change(widths, column, event.key === "Home" ? minimum - widths[column] : event.key === "ArrowLeft" ? -step : step);
+        }
+      };
+      grip.ondblclick = (event) => { event.preventDefault(); fit(column); };
+      let drag: { pointer: number; x: number; widths: number[] } | undefined;
+      function end() {
+        if (drag && grip.hasPointerCapture(drag.pointer)) grip.releasePointerCapture(drag.pointer);
+        drag = undefined;
+        wrap.classList.remove("table-resizing");
+      }
+      grip.onpointerdown = (event) => {
+        if (event.button !== 0 || (state.mode === "fill" && count === 1)) return;
+        event.preventDefault();
+        grip.focus();
+        drag = { pointer: event.pointerId, x: event.clientX, widths: currentWidths() };
+        grip.setPointerCapture(event.pointerId);
+        wrap.classList.add("table-resizing");
+      };
+      grip.onpointermove = (event) => {
+        if (drag && drag.pointer === event.pointerId) change(drag.widths, column, event.clientX - drag.x);
+      };
+      grip.onpointerup = grip.onpointercancel = grip.onlostpointercapture = end;
+      cleanups.push(() => {
+        end();
+        grip.onkeydown = grip.ondblclick = grip.onpointerdown = grip.onpointermove = null;
+        grip.onpointerup = grip.onpointercancel = grip.onlostpointercapture = null;
+        grip.remove();
+      });
+      return grip;
+    });
+
+    function currentWidths() {
+      return cells.map((cell) => cell.getBoundingClientRect().width);
+    }
+
+    function change(widths: number[], column: number, delta: number) {
+      if (state.mode === "fill" && count === 1) return;
+      const next = resizeWidths(widths, column, delta, state.mode, minimum);
+      if (state.mode === "scroll") state.scrollWidths = next;
+      else state.fillRatios = widthRatios(next);
+      layout();
+    }
+
+    function fit(column: number) {
+      if (state.mode === "fill" && count === 1) return;
+      const widths = currentWidths();
+      const left = viewport.scrollLeft;
+      measure();
+      change(widths, column, natural![column] - widths[column]);
+      viewport.scrollLeft = left;
+    }
 
     function labels() {
       const next = state.mode === "scroll" ? "fill" : "scroll";
@@ -243,6 +307,13 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       reset.textContent = t("markdown.table.reset");
       reset.title = reset.textContent;
       reset.disabled = !state.scrollWidths && !state.fillRatios;
+      grips.forEach((grip, column) => {
+        const disabled = state.mode === "fill" && count === 1;
+        grip.tabIndex = disabled ? -1 : 0;
+        grip.setAttribute("aria-disabled", String(disabled));
+        grip.setAttribute("aria-label", t("markdown.table.resize", { column: column + 1 }));
+        grip.title = t("markdown.table.resizeHint");
+      });
     }
 
     function measure() {
@@ -252,10 +323,10 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       for (const col of cols) col.style.width = "";
       natural = cells.map((cell) => cell.getBoundingClientRect().width);
       border = Math.max(0, table.getBoundingClientRect().width - natural.reduce((sum, width) => sum + width, 0));
-      minimum = Math.max(3 * parseFloat(getComputedStyle(document.documentElement).fontSize), ...cells.map((cell) => {
+      minimum = cells.reduce((minimum, cell) => {
         const css = getComputedStyle(cell);
-        return parseFloat(css.paddingLeft) + parseFloat(css.paddingRight) + 2;
-      }));
+        return Math.max(minimum, parseFloat(css.paddingLeft) + parseFloat(css.paddingRight) + 2);
+      }, 3 * parseFloat(getComputedStyle(document.documentElement).fontSize));
     }
 
     function applyWidths(widths: number[]) {
@@ -280,6 +351,16 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
         for (const col of cols) col.style.width = "";
       }
       viewport.scrollLeft = left;
+      const widths = currentWidths();
+      grips.forEach((grip, column) => {
+        grip.setAttribute("aria-valuemin", String(Math.round(minimum)));
+        grip.setAttribute("aria-valuenow", String(Math.round(widths[column])));
+        grip.setAttribute("aria-valuetext", `${Math.round(widths[column])}px`);
+        if (state.mode === "fill") {
+          const neighbor = column === count - 1 ? column - 1 : column + 1;
+          grip.setAttribute("aria-valuemax", String(Math.round(count === 1 ? widths[column] : widths[column] + widths[neighbor] - minimum)));
+        } else grip.removeAttribute("aria-valuemax");
+      });
     }
 
     toggle.onclick = () => {
