@@ -178,16 +178,23 @@ export function nearestScaleStep(value: number): number {
   );
 }
 
-export function nextPageWidth(current: number): number {
-  return [44, 52, 72].find((width) => width > current) ?? 0;
+const PAGE_WIDTH_LABELS: Record<number, MessageKey> = {
+  44: "markdown.width.narrow", 52: "markdown.width.normal",
+  72: "markdown.width.wide", 0: "markdown.width.full",
+};
+
+export function pageWidthOptions(current: number) {
+  const widths = [44, 52, 72, 0];
+  if (!widths.includes(current)) widths.push(current);
+  return widths.map((width) => ({
+    width,
+    checked: width === current,
+    label: PAGE_WIDTH_LABELS[width] ?? "markdown.width.custom" as MessageKey,
+  }));
 }
 
 export function pageWidthLabel(width: number): string {
-  const labels: Record<number, MessageKey> = {
-    44: "markdown.width.narrow", 52: "markdown.width.normal",
-    72: "markdown.width.wide", 0: "markdown.width.full",
-  };
-  return labels[width] ? t(labels[width]) : `${width}rem`;
+  return PAGE_WIDTH_LABELS[width] ? t(PAGE_WIDTH_LABELS[width]) : `${width}rem`;
 }
 
 function clamp(n: number, min: number, max: number) {

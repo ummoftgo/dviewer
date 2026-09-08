@@ -8,7 +8,7 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 
 | View | Formats | What it does |
 | --- | --- | --- |
-| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle; four page-width presets and a settings slider; table column resizing, content fitting, and scrolling/fill-width modes |
+| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting, Mermaid, KaTeX. Raw/rendered toggle; a page-width dropdown and settings slider; table column resizing, content fitting, and scrolling/fill-width modes |
 | Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in grid subtabs (except XML) |
 | Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, header context menu for sorting, filtering one column and fitting its width (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |

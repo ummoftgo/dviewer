@@ -161,6 +161,7 @@ export const zhHans: Messages = {
   "markdown.width.normal": "标准 (52rem)",
   "markdown.width.wide": "宽 (72rem)",
   "markdown.width.full": "全宽",
+  "markdown.width.custom": "自定义 {width}rem",
   "markdown.width.current": "正文宽度：{width}",
   "settings.markdownTablesHint": "新打开文档的默认显示方式。",
   "markdown.table.scroll": "横向滚动",

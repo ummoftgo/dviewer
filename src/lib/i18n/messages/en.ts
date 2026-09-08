@@ -161,6 +161,7 @@ export const en: Messages = {
   "markdown.width.normal": "Normal (52rem)",
   "markdown.width.wide": "Wide (72rem)",
   "markdown.width.full": "Full width",
+  "markdown.width.custom": "Custom {width}rem",
   "markdown.width.current": "Page width: {width}",
   "settings.markdownTablesHint": "Default view for newly opened documents.",
   "markdown.table.scroll": "Horizontal scrolling",

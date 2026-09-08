@@ -166,6 +166,7 @@ export const ko = {
   "markdown.width.normal": "보통 (52rem)",
   "markdown.width.wide": "넓게 (72rem)",
   "markdown.width.full": "전체",
+  "markdown.width.custom": "사용자 지정 {width}rem",
   "markdown.width.current": "본문 너비: {width}",
   "settings.markdownTablesHint": "새로 여는 문서의 기본 보기 방식입니다.",
   "markdown.table.scroll": "가로 스크롤",

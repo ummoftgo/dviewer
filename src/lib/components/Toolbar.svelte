@@ -2,10 +2,12 @@
   import { onMount } from "svelte";
   import { formatBytes } from "../format";
   import Icon from "./Icon.svelte";
+  import ContextMenu from "./ContextMenu.svelte";
+  import type { MenuItem } from "./menu";
   import { DOC_KINDS, encodingChoices, readsBytes, warningMessage, type DocKind } from "../ipc";
   import { t } from "../i18n";
   import { workspace, type DocTab } from "../state/docs.svelte";
-  import { nextPageWidth, pageWidthLabel, settings } from "../state/settings.svelte";
+  import { pageWidthLabel, pageWidthOptions, settings } from "../state/settings.svelte";
 
   interface Props {
     tab: DocTab;
@@ -17,6 +19,27 @@
   let { tab, showToc, onToggleToc, onOpenSettings }: Props = $props();
 
   let encodings = $state<[string, string][]>([]);
+  let widthAt = $state<{ x: number; y: number } | null>(null);
+  let widthButton = $state<HTMLButtonElement>();
+
+  $effect(() => {
+    void tab.id;
+    void tab.mode;
+    widthAt = null;
+  });
+
+  function widthItems(): MenuItem[] {
+    return pageWidthOptions(settings.markdownPageWidth).map((option) => ({
+      key: String(option.width),
+      label: t(option.label, { width: option.width }),
+      icon: "fit-width",
+      checked: option.checked,
+      action: () => {
+        settings.markdownPageWidth = option.width;
+        settings.save();
+      },
+    }));
+  }
   onMount(() => {
     void encodingChoices().then((list) => (encodings = list));
   });
@@ -74,12 +97,14 @@
         </button>
       {/if}
       {#if tab.mode === "rendered"}
-        <button class="icon-btn" data-action="page-width" title={pageWidthTitle} aria-label={pageWidthTitle}
-          onclick={() => {
-            settings.markdownPageWidth = nextPageWidth(settings.markdownPageWidth);
-            settings.save();
+        <button class="icon-btn page-width" bind:this={widthButton} data-action="page-width"
+          title={pageWidthTitle} aria-label={pageWidthTitle} aria-haspopup="menu" aria-expanded={widthAt !== null}
+          onclick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            widthAt = { x: box.left, y: box.bottom };
           }}>
           <Icon name="fit-width" />
+          <Icon name="chevron-down" size={10} />
         </button>
       {/if}
     {/if}
@@ -137,7 +162,16 @@
   </div>
 </div>
 
+{#if widthAt}
+  <ContextMenu x={widthAt.x} y={widthAt.y} items={widthItems()} onClose={() => {
+    widthAt = null;
+    widthButton?.focus();
+  }} />
+{/if}
+
 <style>
+  .page-width { width: 2.25rem; gap: 0.1rem; }
+
   .toolbar {
     display: flex;
     align-items: center;

@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { nextPageWidth, pageWidthLabel, Settings } from "./settings.svelte";
-import { i18n } from "../i18n";
+import { pageWidthOptions, pageWidthLabel, Settings } from "./settings.svelte";
+import { i18n, t } from "../i18n";
 import { getValue, setValue } from "../persist";
 
 vi.mock("../persist", () => ({ getValue: vi.fn(), setValue: vi.fn() }));
@@ -44,14 +44,24 @@ test("save and reset include the table default", () => {
   expect(setValue).toHaveBeenLastCalledWith("settings", expect.objectContaining({ markdownTableMode: "scroll", markdownPageWidth: 52 }));
 });
 
-test("page width presets cycle from normal through full and back", () => {
-  let width = 52;
-  const sequence = Array.from({ length: 4 }, () => width = nextPageWidth(width));
-  expect(sequence).toEqual([72, 0, 44, 52]);
+test("page width menu keeps preset order and marks exactly the current value", () => {
+  for (const current of [44, 52, 72, 0]) {
+    const items = pageWidthOptions(current);
+    expect(items.map((item) => item.width)).toEqual([44, 52, 72, 0]);
+    expect(items.map((item) => item.label)).toEqual([
+      "markdown.width.narrow", "markdown.width.normal", "markdown.width.wide", "markdown.width.full",
+    ]);
+    expect(items.filter((item) => item.checked).map((item) => item.width)).toEqual([current]);
+  }
 });
 
-test("custom page widths advance to the next larger preset", () => {
-  expect([40, 48, 56, 68, 76, 120].map(nextPageWidth)).toEqual([44, 52, 72, 72, 0, 0]);
+test("custom page width is the fifth marked option without replacing a preset", () => {
+  for (const current of [40, 48, 60, 120]) {
+    const items = pageWidthOptions(current);
+    expect(items.map((item) => item.width)).toEqual([44, 52, 72, 0, current]);
+    expect(items.map((item) => item.checked)).toEqual([false, false, false, false, true]);
+    expect(items[4].label).toBe("markdown.width.custom");
+  }
 });
 
 test("page width labels describe the actual preset or custom value", () => {
@@ -61,6 +71,7 @@ test("page width labels describe the actual preset or custom value", () => {
     expect([44, 52, 72, 0, 60].map(pageWidthLabel)).toEqual([
       "Narrow (44rem)", "Normal (52rem)", "Wide (72rem)", "Full width", "60rem",
     ]);
+    expect(t(pageWidthOptions(60)[4].label, { width: 60 })).toBe("Custom 60rem");
   } finally { i18n.setting = locale; }
 });
 

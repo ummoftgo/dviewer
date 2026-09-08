@@ -161,6 +161,7 @@ export const ja: Messages = {
   "markdown.width.normal": "標準 (52rem)",
   "markdown.width.wide": "広い (72rem)",
   "markdown.width.full": "全幅",
+  "markdown.width.custom": "カスタム {width}rem",
   "markdown.width.current": "本文幅: {width}",
   "settings.markdownTablesHint": "新しく開く文書の既定の表示方式です。",
   "markdown.table.scroll": "横スクロール",
