@@ -1,6 +1,7 @@
 import { i18n, LOCALES, type Locale, type LocaleSetting } from "../i18n";
 import { errorMessage, systemFonts, type FontFamily } from "../ipc";
 import { getValue, setValue } from "../persist";
+import type { TableMode } from "../components/markdown/tables";
 
 export type ThemeMode = "auto" | "light" | "dark";
 
@@ -21,6 +22,7 @@ const DEFAULTS = {
   fontCodeFallback: "",
   inspectorWidth: 320,
   inspectorKeyRatio: 0.4,
+  markdownTableMode: "scroll" as TableMode,
 };
 
 type Persisted = typeof DEFAULTS;
@@ -28,7 +30,9 @@ type Persisted = typeof DEFAULTS;
 const STORE_KEY = "settings";
 
 /** Global display settings: theme, sizing, fonts. */
-class Settings {
+export class Settings {
+  private loading?: Promise<void>;
+  markdownTableMode = $state<TableMode>(DEFAULTS.markdownTableMode);
   /**
    * Kept in `i18n` rather than here, because `t()` has to read it and the
    * settings store imports too much to be reachable from there. This pair of
@@ -78,9 +82,19 @@ class Settings {
     return this.theme;
   }
 
-  async load() {
+  load(): Promise<void> {
+    return this.loading ??= this.read().catch((error) => {
+      console.warn("[dviewer] could not load settings:", error);
+    });
+  }
+
+  private async read() {
     const saved = await getValue<Partial<Persisted>>(STORE_KEY);
     if (!saved) return;
+
+    if (saved.markdownTableMode === "scroll" || saved.markdownTableMode === "fill") {
+      this.markdownTableMode = saved.markdownTableMode;
+    }
 
     if (saved.locale && (saved.locale === "system" || LOCALE_VALUES.includes(saved.locale))) {
       this.locale = saved.locale;
@@ -115,6 +129,7 @@ class Settings {
       fontCodeFallback: this.fontCodeFallback,
       inspectorWidth: this.inspectorWidth,
       inspectorKeyRatio: this.inspectorKeyRatio,
+      markdownTableMode: this.markdownTableMode,
     } satisfies Persisted);
   }
 

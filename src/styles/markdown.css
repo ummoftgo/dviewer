@@ -194,6 +194,60 @@
   background: color-mix(in srgb, var(--bg-subtle) 55%, transparent);
 }
 
+.markdown-body .table-wrap {
+  position: relative;
+  min-width: 0;
+  margin: 0 0 1em;
+  padding-top: 1.9rem;
+}
+
+.markdown-body .table-viewport { overflow-x: auto; }
+
+.markdown-body .table-viewport > table {
+  display: table;
+  max-width: none;
+  overflow: visible;
+  margin: 0;
+}
+
+.markdown-body .table-wrap[data-mode="fill"] :is(th, td) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body .table-tools {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.markdown-body .table-wrap:is(:hover, :focus-within) .table-tools { opacity: 1; }
+
+.markdown-body .table-tools button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.4rem;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.markdown-body .table-tools button:disabled { opacity: 0.45; cursor: default; }
+.markdown-body .table-tools svg { width: 1rem; height: 1rem; }
+
+@media print {
+  .markdown-body .table-tools { display: none; }
+  .markdown-body .table-wrap { padding-top: 0; }
+}
+
 /* --- media --------------------------------------------------------------- */
 
 .markdown-body img {

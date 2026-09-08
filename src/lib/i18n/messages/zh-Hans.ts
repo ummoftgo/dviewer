@@ -155,6 +155,13 @@ export const zhHans: Messages = {
   "escape.title": "转义序列 — 复制时会变成它代表的字符",
 
   // --- 마크다운 / markdown ---------------------------------------------------
+  "settings.markdownTables": "Markdown 表格",
+  "settings.markdownTablesHint": "新打开文档的默认显示方式。",
+  "markdown.table.scroll": "横向滚动",
+  "markdown.table.fill": "填满文档宽度",
+  "markdown.table.reset": "重置列宽",
+  "markdown.table.resize": "调整第 {column} 列的宽度",
+  "markdown.table.resizeHint": "拖动或使用左右方向键调整宽度。双击或按 Enter 可适应内容。",
   "markdown.rendering": "正在渲染文档…",
   "markdown.enhancing": "正在绘制图表与公式…",
   "markdown.rawLoading": "正在读取源码…",

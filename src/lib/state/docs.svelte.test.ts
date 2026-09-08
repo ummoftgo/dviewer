@@ -15,6 +15,9 @@
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DocKind, DocMeta, DocSource, TreeRow } from "../ipc";
+import { settings } from "./settings.svelte";
+
+vi.mock("../persist", () => ({ getValue: vi.fn(async () => undefined), setValue: vi.fn() }));
 
 /** Documents the fake backend has been asked to close. */
 const closed: number[] = [];
@@ -71,6 +74,37 @@ vi.mock("../ipc", async (importOriginal) => {
 
 const { DocTab, workspace } = await import("./docs.svelte");
 const ipc = await import("../ipc");
+
+test("a new document waits for settings and keeps its own default afterwards", async () => {
+  let resolve!: () => void;
+  const load = vi.spyOn(settings, "load").mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  settings.markdownTableMode = "scroll";
+  const opening = workspace.openPath("C:/first.md");
+  await Promise.resolve();
+  expect(workspace.tabs[0].status).toBe("opening");
+  settings.markdownTableMode = "fill";
+  resolve();
+  const first = (await opening)!;
+  expect(first.markdownTableMode).toBe("fill");
+  settings.markdownTableMode = "scroll";
+  const second = (await workspace.openPath("C:/second.md"))!;
+  expect(first.markdownTableMode).toBe("fill");
+  expect(second.markdownTableMode).toBe("scroll");
+  load.mockRestore();
+});
+
+test("table values survive raw and tab switches but not reinterpretation", async () => {
+  const tab = (await workspace.openPath("C:/table.md"))!;
+  const other = (await workspace.openPath("C:/other.md"))!;
+  tab.tables.set(0, { mode: "fill", scrollWidths: [80, 120], fillRatios: [40, 60] });
+  tab.mode = "raw";
+  workspace.activate(other.id);
+  workspace.activate(tab.id);
+  tab.mode = "rendered";
+  expect(tab.tables.get(0)).toEqual({ mode: "fill", scrollWidths: [80, 120], fillRatios: [40, 60] });
+  tab.invalidate();
+  expect(tab.tables.size).toBe(0);
+});
 
 describe("closing a document family", () => {
   const row = { id: 7, key: "items", index: null, kind: "array" } as TreeRow;

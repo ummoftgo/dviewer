@@ -29,11 +29,12 @@
     | "sort-desc"
     | "filter-off"
     | "fit-width"
+    | "scroll-x"
     | "warning"
     | "external"
     | "chevron-left";
 
-  const PATHS: Record<IconName, string> = {
+  export const ICON_PATHS: Record<IconName, string> = {
     file: "M4 2.5h5.5L13 6v7.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1Z M9.5 2.5V6H13",
     link: "M6.5 9.5a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-.8.8 M9.5 6.5a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l.8-.8",
     clipboard:
@@ -62,6 +63,7 @@
     "sort-desc": "M2.5 4h6 M2.5 8h4 M2.5 12h2 M12 3v9 M9.5 9.5 12 12l2.5-2.5",
     "filter-off": "M2.5 3.5h11L9.5 8.4v4.1l-3 1.5V8.4z M2 2l12 12",
     "fit-width": "M2 3v10 M14 3v10 M4 8h8 M6 5.5 3.5 8 6 10.5 M10 5.5 12.5 8 10 10.5",
+    "scroll-x": "M1.5 8h13 M4.5 5 1.5 8l3 3 M11.5 5l3 3-3 3",
     warning: "M8 2.5 14.5 13.5h-13L8 2.5Z M8 6.5v3.2 M8 11.6v.4",
   };
 
@@ -74,7 +76,7 @@
   }
 
   let { name, size = 16 }: Props = $props();
-  const path = $derived(PATHS[name]);
+  const path = $derived(ICON_PATHS[name]);
 </script>
 
 <svg

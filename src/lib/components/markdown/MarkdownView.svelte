@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { t } from "../../i18n";
+  import { untrack } from "svelte";
+  import { i18n, t } from "../../i18n";
   import { errorMessage, renderMarkdown } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
   import Toc from "./Toc.svelte";
-  import { interceptLinks, renderMath, renderMermaid, rewriteImages } from "./enhance";
+  import { enhanceTables, interceptLinks, renderMath, renderMermaid, rewriteImages, type EnhancedTables } from "./enhance";
 
   interface Props {
     tab: DocTab;
@@ -16,6 +17,7 @@
   let scroller = $state<HTMLElement>();
   let article = $state<HTMLElement>();
   let enhancing = $state(false);
+  let tables = $state<EnhancedTables>();
 
   // The HTML is sanitised in Rust before it reaches us — see markdown.rs.
   $effect(() => {
@@ -37,7 +39,8 @@
 
   $effect(() => {
     // Re-running on theme change is what keeps mermaid diagrams in step.
-    const html = tab.html;
+    const target = tab;
+    const html = target.html;
     const dark = settings.resolvedTheme === "dark";
     const host = article;
     if (!host || html === null) return;
@@ -51,6 +54,7 @@
       .catch((err) => console.warn("[dviewer] post-processing failed:", err))
       .finally(() => {
         if (cancelled) return;
+        tables = enhanceTables(host, target.tables, target.markdownTableMode);
         enhancing = false;
         // Restore the reading position only once the layout has settled.
         if (scroller) scroller.scrollTop = tab.scrollTop;
@@ -58,7 +62,17 @@
 
     return () => {
       cancelled = true;
+      tables?.destroy();
+      tables = undefined;
     };
+  });
+
+  $effect(() => {
+    // Geometry and translated controls change without replacing the document.
+    void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody,
+      settings.fontBodyFallback, settings.fontCode, settings.fontCodeFallback, i18n.locale];
+    const current = tables;
+    untrack(() => current?.refresh());
   });
 
   $effect(() => {

@@ -155,6 +155,13 @@ export const en: Messages = {
   "escape.title": "An escape sequence — copying gives the character it stands for",
 
   // --- 마크다운 / markdown ---------------------------------------------------
+  "settings.markdownTables": "Markdown tables",
+  "settings.markdownTablesHint": "Default view for newly opened documents.",
+  "markdown.table.scroll": "Horizontal scrolling",
+  "markdown.table.fill": "Fill document width",
+  "markdown.table.reset": "Reset widths",
+  "markdown.table.resize": "Resize column {column}",
+  "markdown.table.resizeHint": "Drag or use the left and right arrows to resize. Double-click or press Enter to fit the content.",
   "markdown.rendering": "Rendering the document…",
   "markdown.enhancing": "Drawing diagrams and formulas…",
   "markdown.rawLoading": "Reading the source…",

@@ -26,6 +26,8 @@ import { chainOf, opensAs, sameSource } from "../source";
 import { forgetDoc } from "../components/tree/actions";
 import { NodeHistory } from "./history.svelte";
 import { recents } from "./recents.svelte";
+import { settings } from "./settings.svelte";
+import type { TableState } from "../components/markdown/tables";
 
 export type ViewMode = "rendered" | "raw";
 
@@ -159,6 +161,9 @@ export class DocTab {
   busy = $state(false);
 
   // Markdown
+  /** DOM controls own their updates; keeping this non-reactive avoids rebuilding HTML mid-drag. */
+  readonly tables = new Map<number, TableState>();
+  markdownTableMode = settings.markdownTableMode;
   html = $state<string | null>(null);
   toc = $state<TocEntry[]>([]);
   raw = $state<string | null>(null);
@@ -267,6 +272,7 @@ export class DocTab {
   /** Drop derived state so the tab reloads from scratch on the next view. */
   invalidate() {
     this.order.reset();
+    this.tables.clear();
     this.html = null;
     this.toc = [];
     this.raw = null;
@@ -431,7 +437,10 @@ class Workspace {
     this.opening = true;
 
     try {
-      const loaded = await load();
+      const [loaded, tableMode] = await Promise.all([
+        load(),
+        settings.load().then(() => settings.markdownTableMode),
+      ]);
       // The reader can close a tab while it is still opening — a 500MB file
       // spends seconds here. The tab goes at once, but the document it was
       // waiting for arrives afterwards with nobody left to close it, and its
@@ -440,6 +449,7 @@ class Workspace {
         void ipc.closeDoc(loaded.id).catch(() => {});
         return null;
       }
+      tab.markdownTableMode = tableMode;
       tab.meta = loaded;
       tab.status = "ready";
       if (tab.meta.source.type === "file") {

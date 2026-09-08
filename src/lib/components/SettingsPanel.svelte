@@ -61,6 +61,21 @@
 
   <div class="body">
     <section>
+      <h3>{t("settings.markdownTables")}</h3>
+      {#each ["scroll", "fill"] as mode (mode)}
+        <label class="table-mode">
+          <input type="radio" name="markdown-table-mode" value={mode}
+            checked={settings.markdownTableMode === mode}
+            onchange={() => {
+              settings.markdownTableMode = mode as "scroll" | "fill";
+              settings.save();
+            }} />
+          {t(mode === "fill" ? "markdown.table.fill" : "markdown.table.scroll")}
+        </label>
+      {/each}
+      <p class="hint">{t("settings.markdownTablesHint")}</p>
+    </section>
+    <section>
       <h3>{t("update.title")}</h3>
       {#if updates.status}
         <label><input type="checkbox" checked={updates.status.check}
@@ -190,6 +205,7 @@
 </aside>
 
 <style>
+  .table-mode { display: flex; align-items: center; gap: 0.4rem; margin: 0.4rem 0; }
   .scrim {
     position: fixed;
     inset: 0;

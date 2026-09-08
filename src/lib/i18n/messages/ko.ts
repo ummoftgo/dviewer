@@ -160,6 +160,13 @@ export const ko = {
   "escape.title": "이스케이프 시퀀스 — 복사하면 실제 문자로 들어갑니다",
 
   // --- 마크다운 / markdown ---------------------------------------------------
+  "settings.markdownTables": "마크다운 표",
+  "settings.markdownTablesHint": "새로 여는 문서의 기본 보기 방식입니다.",
+  "markdown.table.scroll": "가로 스크롤",
+  "markdown.table.fill": "문서 너비 채우기",
+  "markdown.table.reset": "너비 초기화",
+  "markdown.table.resize": "열 {column} 너비 조절",
+  "markdown.table.resizeHint": "드래그하거나 좌우 화살표로 조절합니다. 두 번 누르거나 Enter로 내용에 맞춥니다.",
   "markdown.rendering": "문서를 렌더링하는 중…",
   "markdown.enhancing": "다이어그램과 수식을 그리는 중…",
   "markdown.rawLoading": "원문을 읽는 중…",

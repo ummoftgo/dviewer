@@ -10,6 +10,8 @@ import { t } from "../../i18n";
 import { toasts } from "../../state/toast.svelte";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DocMeta } from "../../ipc";
+import { ICON_PATHS } from "../Icon.svelte";
+import { fillWidths, rectangularColumns, type TableMode, type TableState } from "./tables";
 
 /** Collapse `.` and `..` segments so a path is safe to hand to the asset protocol. */
 function normalizeSegments(path: string): string {
@@ -163,4 +165,165 @@ export async function renderMath(root: HTMLElement) {
       node.title = err instanceof Error ? err.message : String(err);
     }
   }
+}
+
+export interface EnhancedTables {
+  refresh(): void;
+  destroy(): void;
+}
+
+const enhancedTables = new WeakMap<HTMLElement, EnhancedTables>();
+
+/** The tab owns values; this handle owns only the current DOM and its observers. */
+export function enhanceTables(root: HTMLElement, states: Map<number, TableState>, defaultMode: TableMode): EnhancedTables {
+  const existing = enhancedTables.get(root);
+  if (existing) return existing;
+  const layouts = new Map<Element, () => void>();
+  const refreshers: (() => void)[] = [];
+  const cleanups: (() => void)[] = [];
+  const pending = new Set<() => void>();
+  let frame = 0;
+  const schedule = (layout: () => void) => {
+    pending.add(layout);
+    frame ||= requestAnimationFrame(() => {
+      frame = 0;
+      for (const apply of pending) apply();
+      pending.clear();
+    });
+  };
+  const observer = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const layout = layouts.get(entry.target);
+      if (layout) schedule(layout);
+    }
+  });
+
+  root.querySelectorAll("table").forEach((table, index) => {
+    const count = rectangularColumns(table.rows);
+    if (!count || table.querySelector("table") || table.parentElement?.closest("table")) return;
+    const state = states.get(index) ?? { mode: defaultMode };
+    states.set(index, state);
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    wrap.dataset.table = String(index);
+    const viewport = document.createElement("div");
+    viewport.className = "table-viewport";
+    const toolbar = document.createElement("div");
+    toolbar.className = "table-tools";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.dataset.action = "mode";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.dataset.action = "reset";
+    toolbar.append(toggle, reset);
+    table.before(wrap);
+    viewport.append(table);
+    wrap.append(toolbar, viewport);
+
+    const oldGroups = [...table.children].filter((child) => child.tagName === "COLGROUP");
+    for (const group of oldGroups) group.remove();
+    const group = document.createElement("colgroup");
+    const cols = Array.from({ length: count }, () => document.createElement("col"));
+    group.append(...cols);
+    const caption = table.querySelector(":scope > caption");
+    if (caption) caption.after(group);
+    else table.prepend(group);
+    const cells = [...table.rows[0].cells];
+    let natural: number[] | undefined;
+    let border = 0;
+    let minimum = 0;
+
+    function labels() {
+      const next = state.mode === "scroll" ? "fill" : "scroll";
+      const label = t(`markdown.table.${next}`);
+      toggle.title = label;
+      toggle.setAttribute("aria-label", label);
+      toggle.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="${ICON_PATHS[next === "fill" ? "fit-width" : "scroll-x"]}" /></svg>`;
+      reset.textContent = t("markdown.table.reset");
+      reset.title = reset.textContent;
+      reset.disabled = !state.scrollWidths && !state.fillRatios;
+    }
+
+    function measure() {
+      wrap.dataset.mode = "scroll";
+      table.style.tableLayout = "auto";
+      table.style.width = "max-content";
+      for (const col of cols) col.style.width = "";
+      natural = cells.map((cell) => cell.getBoundingClientRect().width);
+      border = Math.max(0, table.getBoundingClientRect().width - natural.reduce((sum, width) => sum + width, 0));
+      minimum = Math.max(3 * parseFloat(getComputedStyle(document.documentElement).fontSize), ...cells.map((cell) => {
+        const css = getComputedStyle(cell);
+        return parseFloat(css.paddingLeft) + parseFloat(css.paddingRight) + 2;
+      }));
+    }
+
+    function applyWidths(widths: number[]) {
+      table.style.tableLayout = "fixed";
+      table.style.width = `${widths.reduce((sum, width) => sum + width, 0) + border}px`;
+      cols.forEach((col, column) => { col.style.width = `${widths[column]}px`; });
+    }
+
+    function layout() {
+      labels();
+      if (!table.checkVisibility() || viewport.clientWidth === 0) return;
+      const left = viewport.scrollLeft;
+      if (!natural) measure();
+      wrap.dataset.mode = state.mode;
+      if (state.mode === "fill") {
+        applyWidths(fillWidths(state.fillRatios ?? natural!, viewport.clientWidth - border, minimum));
+      } else if (state.scrollWidths) {
+        applyWidths(state.scrollWidths.map((width) => Math.max(minimum, width)));
+      } else {
+        table.style.tableLayout = "auto";
+        table.style.width = "max-content";
+        for (const col of cols) col.style.width = "";
+      }
+      viewport.scrollLeft = left;
+    }
+
+    toggle.onclick = () => {
+      state.mode = state.mode === "scroll" ? "fill" : "scroll";
+      layout();
+    };
+    reset.onclick = () => {
+      delete state.scrollWidths;
+      delete state.fillRatios;
+      natural = undefined;
+      layout();
+    };
+    refreshers.push(() => { natural = undefined; schedule(layout); });
+    layouts.set(viewport, layout);
+    observer.observe(viewport);
+    layout();
+    cleanups.push(() => {
+      toggle.onclick = reset.onclick = null;
+      group.remove();
+      table.prepend(...oldGroups);
+      table.style.removeProperty("width");
+      table.style.removeProperty("table-layout");
+      wrap.replaceWith(table);
+    });
+  });
+
+  const refresh = () => { for (const update of refreshers) update(); };
+  // Lazy images and a newly opened details element can change intrinsic widths.
+  root.addEventListener("load", refresh, true);
+  root.addEventListener("toggle", refresh, true);
+  document.fonts.addEventListener("loadingdone", refresh);
+  const handle = {
+    refresh,
+    destroy() {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      pending.clear();
+      root.removeEventListener("load", refresh, true);
+      root.removeEventListener("toggle", refresh, true);
+      document.fonts.removeEventListener("loadingdone", refresh);
+      for (const cleanup of cleanups) cleanup();
+      enhancedTables.delete(root);
+    },
+  };
+  enhancedTables.set(root, handle);
+  return handle;
 }

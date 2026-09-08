@@ -155,6 +155,13 @@ export const ja: Messages = {
   "escape.title": "エスケープシーケンス — コピーすると実際の文字になります",
 
   // --- 마크다운 / markdown ---------------------------------------------------
+  "settings.markdownTables": "マークダウンの表",
+  "settings.markdownTablesHint": "新しく開く文書の既定の表示方式です。",
+  "markdown.table.scroll": "横スクロール",
+  "markdown.table.fill": "文書の幅に合わせる",
+  "markdown.table.reset": "幅をリセット",
+  "markdown.table.resize": "列 {column} の幅を調整",
+  "markdown.table.resizeHint": "ドラッグまたは左右の矢印で調整します。ダブルクリックまたはEnterで内容に合わせます。",
   "markdown.rendering": "文書をレンダリング中…",
   "markdown.enhancing": "図と数式を描画中…",
   "markdown.rawLoading": "原文を読み込み中…",
