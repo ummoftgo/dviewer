@@ -184,7 +184,11 @@ export interface TocEntry {
 export interface RenderedMarkdown {
   html: string;
   toc: TocEntry[];
+  codeLanguages: Record<string, CodeLanguage>;
 }
+
+export interface CodeLanguage { name: string; unknown: string | null }
+export interface HighlightLanguage { name: string; tokens: string[] }
 
 export interface HighlightCss {
   light: string;
@@ -472,6 +476,14 @@ export function encodingChoices(): Promise<[string, string][]> {
 export const docSourceText = (docId: number) => invoke<string>("doc_source_text", { docId });
 export const renderMarkdown = (docId: number) =>
   invoke<RenderedMarkdown>("render_markdown", { docId });
+let languagesCache: Promise<HighlightLanguage[]> | null = null;
+export function highlightLanguages(): Promise<HighlightLanguage[]> {
+  return languagesCache ??= invoke<HighlightLanguage[]>("highlight_languages").catch((error) => {
+    languagesCache = null;
+    throw error;
+  });
+}
+export const highlightCode = (lang: string, code: string) => invoke<string>("highlight_code", { lang, code });
 export const highlightCss = () => invoke<HighlightCss>("highlight_css");
 export const systemFonts = () => invoke<FontFamily[]>("system_fonts");
 

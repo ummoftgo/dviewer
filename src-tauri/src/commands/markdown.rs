@@ -58,6 +58,27 @@ pub fn highlight_css() -> &'static HighlightCss {
     highlight::highlight_css()
 }
 
+#[tauri::command]
+pub async fn highlight_languages() -> Result<Vec<highlight::HighlightLanguage>> {
+    tauri::async_runtime::spawn_blocking(highlight::highlight_languages)
+        .await
+        .map_err(Error::internal)
+}
+
+#[tauri::command]
+pub async fn highlight_code(lang: String, code: String) -> Result<String> {
+    if code.len() > MAX_MARKDOWN_BYTES || lang.len() > MAX_MARKDOWN_BYTES {
+        return Err(Error::TooLarge {
+            subject: Subject::Markdown,
+            megabytes: code.len().max(lang.len()) / 1024 / 1024,
+            limit_mb: MAX_MARKDOWN_BYTES / 1024 / 1024,
+        });
+    }
+    tauri::async_runtime::spawn_blocking(move || highlight::highlight_code(&lang, &code))
+        .await
+        .map_err(Error::internal)
+}
+
 /// Installed font families, for the settings pickers. The first call walks the
 /// system font directories, so it runs off the UI thread.
 #[tauri::command]

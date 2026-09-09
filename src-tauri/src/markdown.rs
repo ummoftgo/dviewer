@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use comrak::nodes::{AstNode, NodeValue};
@@ -20,6 +21,7 @@ pub struct TocEntry {
 pub struct RenderedMarkdown {
     pub html: String,
     pub toc: Vec<TocEntry>,
+    pub code_languages: HashMap<String, highlight::CodeLanguage>,
 }
 
 fn options() -> &'static Options<'static> {
@@ -49,6 +51,7 @@ fn options() -> &'static Options<'static> {
         o.render.r#unsafe = true;
         o.render.tasklist_classes = true;
         o.render.figure_with_caption = true;
+        o.render.sourcepos = true;
 
         o
     })
@@ -60,6 +63,20 @@ pub fn render(source: &str) -> RenderedMarkdown {
     let root = comrak::parse_document(&arena, source, options);
 
     let toc = collect_toc(root);
+    let code_languages = root
+        .descendants()
+        .filter_map(|node| {
+            let data = node.data.borrow();
+            let NodeValue::CodeBlock(code) = &data.value else {
+                return None;
+            };
+            let lang = code.info.split_whitespace().next().unwrap_or_default();
+            Some((
+                data.sourcepos.to_string(),
+                highlight::code_language(lang, &code.literal),
+            ))
+        })
+        .collect();
 
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(highlight::highlighter());
@@ -72,6 +89,7 @@ pub fn render(source: &str) -> RenderedMarkdown {
     RenderedMarkdown {
         html: sanitizer().clean(&raw).to_string(),
         toc,
+        code_languages,
     }
 }
 
@@ -123,11 +141,21 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
         // Tasklists, collapsible sections and GFM alerts all need tags or
         // attributes ammonia strips by default.
         builder
-            .add_tags(["details", "summary", "input", "figure", "figcaption", "section"])
+            .add_tags([
+                "details",
+                "summary",
+                "input",
+                "figure",
+                "figcaption",
+                "section",
+            ])
             .add_tag_attributes("input", ["type", "checked", "disabled"])
             .add_tag_attributes("span", ["data-math-style"])
             .add_tag_attributes("code", ["data-math-style"])
-            .add_tag_attributes("a", ["aria-label", "data-heading-content", "data-footnote-ref"])
+            .add_tag_attributes(
+                "a",
+                ["aria-label", "data-heading-content", "data-footnote-ref"],
+            )
             .add_tag_attributes("li", ["data-footnote-backref", "data-footnote-backref-idx"])
             // Drop the bodies of these, not just their tags — otherwise the
             // page shows raw CSS or JS as prose.
@@ -138,6 +166,34 @@ fn sanitizer() -> &'static ammonia::Builder<'static> {
             // Relative image paths must survive — the frontend rewrites them to
             // the asset protocol once it knows the document's directory.
             .url_relative(ammonia::UrlRelative::PassThrough);
+
+        // Inline positions are byte columns too, but only whole blocks can be
+        // copied as original lines. Do not make this a generic attribute.
+        for tag in [
+            "p",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "ul",
+            "ol",
+            "li",
+            "pre",
+            "table",
+            "blockquote",
+            "details",
+            "figure",
+            "dl",
+            "dt",
+            "dd",
+            "section",
+            "hr",
+            "div",
+        ] {
+            builder.add_tag_attributes(tag, ["data-sourcepos"]);
+        }
 
         builder
     })
@@ -150,7 +206,7 @@ mod tests {
     #[test]
     fn renders_gfm_tables_and_tasklists() {
         let out = render("| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n");
-        assert!(out.html.contains("<table>"));
+        assert!(out.html.contains("<table data-sourcepos="));
         assert!(out.html.contains("task-list-item"));
         assert!(out.html.contains("type=\"checkbox\""));
     }
@@ -180,10 +236,22 @@ mod tests {
             let html = render(case).html;
             // Raw `<script>` is escaped to text by comrak's tagfilter, exactly
             // as GitHub does, so assert on what could actually execute.
-            assert!(!html.contains("<script"), "script tag survived: {case} -> {html}");
-            assert!(!html.contains("onerror"), "onerror survived: {case} -> {html}");
-            assert!(!html.contains("onclick"), "onclick survived: {case} -> {html}");
-            assert!(!html.contains("<iframe"), "iframe survived: {case} -> {html}");
+            assert!(
+                !html.contains("<script"),
+                "script tag survived: {case} -> {html}"
+            );
+            assert!(
+                !html.contains("onerror"),
+                "onerror survived: {case} -> {html}"
+            );
+            assert!(
+                !html.contains("onclick"),
+                "onclick survived: {case} -> {html}"
+            );
+            assert!(
+                !html.contains("<iframe"),
+                "iframe survived: {case} -> {html}"
+            );
             assert!(
                 !html.contains("javascript:"),
                 "javascript: url survived: {case} -> {html}"
@@ -213,17 +281,60 @@ mod tests {
         let ids: Vec<_> = out.toc.iter().map(|e| e.id.as_str()).collect();
         assert_eq!(ids, ["제목", "section", "section-1"]);
         for id in ids {
-            assert!(out.html.contains(&format!("id=\"{id}\"")), "missing id {id}");
+            assert!(
+                out.html.contains(&format!("id=\"{id}\"")),
+                "missing id {id}"
+            );
         }
     }
 
     #[test]
     fn math_is_marked_for_the_frontend() {
-        let out = render(r"inline $x^2$ and
+        let out = render(
+            r"inline $x^2$ and
 
 $$\int_0^1 x\,dx$$
-");
+",
+        );
         assert!(out.html.contains("data-math-style=\"inline\""));
         assert!(out.html.contains("data-math-style=\"display\""));
+    }
+    #[test]
+    fn positions_survive_on_paragraph_heading_code_table_and_list() {
+        for (source, tag, position) in [
+            ("abc\n", "p", "1:1-1:3"),
+            ("# abc\n", "h1", "1:1-1:5"),
+            ("~~~rust\nfn main() {}\n~~~\n", "pre", "1:1-3:3"),
+            ("| a |\n|---|\n| b |\n", "table", "1:1-3:5"),
+            ("- a\n- b\n", "ul", "1:1-2:3"),
+        ] {
+            let html = render(source).html;
+            assert!(
+                html.contains(&format!("<{tag}")) && html.contains(&format!("data-sourcepos=\"{position}\"")),
+                "{html}"
+            );
+        }
+    }
+    #[test]
+    fn inline_positions_and_arbitrary_data_are_removed() {
+        let html =
+            render("*abc* <span data-sourcepos=\"1:1-1:3\" data-evil=\"x\">def</span>\n").html;
+        assert!(html.contains("<em>abc</em>"));
+        assert!(html.contains("<span>def</span>"));
+        assert_eq!(html.matches("data-sourcepos").count(), 1);
+    }
+    #[test]
+    fn mermaid_keeps_position() {
+        let html = render("~~~mermaid\ngraph TD; A-->B;\n~~~\n").html;
+        assert!(html.contains("data-sourcepos=\"1:1-3:3\""));
+    }
+    #[test]
+    fn language_metadata_matches_rendered_fence_position() {
+        let out = render("~~~\n#!/bin/bash\necho hi\n~~~\n");
+        assert_eq!(
+            out.code_languages["1:1-4:3"].name,
+            "Bourne Again Shell (bash)"
+        );
+        assert!(out.html.contains("hl-"));
     }
 }

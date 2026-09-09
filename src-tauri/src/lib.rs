@@ -184,6 +184,8 @@ pub fn run() {
             commands::doc_source_text,
             commands::render_markdown,
             commands::highlight_css,
+            commands::highlight_languages,
+            commands::highlight_code,
             commands::system_fonts,
             commands::tree_open,
             commands::tree_rows,
