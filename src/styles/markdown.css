@@ -403,3 +403,12 @@
 .markdown-body > .block-copy svg { width: 100%; height: 100%; }
 .markdown-body > .block-copy:is([data-visible], :focus-visible) { opacity: 1; }
 .markdown-body > [data-dviewer-selected] { outline: 1px solid var(--accent); outline-offset: 0.15rem; }
+
+/* Both standard properties must be auto for Chromium's explicit scrollbar rules. */
+.markdown-body .table-viewport { scrollbar-width: auto; scrollbar-color: auto; }
+.markdown-body .table-wrap[data-mode="scroll"] > .table-viewport { overflow-x: scroll; }
+.markdown-body .table-viewport::-webkit-scrollbar { height: 10px; }
+.markdown-body .table-viewport::-webkit-scrollbar-track { background: var(--bg-subtle); }
+.markdown-body .table-viewport::-webkit-scrollbar-thumb {
+  background: var(--text-muted); border: 2px solid var(--bg-subtle); border-radius: 5px;
+}

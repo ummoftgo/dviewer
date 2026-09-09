@@ -63,7 +63,7 @@
   <div class="body">
     <section>
       <h3>{t("settings.markdownTables")}</h3>
-      {#each ["scroll", "fill"] as mode (mode)}
+      {#each ["fill", "scroll"] as mode (mode)}
         <label class="table-mode">
           <input type="radio" name="markdown-table-mode" value={mode}
             checked={settings.markdownTableMode === mode}

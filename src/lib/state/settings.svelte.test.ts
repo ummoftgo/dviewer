@@ -12,7 +12,7 @@ test("concurrent settings loads wait for the same saved default", async () => {
   const settings = new Settings();
   const first = settings.load();
   expect(settings.load()).toBe(first);
-  expect(settings.markdownTableMode).toBe("scroll");
+  expect(settings.markdownTableMode).toBe("fill");
   resolve({ markdownTableMode: "fill", markdownPageWidth: 72 });
   await first;
   expect(settings.markdownTableMode).toBe("fill");
@@ -25,11 +25,11 @@ test("concurrent settings loads wait for the same saved default", async () => {
   expect(getValue).toHaveBeenCalledTimes(1);
 });
 
-test.each([undefined, { markdownTableMode: "invalid" }])("missing or invalid table mode keeps scrolling: %s", async (saved) => {
+test.each([undefined, { markdownTableMode: "invalid" }])("missing or invalid table mode defaults to fill: %s", async (saved) => {
   vi.mocked(getValue).mockResolvedValueOnce(saved);
   const settings = new Settings();
   await settings.load();
-  expect(settings.markdownTableMode).toBe("scroll");
+  expect(settings.markdownTableMode).toBe("fill");
 });
 
 test("save and reset include the table default", () => {
@@ -39,9 +39,9 @@ test("save and reset include the table default", () => {
   settings.save();
   expect(setValue).toHaveBeenLastCalledWith("settings", expect.objectContaining({ markdownTableMode: "fill", markdownPageWidth: 0 }));
   settings.reset();
-  expect(settings.markdownTableMode).toBe("scroll");
+  expect(settings.markdownTableMode).toBe("fill");
   expect(settings.markdownPageWidth).toBe(52);
-  expect(setValue).toHaveBeenLastCalledWith("settings", expect.objectContaining({ markdownTableMode: "scroll", markdownPageWidth: 52 }));
+  expect(setValue).toHaveBeenLastCalledWith("settings", expect.objectContaining({ markdownTableMode: "fill", markdownPageWidth: 52 }));
 });
 
 test("page width menu keeps preset order and marks exactly the current value", () => {
@@ -98,7 +98,14 @@ test("unreadable settings resolve to defaults so document opening can continue",
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const settings = new Settings();
   await expect(settings.load()).resolves.toBeUndefined();
-  expect(settings.markdownTableMode).toBe("scroll");
+  expect(settings.markdownTableMode).toBe("fill");
   expect(warn).toHaveBeenCalledOnce();
   warn.mockRestore();
+});
+
+test("a saved scroll default survives the new fill default", async () => {
+  vi.mocked(getValue).mockResolvedValueOnce({ markdownTableMode: "scroll" });
+  const settings = new Settings();
+  await settings.load();
+  expect(settings.markdownTableMode).toBe("scroll");
 });

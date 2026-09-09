@@ -22,7 +22,7 @@ const DEFAULTS = {
   fontCodeFallback: "",
   inspectorWidth: 320,
   inspectorKeyRatio: 0.4,
-  markdownTableMode: "scroll" as TableMode,
+  markdownTableMode: "fill" as TableMode,
   markdownPageWidth: 52,
 };
 
