@@ -10,14 +10,14 @@ export interface CodeControl {
   select(name: string): Promise<void>;
 }
 const enhanced = new WeakMap<HTMLElement, ReturnType<typeof createControls>>();
-export function enhanceCode(root: HTMLElement, tab: DocTab, open: (control: CodeControl) => void) {
+export function enhanceCode(root: HTMLElement, tab: DocTab, open: (control: CodeControl) => void, highlight = highlightCode) {
   const existing = enhanced.get(root);
   if (existing) return existing;
-  const handle = createControls(root, tab, open);
+  const handle = createControls(root, tab, open, highlight);
   enhanced.set(root, handle);
   return handle;
 }
-function createControls(root: HTMLElement, tab: DocTab, open: (control: CodeControl) => void) {
+function createControls(root: HTMLElement, tab: DocTab, open: (control: CodeControl) => void, highlight: typeof highlightCode) {
   const revision = tab.markdownRevision;
   let alive = true;
   const refreshers: (() => void)[] = [];
@@ -49,7 +49,7 @@ function createControls(root: HTMLElement, tab: DocTab, open: (control: CodeCont
         tab.codeSelections.set(index, name);
         const current = () => alive && revision === tab.markdownRevision && seq === request && code.isConnected;
         try {
-          const html = await highlightCode(name, source);
+          const html = await highlight(name, source);
           if (!current()) return;
           code.innerHTML = html;
           language = { name, unknown: null };

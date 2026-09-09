@@ -66,15 +66,18 @@ pub fn render(source: &str) -> RenderedMarkdown {
     let code_languages = root
         .descendants()
         .filter_map(|node| {
-            let data = node.data.borrow();
-            let NodeValue::CodeBlock(code) = &data.value else {
+            let mut data = node.data.borrow_mut();
+            let NodeValue::CodeBlock(code) = &mut data.value else {
                 return None;
             };
+            // The adapter gets an empty language for indented blocks too.
+            // Only unlabelled fences opt into first-line detection.
+            if !code.fenced {
+                code.info = "text".into();
+            }
             let lang = code.info.split_whitespace().next().unwrap_or_default();
-            Some((
-                data.sourcepos.to_string(),
-                highlight::code_language(lang, &code.literal),
-            ))
+            let language = highlight::code_language(lang, &code.literal);
+            Some((data.sourcepos.to_string(), language))
         })
         .collect();
 
@@ -310,7 +313,8 @@ $$\int_0^1 x\,dx$$
         ] {
             let html = render(source).html;
             assert!(
-                html.contains(&format!("<{tag}")) && html.contains(&format!("data-sourcepos=\"{position}\"")),
+                html.contains(&format!("<{tag}"))
+                    && html.contains(&format!("data-sourcepos=\"{position}\"")),
                 "{html}"
             );
         }
@@ -336,5 +340,14 @@ $$\int_0^1 x\,dx$$
             "Bourne Again Shell (bash)"
         );
         assert!(out.html.contains("hl-"));
+    }
+    #[test]
+    fn indented_code_does_not_opt_into_first_line_detection() {
+        let out = render("    #!/bin/bash\n    echo hi\n");
+        assert_eq!(
+            out.code_languages.values().next().unwrap().name,
+            "Plain Text"
+        );
+        assert!(out.html.contains("language-text"));
     }
 }

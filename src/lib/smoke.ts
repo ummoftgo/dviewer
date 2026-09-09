@@ -15,6 +15,7 @@
 import * as ipc from "./ipc";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
+import { checkMarkdownCopy, measureMarkdown } from "./components/markdown/smoke";
 import { enhanceTables } from "./components/markdown/enhance";
 import { settings } from "./state/settings.svelte";
 
@@ -182,6 +183,7 @@ export async function runSmoke(): Promise<void> {
   for (const step of plan) {
     const started = Date.now();
     let outcome: Outcome;
+    let metrics: unknown;
 
     const tab = await workspace.openPath(step.path);
     if (!tab) {
@@ -197,9 +199,14 @@ export async function runSmoke(): Promise<void> {
       if (outcome.ok && step.file === "sample.md") {
         try {
           await checkMarkdownTables(tab);
+          await checkMarkdownCopy(tab);
         } catch (error) {
           outcome = { ok: false, stage: "markdownTables", error: ipc.errorMessage(error) };
         }
+      }
+      if (outcome.ok && step.file === 'long-markdown.md') {
+        try { metrics = await measureMarkdown(tab); }
+        catch (error) { outcome = { ok: false, stage: 'markdownBenchmark', error: ipc.errorMessage(error) }; }
       }
       if (outcome.ok && step.then) {
         try { outcome = await follow(tab, step.then); }
@@ -210,6 +217,7 @@ export async function runSmoke(): Promise<void> {
     await ipc.smokeReport(
       {
         file: step.file,
+        metrics,
         expect: step.expect,
         stage: outcome.stage,
         view: outcome.view,

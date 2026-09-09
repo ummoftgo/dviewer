@@ -349,6 +349,31 @@ ${"가로로 아주 긴 줄 ".repeat(30)}
 await writeFile(path.join(OUT, "sample.md"), markdown);
 console.log("  sample.md");
 
+// M25: fixed counts make the post-processing benchmark reproducible.
+let longMarkdown = '';
+for (let index = 0; index < 200; index++) {
+  longMarkdown += `## Section ${index + 1}\n\nParagraph ${index + 1}: original source and rendered content.\n\n`;
+  if (index % 2 === 0) longMarkdown += `~~~${index % 6 === 0 ? '' : index % 6 === 2 ? 'json' : 'unknown-language'}\n${index % 6 === 0 ? '#!/bin/bash\necho hello' : '{"value": 42}'}\n~~~\n\n`;
+  if (index % 10 === 0) longMarkdown += '| key | value | note |\n|---|---|---|\n| a | 42 | original text |\n\n';
+}
+await writeFile(path.join(OUT, 'long-markdown.md'), longMarkdown);
+await writeFile(path.join(OUT, 'markdown-copy.md'), [
+  '# Heading A', '', 'Paragraph 한글😀 with *emphasis* and [reference][ref].', '',
+  '## Child', '', '- first', '- second', '',
+  '~~~', '#!/bin/bash', 'echo hello', '~~~', '',
+  '~~~', '<?xml version="1.0"?>', '<root />', '~~~', '',
+  '~~~foo', '{"value": 42}', '~~~', '',
+  '~~~json', '{"value": 42}', '~~~', '',
+  '~~~mermaid', 'graph TD; A-->B;', '~~~', '', '$x^2$', '',
+  '| a | b |', '|---|---|', '| 1 | 2 |', '',
+  '<details><summary>Details</summary><p>Raw HTML body</p></details>', '',
+  '<h1>A</h1><p>B</p>', '',
+  '<p class="table-tools">Author class must survive HTML copy.</p>', '',
+  '<p data-sourcepos="999:1-999:9">Invalid position</p>', '',
+  '[ref]: ./target.md', '', '# Heading B', '', 'Last paragraph.', '',
+].join('\r\n'));
+console.log('  long-markdown.md / markdown-copy.md');
+
 // --- gzip ---------------------------------------------------------------
 //
 // After the documents it compresses, and that is not an accident: these are
@@ -1181,6 +1206,8 @@ console.log("  zip64.zip");
 const SMOKE = [
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
+  { file: "long-markdown.md", expect: "prose" },
+  { file: "markdown-copy.md", expect: "prose" },
   { file: "small.json", expect: "tree", then: "treeAsTable" },
   { file: "grid-cases.json", expect: "tree" },
   { file: "2026-09-quarterly-revenue-report-final.json", expect: "tree" },

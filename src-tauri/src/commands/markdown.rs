@@ -89,3 +89,20 @@ pub async fn system_fonts() -> Result<&'static [FontFamily]> {
             detail: e.to_string(),
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rehighlighting_refuses_oversized_code_and_language_before_work() {
+        for (lang, code) in [
+            ("rust".to_owned(), "a".repeat(MAX_MARKDOWN_BYTES + 1)),
+            ("a".repeat(MAX_MARKDOWN_BYTES + 1), String::new()),
+        ] {
+            assert!(matches!(
+                tauri::async_runtime::block_on(highlight_code(lang, code)),
+                Err(Error::TooLarge { limit_mb: 16, .. })
+            ));
+        }
+    }
+}

@@ -138,7 +138,9 @@
       const raw = await target.loadRaw();
       if (target !== tab || revision !== target.markdownRevision || !button.isConnected) return;
       const box = button.getBoundingClientRect();
-      copyAt = { x: box.left, y: box.bottom, index, raw: rawBlock(raw, blocks, index) !== null };
+      const available = rawBlock(raw, blocks, index) !== null;
+      if (!available) toasts.show(t('markdown.copy.noSource'), 'info');
+      copyAt = { x: box.left, y: box.bottom, index, raw: available };
     } catch { toasts.show(t('toast.copyFailed'), 'error'); }
   }
   function chooseCopy(index: number, format: 'raw' | 'html') {
@@ -150,7 +152,7 @@
     const { index, raw } = copyAt;
     const items: MenuItem[] = [
       { label: t('markdown.copy.raw'), icon: 'copy', disabled: !raw,
-        hint: raw ? undefined : t('markdown.copy.noSource'), action: () => chooseCopy(index, 'raw') },
+        action: () => chooseCopy(index, 'raw') },
       { label: t('markdown.copy.html'), icon: 'copy', action: () => chooseCopy(index, 'html') },
     ];
     const code = blocks[index]?.code;

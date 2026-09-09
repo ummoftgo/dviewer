@@ -50,7 +50,10 @@ export async function copyMarkdown(tab: DocTab, format: 'raw' | 'html', index?: 
       root.innerHTML = html ?? '';
       const selected = rawBlock(raw, blockElements(root).map(blockDescription), index, children);
       if (selected === null && format === 'raw') { toasts.show(t('markdown.copy.noSource'), 'info'); return; }
-      text = selected ?? blockElements(root)[index]?.textContent ?? '';
+      if (selected === null) {
+        root.innerHTML = htmlForCopy(html ?? '', index, children);
+        text = root.textContent ?? '';
+      } else text = selected;
     }
     if (format === 'html') {
       if (html === null) throw new Error(t('toast.copyFailed'));
