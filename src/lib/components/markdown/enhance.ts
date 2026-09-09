@@ -4,6 +4,7 @@
  * Rust does the parsing, sanitising and syntax highlighting; the browser
  * resolves image paths, lays out diagrams, typesets maths and sizes table columns.
  */
+import { transferBlock } from "./blockControls";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { t } from "../../i18n";
 import { toasts } from "../../state/toast.svelte";
@@ -37,6 +38,7 @@ export function rewriteImages(root: HTMLElement, meta: DocMeta) {
   for (const img of root.querySelectorAll("img")) {
     const src = img.getAttribute("src") ?? "";
     if (!src) continue;
+    img.dataset.dviewerSrc ??= src;
 
     if (!isAbsolute(src)) {
       if (meta.source.type === "file" && meta.baseDir) {
@@ -133,6 +135,7 @@ export async function renderMermaid(root: HTMLElement, dark: boolean) {
         pre.textContent = source;
         container.append(pre);
       }
+      transferBlock(block, container);
       block.replaceWith(container);
     }),
   );
@@ -158,6 +161,7 @@ export async function renderMath(root: HTMLElement) {
       });
       const wrapper = document.createElement(displayMode ? "div" : "span");
       wrapper.innerHTML = html;
+      transferBlock(node, wrapper);
       node.replaceWith(wrapper);
     } catch (err) {
       node.classList.add("math-error");
@@ -204,11 +208,15 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     states.set(index, state);
     const wrap = document.createElement("div");
     wrap.className = "table-wrap";
+    wrap.dataset.dviewerWrap = "table";
+    transferBlock(table, wrap);
     wrap.dataset.table = String(index);
     const viewport = document.createElement("div");
     viewport.className = "table-viewport";
+    viewport.dataset.dviewerWrap = "viewport";
     const toolbar = document.createElement("div");
     toolbar.className = "table-tools";
+    toolbar.dataset.dviewerUi = "table-tools";
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.dataset.action = "mode";
@@ -223,6 +231,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     const oldGroups = [...table.children].filter((child) => child.tagName === "COLGROUP");
     for (const group of oldGroups) group.remove();
     const group = document.createElement("colgroup");
+    group.dataset.dviewerUi = "column-widths";
     const cols = Array.from({ length: count }, () => document.createElement("col"));
     for (const col of cols) group.append(col);
     const caption = table.querySelector(":scope > caption");
@@ -235,6 +244,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     const grips = cells.map((cell, column) => {
       const grip = document.createElement("span");
       grip.className = "table-grip";
+      grip.dataset.dviewerUi = "column-resize";
       grip.setAttribute("role", "separator");
       grip.setAttribute("aria-orientation", "vertical");
       cell.append(grip);

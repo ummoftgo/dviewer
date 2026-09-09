@@ -4,6 +4,14 @@
   import { errorMessage, renderMarkdown } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
+  import ContextMenu from '../ContextMenu.svelte';
+  import type { MenuItem } from '../menu';
+  import CopyDialog from './CopyDialog.svelte';
+  import { enhanceBlocks, markBlocks, type BlockInfo } from './blockControls';
+  import { rawBlock } from './blocks';
+  import { copyMarkdown } from './copy';
+  import { copyText } from '../../clipboard';
+  import { toasts } from '../../state/toast.svelte';
   import Toc from "./Toc.svelte";
   import { enhanceTables, interceptLinks, renderMath, renderMermaid, rewriteImages, type EnhancedTables } from "./enhance";
 
@@ -16,24 +24,31 @@
 
   let scroller = $state<HTMLElement>();
   let article = $state<HTMLElement>();
+  let blocks: BlockInfo[] = [];
+  let controls = $state<ReturnType<typeof enhanceBlocks>>();
+  let copyAt = $state<{ x: number; y: number; index: number; raw: boolean } | null>(null);
+  let headingCopy = $state<{ index: number; format: 'raw' | 'html'; revision: number } | null>(null);
   let enhancing = $state(false);
   let tables = $state<EnhancedTables>();
 
   // The HTML is sanitised in Rust before it reaches us — see markdown.rs.
   $effect(() => {
     const target = tab;
+    const revision = target.markdownRevision;
     if (target.html !== null || target.error) return;
     target.busy = true;
     renderMarkdown(target.id)
       .then((rendered) => {
+        if (target.markdownRevision !== revision) return;
+        target.codeLanguages = rendered.codeLanguages;
         target.html = rendered.html;
         target.toc = rendered.toc;
       })
       .catch((err) => {
-        target.error = errorMessage(err);
+        if (target.markdownRevision === revision) target.error = errorMessage(err);
       })
       .finally(() => {
-        target.busy = false;
+        if (target.markdownRevision === revision) target.busy = false;
       });
   });
 
@@ -46,6 +61,7 @@
     if (!host || html === null) return;
 
     host.innerHTML = html;
+    blocks = markBlocks(host);
     rewriteImages(host, tab.meta);
 
     let cancelled = false;
@@ -55,6 +71,7 @@
       .finally(() => {
         if (cancelled) return;
         tables = enhanceTables(host, target.tables, target.markdownTableMode);
+        controls = enhanceBlocks(host, openCopy);
         enhancing = false;
         // Restore the reading position only once the layout has settled.
         if (scroller) scroller.scrollTop = tab.scrollTop;
@@ -62,6 +79,10 @@
 
     return () => {
       cancelled = true;
+      controls?.destroy();
+      controls = undefined;
+      copyAt = null;
+      headingCopy = null;
       tables?.destroy();
       tables = undefined;
     };
@@ -72,7 +93,7 @@
     void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody,
       settings.fontBodyFallback, settings.fontCode, settings.fontCodeFallback, i18n.locale];
     const current = tables;
-    untrack(() => current?.refresh());
+    untrack(() => { current?.refresh(); controls?.refresh(); });
   });
 
   $effect(() => {
@@ -80,6 +101,39 @@
     if (!host) return;
     return interceptLinks(host, scrollToAnchor);
   });
+
+  async function openCopy(index: number, button: HTMLButtonElement) {
+    const target = tab;
+    const revision = target.markdownRevision;
+    try {
+      const raw = await target.loadRaw();
+      if (target !== tab || revision !== target.markdownRevision || !button.isConnected) return;
+      const box = button.getBoundingClientRect();
+      copyAt = { x: box.left, y: box.bottom, index, raw: rawBlock(raw, blocks, index) !== null };
+    } catch { toasts.show(t('toast.copyFailed'), 'error'); }
+  }
+  function chooseCopy(index: number, format: 'raw' | 'html') {
+    if (blocks[index]?.level) headingCopy = { index, format, revision: tab.markdownRevision };
+    else void copyMarkdown(tab, format, index);
+  }
+  function copyItems(): MenuItem[] {
+    if (!copyAt) return [];
+    const { index, raw } = copyAt;
+    const items: MenuItem[] = [
+      { label: t('markdown.copy.raw'), icon: 'copy', disabled: !raw,
+        hint: raw ? undefined : t('markdown.copy.noSource'), action: () => chooseCopy(index, 'raw') },
+      { label: t('markdown.copy.html'), icon: 'copy', action: () => chooseCopy(index, 'html') },
+    ];
+    const code = blocks[index]?.code;
+    if (code !== null && code !== undefined) items.push({ label: t('markdown.copy.code'), icon: 'copy', action: () => {
+      void copyText(code).then(() => {
+        let count = 0;
+        for (const _ of code) count++;
+        toasts.show(t('markdown.copy.codeDone', { n: count }));
+      }).catch(() => toasts.show(t('toast.copyFailed'), 'error'));
+    } });
+    return items;
+  }
 
   function scrollToAnchor(id: string) {
     const target = article?.querySelector(`#${CSS.escape(id)}`);
@@ -110,6 +164,19 @@
     <Toc entries={tab.toc} onSelect={scrollToAnchor} />
   {/if}
 </div>
+
+{#if copyAt}
+  <ContextMenu x={copyAt.x} y={copyAt.y} items={copyItems()}
+    onClose={() => { copyAt = null; controls?.button.focus(); }} />
+{/if}
+{#if headingCopy}
+  <CopyDialog heading onChoose={(choice) => {
+    const request = headingCopy;
+    headingCopy = null;
+    if (request && request.revision === tab.markdownRevision) void copyMarkdown(tab, request.format, request.index, choice === 'section');
+    controls?.button.focus();
+  }} onClose={() => { headingCopy = null; controls?.button.focus(); }} />
+{/if}
 
 <style>
   .layout {

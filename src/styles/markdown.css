@@ -392,3 +392,14 @@
   font-family: var(--font-code);
   font-size: 0.9em;
 }
+
+.markdown-body { position: relative; }
+.markdown-body > .block-copy {
+  position: absolute; transform: translateX(calc(-100% - 0.35rem)); margin-top: 0.35em;
+  display: grid; place-items: center; width: 1.65rem; height: 1.65rem; padding: 0.3rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated);
+  color: var(--text-muted); opacity: 0; z-index: 2;
+}
+.markdown-body > .block-copy svg { width: 100%; height: 100%; }
+.markdown-body > .block-copy:is([data-visible], :focus-visible) { opacity: 1; }
+.markdown-body > [data-dviewer-selected] { outline: 1px solid var(--accent); outline-offset: 0.15rem; }
