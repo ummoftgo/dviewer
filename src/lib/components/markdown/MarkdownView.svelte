@@ -1,9 +1,12 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { i18n, t } from "../../i18n";
-  import { errorMessage, renderMarkdown } from "../../ipc";
+  import { errorMessage, renderMarkdown, highlightLanguages, type HighlightLanguage } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
+  import { enhanceCode, type CodeControl } from './codeControls';
+  import { favoriteLanguages } from './code';
+  import LanguageDialog from './LanguageDialog.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import type { MenuItem } from '../menu';
   import CopyDialog from './CopyDialog.svelte';
@@ -25,6 +28,10 @@
   let scroller = $state<HTMLElement>();
   let article = $state<HTMLElement>();
   let blocks: BlockInfo[] = [];
+  let codeControls = $state<ReturnType<typeof enhanceCode>>();
+  let languages = $state<HighlightLanguage[]>([]);
+  let codeAt = $state<{ x: number; y: number; control: CodeControl } | null>(null);
+  let languageTarget = $state<CodeControl | null>(null);
   let controls = $state<ReturnType<typeof enhanceBlocks>>();
   let copyAt = $state<{ x: number; y: number; index: number; raw: boolean } | null>(null);
   let headingCopy = $state<{ index: number; format: 'raw' | 'html'; revision: number } | null>(null);
@@ -72,6 +79,7 @@
         if (cancelled) return;
         tables = enhanceTables(host, target.tables, target.markdownTableMode);
         controls = enhanceBlocks(host, openCopy);
+        codeControls = enhanceCode(host, target, openLanguage);
         enhancing = false;
         // Restore the reading position only once the layout has settled.
         if (scroller) scroller.scrollTop = tab.scrollTop;
@@ -79,6 +87,10 @@
 
     return () => {
       cancelled = true;
+      codeControls?.destroy();
+      codeControls = undefined;
+      codeAt = null;
+      languageTarget = null;
       controls?.destroy();
       controls = undefined;
       copyAt = null;
@@ -93,7 +105,7 @@
     void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody,
       settings.fontBodyFallback, settings.fontCode, settings.fontCodeFallback, i18n.locale];
     const current = tables;
-    untrack(() => { current?.refresh(); controls?.refresh(); });
+    untrack(() => { current?.refresh(); controls?.refresh(); codeControls?.refresh(); });
   });
 
   $effect(() => {
@@ -101,6 +113,23 @@
     if (!host) return;
     return interceptLinks(host, scrollToAnchor);
   });
+
+  async function openLanguage(control: CodeControl) {
+    try {
+      languages = await highlightLanguages();
+      if (!control.button.isConnected) return;
+      const box = control.button.getBoundingClientRect();
+      codeAt = { x: box.right, y: box.bottom, control };
+    } catch { toasts.show(t('markdown.code.failed'), 'error'); }
+  }
+  function languageItems(): MenuItem[] {
+    if (!codeAt) return [];
+    const control = codeAt.control;
+    return [...favoriteLanguages(languages).map((language) => ({
+      label: language.name, checked: control.language.name === language.name,
+      action: () => { void control.select(language.name); },
+    })), { label: t('markdown.code.all'), action: () => { languageTarget = control; } }];
+  }
 
   async function openCopy(index: number, button: HTMLButtonElement) {
     const target = tab;
@@ -165,6 +194,17 @@
   {/if}
 </div>
 
+{#if codeAt}
+  <ContextMenu x={codeAt.x} y={codeAt.y} items={languageItems()}
+    onClose={() => { codeAt?.control.button.focus(); codeAt = null; }} />
+{/if}
+{#if languageTarget}
+  <LanguageDialog {languages} current={languageTarget.language.name} onChoose={(name) => {
+    const target = languageTarget;
+    languageTarget = null;
+    if (target) { void target.select(name); target.button.focus(); }
+  }} onClose={() => { languageTarget?.button.focus(); languageTarget = null; }} />
+{/if}
 {#if copyAt}
   <ContextMenu x={copyAt.x} y={copyAt.y} items={copyItems()}
     onClose={() => { copyAt = null; controls?.button.focus(); }} />

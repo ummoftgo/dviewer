@@ -412,3 +412,13 @@
 .markdown-body .table-viewport::-webkit-scrollbar-thumb {
   background: var(--text-muted); border: 2px solid var(--bg-subtle); border-radius: 5px;
 }
+
+.markdown-body pre { position: relative; }
+.markdown-body .code-language {
+  position: absolute; top: 0.3rem; right: 0.4rem; max-width: min(80%, 22rem);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated);
+  color: var(--text-muted); font: 0.75rem var(--font-ui); opacity: 0;
+}
+.markdown-body pre:is(:hover, :focus-within) > .code-language { opacity: 1; }
+@media print { .markdown-body :is(.block-copy, .code-language) { display: none; } }
