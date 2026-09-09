@@ -28,3 +28,13 @@ export async function copyText(text: string): Promise<void> {
     scratch.remove();
   }
 }
+
+/** Both MIME types must succeed together; a plain-only fallback would lie about HTML. */
+export async function copyHtml(html: string, plain: string): Promise<void> {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined'
+      || (ClipboardItem.supports && !ClipboardItem.supports('text/html'))) throw new Error(t('toast.copyFailed'));
+  await navigator.clipboard.write([new ClipboardItem({
+    'text/html': new Blob([html], { type: 'text/html' }),
+    'text/plain': new Blob([plain], { type: 'text/plain' }),
+  })]);
+}

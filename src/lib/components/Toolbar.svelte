@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { formatBytes } from "../format";
+  import CopyDialog from "./markdown/CopyDialog.svelte";
+  import { copyMarkdown } from "./markdown/copy";
   import Icon from "./Icon.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import type { MenuItem } from "./menu";
@@ -18,6 +20,8 @@
 
   let { tab, showToc, onToggleToc, onOpenSettings }: Props = $props();
 
+  let copyTarget = $state<{ tab: DocTab; revision: number } | null>(null);
+  let copyButton = $state<HTMLButtonElement>();
   let encodings = $state<[string, string][]>([]);
   let widthAt = $state<{ x: number; y: number } | null>(null);
   let widthButton = $state<HTMLButtonElement>();
@@ -26,6 +30,7 @@
     void tab.id;
     void tab.mode;
     widthAt = null;
+    copyTarget = null;
   });
 
   function widthItems(): MenuItem[] {
@@ -85,6 +90,13 @@
         </button>
       </div>
 
+      <button class="icon-btn" data-action="copy-markdown" bind:this={copyButton}
+        title={t('markdown.copy.all')} aria-label={t('markdown.copy.all')}
+        disabled={tab.mode === 'rendered' && tab.html === null}
+        onclick={() => {
+          if (tab.mode === 'raw') void copyMarkdown(tab, 'raw');
+          else copyTarget = { tab, revision: tab.markdownRevision };
+        }}><Icon name="copy" /></button>
       {#if tab.mode === "rendered" && tab.toc.length > 1}
         <button
           class="icon-btn"
@@ -167,6 +179,15 @@
     widthAt = null;
     widthButton?.focus();
   }} />
+{/if}
+
+{#if copyTarget}
+  <CopyDialog onChoose={(choice) => {
+    const target = copyTarget;
+    if (target && target.tab.markdownRevision === target.revision && (choice === 'raw' || choice === 'html')) void copyMarkdown(target.tab, choice);
+    copyTarget = null;
+    copyButton?.focus();
+  }} onClose={() => { copyTarget = null; copyButton?.focus(); }} />
 {/if}
 
 <style>

@@ -445,3 +445,32 @@ describe("the blank tab", () => {
     expect(workspace.tabs[0].status).toBe("ready");
   });
 });
+
+test("source requests are shared and an old reply cannot fill a reinterpreted tab", async () => {
+  const tab = new DocTab(meta({ type: "text" }, "markdown"));
+  let answer!: (text: string) => void;
+  const source = vi.spyOn(ipc, "docSourceText")
+    .mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }))
+    .mockResolvedValueOnce("new");
+  const first = tab.loadRaw();
+  expect(tab.loadRaw()).toBe(first);
+  tab.invalidate();
+  expect(await tab.loadRaw()).toBe("new");
+  answer("old");
+  expect(await first).toBe("old");
+  expect(tab.raw).toBe("new");
+  expect(source).toHaveBeenCalledTimes(2);
+  source.mockRestore();
+});
+
+test("code language choices survive raw switches and reset on reinterpretation", () => {
+  const tab = new DocTab(meta({ type: "text" }, "markdown"));
+  tab.codeSelections.set(0, "Rust");
+  tab.mode = "raw";
+  tab.mode = "rendered";
+  expect(tab.codeSelections.get(0)).toBe("Rust");
+  const revision = tab.markdownRevision;
+  tab.invalidate();
+  expect(tab.markdownRevision).toBe(revision + 1);
+  expect(tab.codeSelections.size).toBe(0);
+});

@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
-  import { docSourceText, errorMessage } from "../../ipc";
+  import { errorMessage } from "../../ipc";
 
   interface Props {
     tab: DocTab;
@@ -14,16 +14,17 @@
   $effect(() => {
     const target = tab;
     if (target.raw !== null) return;
+    const revision = target.markdownRevision;
     target.busy = true;
-    docSourceText(target.id)
+    target.loadRaw()
       .then((text) => {
-        target.raw = text;
+        if (target.markdownRevision === revision) target.raw = text;
       })
       .catch((err) => {
-        target.error = errorMessage(err);
+        if (target.markdownRevision === revision) target.error = errorMessage(err);
       })
       .finally(() => {
-        target.busy = false;
+        if (target.markdownRevision === revision) target.busy = false;
       });
   });
 

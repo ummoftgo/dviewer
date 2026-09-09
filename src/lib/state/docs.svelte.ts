@@ -161,6 +161,19 @@ export class DocTab {
   busy = $state(false);
 
   // Markdown
+  markdownRevision = $state(0);
+  codeLanguages: Record<string, ipc.CodeLanguage> = {};
+  readonly codeSelections = new Map<number, string>();
+  private rawRequest: Promise<string> | null = null;
+
+  loadRaw(): Promise<string> {
+    if (this.raw !== null) return Promise.resolve(this.raw);
+    const revision = this.markdownRevision;
+    return this.rawRequest ??= ipc.docSourceText(this.id).then((raw) => {
+      if (this.markdownRevision === revision) this.raw = raw;
+      return raw;
+    }).finally(() => { if (this.markdownRevision === revision) this.rawRequest = null; });
+  }
   /** DOM controls own their updates; keeping this non-reactive avoids rebuilding HTML mid-drag. */
   readonly tables = new Map<number, TableState>();
   markdownTableMode = settings.markdownTableMode;
@@ -273,6 +286,10 @@ export class DocTab {
   invalidate() {
     this.order.reset();
     this.tables.clear();
+    this.markdownRevision++;
+    this.rawRequest = null;
+    this.codeLanguages = {};
+    this.codeSelections.clear();
     this.html = null;
     this.toc = [];
     this.raw = null;
