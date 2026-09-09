@@ -110,7 +110,10 @@ export async function measureMarkdown(tab: DocTab) {
   const post = { before: [] as number[], after: [] as number[] };
   const parse = { before: [] as number[], after: [] as number[] };
   const hover: number[] = [];
-  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return (sorted[Math.floor((sorted.length - 1) / 2)] + sorted[Math.floor(sorted.length / 2)]) / 2;
+  };
   try {
     for (let run = 0; run < 7; run++) {
       for (const mode of run % 2 ? ['after', 'before'] as const : ['before', 'after'] as const) {
@@ -141,7 +144,7 @@ export async function measureMarkdown(tab: DocTab) {
     }
     return { headings: tab.toc.length, codeBlocks: Object.keys(tab.codeLanguages).length,
       tables: (tab.html!.match(/<table\b/g) ?? []).length,
-      samples: post, medianPostMs: { before: median(post.before), after: median(post.after) },
+      samples: post, parseSamples: parse, medianPostMs: { before: median(post.before), after: median(post.after) },
       controlParseMs: { before: median(parse.before), after: median(parse.after) },
       hoverSamples: hover.length, hoverMedianMs: median(hover), hoverMaxMs: Math.max(...hover) };
   } finally { original.remove(); }
