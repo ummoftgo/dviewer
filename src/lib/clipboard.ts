@@ -29,12 +29,16 @@ export async function copyText(text: string): Promise<void> {
   }
 }
 
+/** Editors consume text/plain, so it must carry the same HTML source. */
+export function htmlClipboardPayload(html: string): Record<string, string> {
+  return { 'text/html': html, 'text/plain': html };
+}
+
 /** Both MIME types must succeed together; a plain-only fallback would lie about HTML. */
-export async function copyHtml(html: string, plain: string): Promise<void> {
+export async function copyHtml(html: string): Promise<void> {
   if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined'
       || (ClipboardItem.supports && !ClipboardItem.supports('text/html'))) throw new Error(t('toast.copyFailed'));
-  await navigator.clipboard.write([new ClipboardItem({
-    'text/html': new Blob([html], { type: 'text/html' }),
-    'text/plain': new Blob([plain], { type: 'text/plain' }),
-  })]);
+  await navigator.clipboard.write([new ClipboardItem(Object.fromEntries(
+    Object.entries(htmlClipboardPayload(html)).map(([type, text]) => [type, new Blob([text], { type })]),
+  ))]);
 }

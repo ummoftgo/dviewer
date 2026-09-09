@@ -1,9 +1,9 @@
 import { copyHtml } from '../../clipboard';
 import { highlightCode } from '../../ipc';
 import { DocTab } from '../../state/docs.svelte';
-import { blockDescription, blockElements, cleanCopyDom, htmlForCopy } from './copy';
+import { blockDescription, blockElements, cleanCopyDom, htmlForCopy, copyMarkdown } from './copy';
 import { rawBlock } from './blocks';
-import { enhanceBlocks } from './blockControls';
+import { enhanceBlocks, markBlocks } from './blockControls';
 import { enhanceCode } from './codeControls';
 
 const require = (value: unknown, message: string) => { if (!value) throw new Error(message); };
@@ -34,21 +34,34 @@ export async function checkMarkdownCopy(tab: DocTab): Promise<void> {
   // Inspect the actual native ClipboardItem payload without making headless CI
   // depend on OS clipboard focus. A separate interactive check reads back OS MIME.
   const descriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, 'write');
+  const textDescriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, 'writeText');
+  let copiedText = '';
   let items: ClipboardItems = [];
   try {
     Object.defineProperty(navigator.clipboard, 'write', { configurable: true, value: async (value: ClipboardItems) => { items = value; } });
-    await copyHtml(html, raw);
+    await copyMarkdown(tab, 'html');
     require(items.length === 1 && items[0].types.includes('text/html') && items[0].types.includes('text/plain'), 'HTML copy is missing a MIME type');
     require(await (await items[0].getType('text/html')).text() === html, 'HTML clipboard payload changed');
-    require(await (await items[0].getType('text/plain')).text() === raw, 'plain clipboard payload changed');
+    require(await (await items[0].getType('text/plain')).text() === html, 'HTML source is missing from the plain clipboard payload');
+    await copyMarkdown(tab, 'html', paragraph);
+    const blockHtml = htmlForCopy(tab.html!, paragraph);
+    require(await (await items[0].getType('text/plain')).text() === blockHtml && blockHtml !== html, 'block HTML copy supplied the wrong plain payload');
+    require(await (await items[0].getType('text/html')).text() === blockHtml, 'block HTML MIME differs from its source');
+    Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async (value: string) => { copiedText = value; } });
+    await copyMarkdown(tab, 'raw');
+    require(copiedText === raw, 'source copy stopped supplying Markdown');
     Object.defineProperty(navigator.clipboard, 'write', { configurable: true, value: async () => { throw new Error('refused'); } });
     let rejected = false;
-    try { await copyHtml(html, raw); } catch { rejected = true; }
+    try { await copyHtml(html); } catch { rejected = true; }
     require(rejected, 'failed HTML copy was reported as success');
   } finally {
     if (descriptor) Object.defineProperty(navigator.clipboard, 'write', descriptor);
     else Reflect.deleteProperty(navigator.clipboard, 'write');
+    if (textDescriptor) Object.defineProperty(navigator.clipboard, 'writeText', textDescriptor);
+    else Reflect.deleteProperty(navigator.clipboard, 'writeText');
   }
+
+  await checkCopyHover();
 
   const codeHandle = enhanceCode(host, tab, () => {});
   require(enhanceCode(host, tab, () => {}) === codeHandle, 'language controls are not idempotent');
@@ -175,4 +188,48 @@ export function checkCopyCleanup(): void {
   require(table.parentElement === clone, 'HTML cleanup kept a table wrapper');
   require(image.getAttribute('src') === './original.png', 'HTML cleanup lost the original image path');
 
+}
+
+/** Follow the reader's route through the actual CSS margin hit area. */
+export async function checkCopyHover(): Promise<void> {
+  const root = document.createElement('article');
+  root.className = 'markdown-body';
+  root.style.cssText = 'position:fixed;left:80px;top:120px;width:280px;z-index:9999';
+  root.innerHTML = '<p>Block hover target</p>';
+  document.body.append(root);
+  markBlocks(root);
+  let copied = -1;
+  const controls = enhanceBlocks(root, (index) => { copied = index; });
+  const block = root.querySelector('p')!;
+  const button = controls.button;
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 240));
+  try {
+    button.blur();
+    block.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    await frame();
+    const blockBox = block.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const gap = document.elementFromPoint((buttonBox.right + blockBox.left) / 2, buttonBox.top + buttonBox.height / 2);
+    require(gap === button || (gap && button.contains(gap)), 'copy button margin has an unbridged gap');
+    // Leaving the block is not enough to hide it; a pointer can still be in transit.
+    root.dispatchEvent(new PointerEvent('pointerleave', { relatedTarget: document.body }));
+    require(button.dataset.visible === 'true', 'copy button vanished before reaching the margin');
+    gap!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: block }));
+    await pause();
+    require(button.dataset.visible === 'true', 'copy button vanished over the margin bridge');
+    button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: gap }));
+    await pause();
+    require(button.dataset.visible === 'true', 'copy button vanished while hovered');
+    button.click();
+    require(copied === 0 && root.querySelectorAll('.block-copy').length === 1, 'hover copy cannot be clicked or was duplicated');
+    button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+    root.dispatchEvent(new PointerEvent('pointerleave', { relatedTarget: document.body }));
+    await pause();
+    require(!button.hasAttribute('data-visible'), 'copy button stayed after leaving both targets');
+    block.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    root.dispatchEvent(new PointerEvent('pointerleave', { relatedTarget: document.body }));
+    controls.destroy();
+    await pause();
+    require(!root.querySelector('.block-copy'), 'hover cleanup left its button behind');
+  } finally { controls.destroy(); root.remove(); }
 }

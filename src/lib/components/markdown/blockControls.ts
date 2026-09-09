@@ -37,6 +37,18 @@ function createControls(root: HTMLElement, onCopy: (index: number, button: HTMLB
   button.dataset.dviewerUi = 'copy';
   button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="${ICON_PATHS.copy}" /></svg>`;
   let selected = elements[0];
+  let hovered = false;
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  const keep = () => { hovered = true; clearTimeout(hideTimer); button.dataset.visible = 'true'; };
+  const inside = (target: EventTarget | null) => target instanceof Node && (button.contains(target) || selected?.contains(target));
+  const leave = (event?: PointerEvent) => {
+    if (event && inside(event.relatedTarget)) return;
+    hovered = false;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (!hovered && document.activeElement !== button) delete button.dataset.visible;
+    }, 180);
+  };
   const refresh = () => { button.title = t('markdown.copy.block'); button.setAttribute('aria-label', button.title); };
   refresh();
   if (selected) root.insertBefore(button, selected);
@@ -56,16 +68,23 @@ function createControls(root: HTMLElement, onCopy: (index: number, button: HTMLB
     }
   };
   const over = (event: Event) => {
+    if (button.contains(event.target as Node)) {
+      if (event.type === 'pointerover') keep();
+      return;
+    }
     let element = event.target as HTMLElement | null;
     while (element && element.parentElement !== root) element = element.parentElement;
-    if (element?.hasAttribute('data-dviewer-block')) select(element);
+    if (element?.hasAttribute('data-dviewer-block')) {
+      select(element);
+      if (event.type === 'pointerover') keep();
+    }
   };
-  const leave = () => { delete button.dataset.visible; };
   root.addEventListener('pointerover', over);
   root.addEventListener('focusin', over);
   root.addEventListener('pointerleave', leave);
+  root.addEventListener('pointerout', leave);
   button.onfocus = () => { if (selected) selected.dataset.dviewerSelected = 'true'; };
-  button.onblur = () => selected?.removeAttribute('data-dviewer-selected');
+  button.onblur = () => { selected?.removeAttribute('data-dviewer-selected'); if (!hovered) leave(); };
   button.onkeydown = (event) => {
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
@@ -82,6 +101,8 @@ function createControls(root: HTMLElement, onCopy: (index: number, button: HTMLB
       root.removeEventListener('pointerover', over);
       root.removeEventListener('focusin', over);
       root.removeEventListener('pointerleave', leave);
+      root.removeEventListener('pointerout', leave);
+      clearTimeout(hideTimer);
       button.onfocus = button.onblur = button.onkeydown = button.onclick = null;
       selected?.removeAttribute('data-dviewer-selected');
       button.remove();

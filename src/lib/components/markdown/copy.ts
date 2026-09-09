@@ -1,6 +1,6 @@
 import type { DocTab } from '../../state/docs.svelte';
 import { copyHtml, copyText } from '../../clipboard';
-import { t, n } from '../../i18n';
+import { t } from '../../i18n';
 import { toasts } from '../../state/toast.svelte';
 import { rawBlock, sectionEnd, type CopyBlock } from './blocks';
 
@@ -42,25 +42,21 @@ export async function copyMarkdown(tab: DocTab, format: 'raw' | 'html', index?: 
   const revision = tab.markdownRevision;
   const html = tab.html;
   try {
-    const raw = await tab.loadRaw();
-    if (tab.markdownRevision !== revision) return;
-    let text = raw;
-    if (index !== undefined) {
-      const root = document.createElement('article');
-      root.innerHTML = html ?? '';
-      const selected = rawBlock(raw, blockElements(root).map(blockDescription), index, children);
-      if (selected === null && format === 'raw') { toasts.show(t('markdown.copy.noSource'), 'info'); return; }
-      if (selected === null) {
-        root.innerHTML = htmlForCopy(html ?? '', index, children);
-        text = root.textContent ?? '';
-      } else text = selected;
-    }
     if (format === 'html') {
       if (html === null) throw new Error(t('toast.copyFailed'));
-      await copyHtml(htmlForCopy(html, index, children), text);
-    } else await copyText(text);
-    let count = 0;
-    for (const _ of text) count++;
-    toasts.show(t(format === 'raw' ? 'markdown.copy.rawDone' : 'markdown.copy.htmlDone', { n: n(count) }));
+      await copyHtml(htmlForCopy(html, index, children));
+    } else {
+      const raw = await tab.loadRaw();
+      if (tab.markdownRevision !== revision) return;
+      let text: string | null = raw;
+      if (index !== undefined) {
+        const root = document.createElement('article');
+        root.innerHTML = html ?? '';
+        text = rawBlock(raw, blockElements(root).map(blockDescription), index, children);
+      }
+      if (text === null) { toasts.show(t('markdown.copy.noSource'), 'info'); return; }
+      await copyText(text);
+    }
+    toasts.show(t(format === 'raw' ? 'markdown.copy.rawDone' : 'markdown.copy.htmlDone'));
   } catch { toasts.show(t('toast.copyFailed'), 'error'); }
 }
