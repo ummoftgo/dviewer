@@ -312,11 +312,13 @@ async function checkMarkdownTables(tab: DocTab) {
   require(single.querySelector(".table-grip")?.getAttribute("aria-disabled") === "true", "single fill column was resizable");
 
   const details = host.querySelector("details")!;
-  details.open = true;
-  await frame();
   const hiddenWrap = details.querySelector<HTMLElement>(".table-wrap")!;
   if (tab.tables.get(Number(hiddenWrap.dataset.table))!.mode !== "fill") hiddenWrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!.click();
-  require([...hiddenWrap.querySelectorAll<HTMLTableColElement>("col")].every((col) => parseFloat(col.style.width) >= minimum - 1), "opened details table has invalid widths");
+  const hiddenCols = [...hiddenWrap.querySelectorAll<HTMLTableColElement>("col")];
+  details.open = true;
+  // Two frames can finish before toggle/ResizeObserver's queued layout applies widths.
+  await waitFor(() => hiddenCols.every((col) => col.style.width !== ""));
+  require(hiddenCols.every((col) => parseFloat(col.style.width) >= minimum - 1), "opened details table has invalid widths");
 
   const font = settings.docFontPx;
   settings.docFontPx = font + 1;

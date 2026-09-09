@@ -2,6 +2,28 @@
 
 ← [README](../README.md)
 
+## v0.16.0 릴리스 스모크 — 닫힌 details 표의 완료 대기
+
+[CI run 34371597314](https://github.com/ummoftgo/dviewer/actions/runs/34371597314)의 Windows·macOS는 `sample.md: markdownTables opened details table has invalid widths`로 실패했고 Linux는 통과했다. 제품의 조기 측정이 아니라 스모크의 조기 검증을 Windows WebView2에서 재현했다. 제품은 닫힌 표의 측정을 건너뛰고, `toggle`·`ResizeObserver` 뒤 예약한 프레임에서 너비를 적용한다. 스모크의 두 번째 프레임 콜백이 그 적용보다 먼저 실행될 수 있었다.
+
+네이티브 추적에서 첫 프레임 1.0ms → ResizeObserver 1.4ms → toggle 5.1ms → 두 번째 프레임·검증 5.2ms 순서였고, 검증 시 두 열의 inline width는 빈 문자열이었다. 이후 표본에서는 둘 다 135.667px였다. 이는 적용 시각의 실측이 아니라 검증 전후 상태의 관측이다. [`toggle`은 비동기 작업](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element)이고 [ResizeObserver는 레이아웃 뒤 전달](https://www.w3.org/TR/resize-observer/#html-processing-model-event-loop)되므로 두 프레임 자체가 제품 콜백의 완료 신호는 아니다.
+
+기존 스모크는 기본값이 `scroll`이면 연 뒤 `fill` 전환으로 동기 레이아웃을 실행해 경쟁을 가릴 수 있었다. 이제 닫힌 상태에서 `fill`로 맞춘 뒤 열고, 모든 열에 최초 너비가 적용됐을 때 기존 최솟값 검사를 한 번 수행한다. 완료 대기는 기존 제한 시간을 사용하며 올바른 너비가 나올 때까지 단언을 재시도하지 않는다. 제품 코드·사용자 동작은 바꾸지 않았다.
+
+Linux CI는 Xvfb·D-Bus 안의 WebKitGTK이고 Windows는 WebView2, macOS는 WKWebView다. 같은 검사가 통과한 것은 다른 실행 순서에서 경쟁이 드러나지 않은 것으로 추정한다. CI 로그에는 프레임·toggle·observer 순서가 없어 Linux에서 어떤 콜백이 먼저였는지, 느림·포커스 중 무엇이 영향을 줬는지는 확정하지 않았다. Linux·macOS 재실행은 이번 로컬 검증에 포함하지 않았다.
+
+| 검사 | 결과 |
+| --- | --- |
+| Windows release 빌드·스모크 | `npm run build` → `cargo build --release --features custom-protocol` → 루트에서 `npm run smoke -- --release`, 픽스처 39개 + 왕복 2개 통과 |
+| 완료 대기를 두 프레임으로 되돌린 변형 | 닫힌 상태의 fill 고정은 유지, 새 release 빌드에서 sample.md만 실패(39개 중 1개), 왕복 2개 통과 |
+| 제품의 details 열 너비를 0px로 만든 변형 | 완료 대기는 수정본 유지, 새 release 빌드에서 같은 최솟값 검사 1개 실패, 왕복 2개 통과 |
+| required cargo test | 492개 × 3회 통과 |
+| vitest | 172개 통과 |
+| 최종 check | 오류·경고 0, 4로케일 × 386키 |
+| clippy·성능 실측 | 재실행하지 않음(제품 코드 변경 없음) |
+
+각 스모크 전에 저장소의 dviewer 프로세스가 종료됐음을 확인했다. 두 변형을 복원한 최종 소스로 다시 빌드해 통과를 확인했다. 변경 파일은 스모크와 이 검증 기록뿐이며 사용자 UI 확인 조건은 추가되지 않았다.
+
 ## M25 화면 확인 보완 — HTML 소스와 복사 버튼 호버
 
 HTML 복사는 전체·블록 모두 `text/html`과 `text/plain`에 같은 정화 HTML 문자열을 넣는다. 일반 편집기에서도 HTML 소스가 붙고, 원문 선택만 마크다운을 넣는다. 완료 문구는 각각 “HTML 복사됨”과 “원문 복사됨”이다. 이 정책이 아래 최초 M25 검증 당시의 HTML+원문 동반 정책을 대체한다.
