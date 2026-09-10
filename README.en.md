@@ -117,7 +117,7 @@ The technical documentation lives in `doc/` (Korean).
 
 ## Known limits
 
-- Markdown search is limited to 2,000 matches, 256 characters per regular expression and 1 second per query. Zero-width matches are excluded. Rendered search excludes markup, app controls, hidden content and duplicate math representations; closed details are included and opened on navigation. Environments without the highlight API show a notice and scroll to matches without highlighting them.
+- Markdown search is limited to 2,000 matches, 256 characters per regular expression and 1 second of Worker execution. Zero-width matches are excluded. Rendered search excludes markup, app controls, hidden content and duplicate math representations; closed details are included and opened on navigation. Paragraph and cell boundaries are separated by newlines; a match containing only such a newline navigates to adjacent text. Environments without the highlight API show a notice and scroll to matches without highlighting them.
 
 - Self-update is available only for Windows x64 portable exe and NSIS installations. Update files are limited to 256MiB and manifests to 64KiB. NSIS rejects installation when the installer path and document arguments exceed its 1,024 UTF-16-unit command-line buffer, including NUL. Close some documents and retry.
 

@@ -1,7 +1,7 @@
 import { tick } from 'svelte';
 import { t } from '../../i18n';
 import { DocTab, MarkdownSearchState } from '../../state/docs.svelte';
-import { findMatches } from './search';
+import { findMatches, type Matches } from './search';
 import { indexText, matchRanges, revealMatch } from './searchDom';
 import { markdownSearch } from './searchController';
 import { enhanceTables } from './enhance';
@@ -29,6 +29,13 @@ export async function checkSearchIndex(): Promise<void> {
   const tables = enhanceTables(root, new Map(), 'fill');
   try {
     const index = indexText(root);
+    const breaks = findMatches(index.text, '\n', { how: 'literal', caseSensitive: true }).ranges;
+    require(breaks.length > 0 && breaks.every(match => matchRanges(index, match).length > 0),
+      'search dropped a structural newline match');
+    const firstBreak = matchRanges(index, breaks[0])[0];
+    require(firstBreak.collapsed && firstBreak.startContainer.textContent === 'gamma', 'structural newline did not anchor at the following text');
+    const empty = document.createElement('p'); empty.innerHTML = '<br>';
+    require(matchRanges(indexText(empty), [0, 1])[0]?.startContainer === empty, 'a standalone line break lost its navigation anchor');
     require(index.text.includes('alphabeta') && !index.text.includes('betagamma'), 'search lost inline continuity or joined paragraphs');
     require(!index.text.includes('cellonecelltwo'), 'search joined different table cells');
     require(!/NEVERSEARCH|HiddenText|duplicate/.test(index.text) && index.text.includes('visiblemath'), 'search indexed controls, hidden text, or duplicate math');
@@ -178,4 +185,126 @@ export async function checkRawSearch(tab: DocTab): Promise<void> {
     require(state.query === '## Section' && state.hits === 0 && !CSS.highlights.get('md-search-current'),
       'raw ranges survived the rendered view switch');
   } finally { state.open = false; state.query = ''; tab.mode = 'rendered'; await tick(); }
+}
+
+export async function checkReadingSearch(tab: DocTab): Promise<void> {
+  const state = tab.markdownSearch;
+  await waitSearch(() => !!document.querySelector('article [data-dviewer-ui="copy"]'), 'combined document did not finish enhancement');
+  const root = document.querySelector<HTMLElement>('article.markdown-body')!;
+  const details = root.querySelector('details')!;
+  require(!details.open, 'combined fixture details started open');
+  state.open = true; state.how = 'literal'; state.caseSensitive = true;
+  const run = async (query: string) => {
+    state.query = query; await tick();
+    await waitSearch(() => state.searched && !state.running, 'combined search did not finish');
+    require(state.hits === 1 && !state.error, `combined search missed ${query}`);
+  };
+  try {
+    await run('needleInline');
+    require(CSS.highlights.get('md-search')?.size === 2, 'inline match did not span both text nodes');
+    await run('detailsNeedle😀');
+    await waitSearch(() => details.open, 'combined search did not open details');
+    await run('farRightNeedle😀');
+    await waitSearch(() => [...root.querySelectorAll('pre')].some(pre => pre.scrollLeft > 0), 'combined search did not reveal wide code');
+    require(root.querySelectorAll('table')[0].rows.length === 33, 'combined fixture lost table rows');
+  } finally { state.open = false; state.query = ''; await tick(); }
+}
+
+export async function measureLargeSearch(tab: DocTab) {
+  await waitSearch(() => !!document.querySelector('article [data-dviewer-ui="copy"]'), 'large document did not finish enhancement');
+  const rendered = await measureSearch(document.querySelector<HTMLElement>('article.markdown-body')!, 'finalRawNeedle😀');
+  const state = tab.markdownSearch;
+  try {
+    tab.mode = 'raw'; state.open = true; state.query = 'finalRawNeedle😀'; state.how = 'literal'; state.caseSensitive = true;
+    await tick();
+    await waitSearch(() => !!document.querySelector('.raw-view .source') && state.searched && !state.running,
+      'large source search did not finish');
+    const source = document.querySelector<HTMLElement>('.raw-view .source')!;
+    require(state.hits === 1 && !state.error && source.childNodes.length === 1, 'large source search count or text node changed');
+    await waitSearch(() => source.closest<HTMLElement>('.scroller')!.scrollTop > 0, 'large source search did not move to the result');
+    return { rendered, raw: await measureSearch(source, 'finalRawNeedle😀') };
+  } finally { state.open = false; state.query = ''; tab.mode = 'rendered'; await tick(); }
+}
+
+export async function measureTocScroll(tab: DocTab) {
+  const root = document.querySelector<HTMLElement>('article.markdown-body')!;
+  const scroller = root.closest<HTMLElement>('.scroller')!;
+  scroller.scrollTop = 0;
+  await waitSearch(() => document.querySelector('nav button[aria-current="true"]')?.textContent === tab.toc[0].text,
+    'TOC benchmark did not reach the first heading');
+  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  const headings = tab.toc.map(entry => root.querySelector<HTMLElement>(`#${CSS.escape(entry.id)}`)!);
+  let headingReads = 0;
+  const originals = headings.map(heading => heading.getBoundingClientRect);
+  headings.forEach((heading, i) => { heading.getBoundingClientRect = () => { headingReads++; return originals[i].call(heading); }; });
+  const sample = async (scroll: boolean) => {
+    const intervals: number[] = [];
+    let previous = await new Promise<number>(resolve => requestAnimationFrame(resolve));
+    for (let i = 0; i < 60; i++) {
+      if (scroll) scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * (i + 1) / 60;
+      const next = await new Promise<number>(resolve => requestAnimationFrame(resolve));
+      intervals.push(next - previous); previous = next;
+    }
+    return { samples: intervals, medianMs: median(intervals), maxMs: Math.max(...intervals) };
+  };
+  try {
+    const control = await sample(false), scroll = await sample(true);
+    await waitSearch(() => document.querySelector('nav button[aria-current="true"]')?.textContent === tab.toc.at(-1)!.text,
+      'TOC benchmark did not reach the final heading');
+    require(headingReads === 0, `TOC scroll reread ${headingReads} heading rectangles`);
+    return { headings: headings.length, headingReads, control, scroll };
+  } finally { headings.forEach((heading, i) => { heading.getBoundingClientRect = originals[i]; }); scroller.scrollTop = 0; }
+}
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return (sorted[Math.floor((sorted.length - 1) / 2)] + sorted[Math.floor(sorted.length / 2)]) / 2;
+};
+
+export async function measureSearch(root: HTMLElement, query: string) {
+  const samples = { collect: [] as number[], literal: [] as number[], regex: [] as number[], roundTrip: [] as number[], highlight: [] as number[] };
+  let nodeCount = 0, textLength = 0, hitCount = 0;
+  const run = (text: string, query: string, how: 'literal' | 'regex') => new Promise<{ result: Matches; elapsedMs: number; roundTripMs: number }>((resolve, reject) => {
+    const start = performance.now();
+    const worker = new Worker(new URL('./search.worker.ts', import.meta.url), { type: 'module' });
+    const timer = setTimeout(() => { worker.terminate(); reject(new Error('benchmark worker timeout')); }, 1000);
+    worker.onmessage = event => {
+      clearTimeout(timer); worker.terminate();
+      if (event.data.error) reject(new Error(`benchmark worker: ${event.data.error}`));
+      else resolve({ ...event.data, roundTripMs: performance.now() - start });
+    };
+    worker.onerror = () => { clearTimeout(timer); worker.terminate(); reject(new Error('benchmark worker failed')); };
+    worker.postMessage({ seq: 0, text, query, options: { caseSensitive: true, how } });
+  });
+  const prior = CSS.highlights?.get('md-search');
+  try {
+    for (let pass = 0; pass < 7; pass++) {
+      let start = performance.now();
+      const index = indexText(root);
+      const collectionMs = performance.now() - start;
+      nodeCount = index.nodes.length; textLength = index.text.length;
+      const literal = await run(index.text, '__dviewer_missing_search_control__', 'literal');
+      const regex = await run(index.text, '__dviewer_missing_search_control__\\d+', 'regex');
+      require(literal.result.ranges.length === 0 && regex.result.ranges.length === 0, 'search benchmark control unexpectedly matched');
+      const matches = await run(index.text, query, 'literal');
+      hitCount = matches.result.ranges.length;
+      require(hitCount > 0 && !matches.result.capped, 'highlight benchmark must not hit the result cap');
+      start = performance.now();
+      const highlight = new Highlight();
+      for (const match of matches.result.ranges) for (const range of matchRanges(index, match)) highlight.add(range);
+      CSS.highlights.set('md-search', highlight);
+      const highlightMs = performance.now() - start;
+      CSS.highlights.delete('md-search');
+      if (pass) {
+        samples.collect.push(collectionMs); samples.literal.push(literal.elapsedMs); samples.regex.push(regex.elapsedMs);
+        samples.roundTrip.push(literal.roundTripMs); samples.highlight.push(highlightMs);
+      }
+    }
+    return { textLength, nodeCount, hitCount, samples, medianMs: {
+      collection: median(samples.collect), literalWorker: median(samples.literal), regexWorker: median(samples.regex),
+      literalRoundTrip: median(samples.roundTrip), rangeAndHighlightRegistration: median(samples.highlight),
+    } };
+  } finally {
+    if (prior) CSS.highlights.set('md-search', prior); else CSS.highlights?.delete('md-search');
+  }
 }

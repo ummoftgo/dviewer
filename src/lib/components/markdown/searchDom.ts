@@ -1,6 +1,6 @@
 import { spanAt, type Match, type TextSpan } from './search';
 
-export interface TextIndex { text: string; nodes: (TextSpan & { node: Text })[] }
+export interface TextIndex { root: HTMLElement; text: string; nodes: (TextSpan & { node: Text })[] }
 const excluded = '[data-dviewer-ui],script,style,template,[hidden],.katex-mathml';
 const boundaries = 'p,h1,h2,h3,h4,h5,h6,td,th,li,pre,summary,blockquote,div';
 
@@ -27,7 +27,7 @@ export function indexText(root: HTMLElement): TextIndex {
     append(node.data);
     nodes.push({ node, start, end: length });
   }
-  return { text: chunks.join(''), nodes };
+  return { root, text: chunks.join(''), nodes };
 }
 
 /** Separate ranges never paint the excluded controls between two text nodes. */
@@ -38,6 +38,16 @@ export function matchRanges(index: TextIndex, [start, end]: Match): Range[] {
     const range = document.createRange();
     range.setStart(span.node, Math.max(start, span.start) - span.start);
     range.setEnd(span.node, Math.min(end, span.end) - span.start);
+    ranges.push(range);
+  }
+  if (!ranges.length) {
+    // A structural newline has no text node, but still needs a navigation anchor.
+    const next = index.nodes[spanAt(index.nodes, start)], previous = index.nodes.at(-1);
+    const range = document.createRange();
+    if (next) range.setStart(next.node, 0);
+    else if (previous) range.setStart(previous.node, previous.node.length);
+    else range.setStart(index.root, 0);
+    range.collapse(true);
     ranges.push(range);
   }
   return ranges;

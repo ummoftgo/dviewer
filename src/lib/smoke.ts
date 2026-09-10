@@ -16,7 +16,7 @@ import * as ipc from "./ipc";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
 import { checkMarkdownCopy, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
-import { checkRenderedSearch, checkRawSearch, checkSearchIndex, checkSearchWorker } from './components/markdown/searchSmoke';
+import { checkRenderedSearch, checkRawSearch, checkSearchIndex, checkSearchWorker, checkReadingSearch, measureSearch, measureLargeSearch, measureTocScroll } from './components/markdown/searchSmoke';
 import { enhanceTables } from "./components/markdown/enhance";
 import { settings } from "./state/settings.svelte";
 
@@ -212,9 +212,17 @@ export async function runSmoke(): Promise<void> {
           await checkSearchWorker();
           await checkRenderedSearch(tab);
           await checkRawSearch(tab);
-          metrics = await measureMarkdown(tab);
+          metrics = { ...await measureMarkdown(tab), search: await measureSearch(document.querySelector<HTMLElement>('article.markdown-body')!, 'Paragraph'), toc: await measureTocScroll(tab) };
         }
         catch (error) { outcome = { ok: false, stage: 'markdownBenchmark', error: ipc.errorMessage(error) }; }
+      }
+      if (outcome.ok && step.file === 'markdown-reading.md') {
+        try { await checkReadingSearch(tab); }
+        catch (error) { outcome = { ok: false, stage: 'markdownReading', error: ipc.errorMessage(error) }; }
+      }
+      if (outcome.ok && step.file === 'markdown-search-large.md') {
+        try { metrics = { ...await measureMarkdown(tab), search: await measureLargeSearch(tab) }; }
+        catch (error) { outcome = { ok: false, stage: 'markdownSearchLarge', error: ipc.errorMessage(error) }; }
       }
       if (outcome.ok && step.then) {
         try { outcome = await follow(tab, step.then); }

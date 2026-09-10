@@ -357,6 +357,32 @@ for (let index = 0; index < 200; index++) {
   if (index % 10 === 0) longMarkdown += '| key | value | note |\n|---|---|---|\n| a | 42 | original text |\n\n';
 }
 await writeFile(path.join(OUT, 'long-markdown.md'), longMarkdown);
+
+let readingMarkdown = '# 읽기 기능 조합 확인 😀\n\n';
+readingMarkdown += '## 짧은 열과 긴 문장 — 아주 긴 목차 이름에서도 현재 위치를 구분할 수 있어야 합니다 😀\n\n';
+readingMarkdown += '| ID | 설명 | 낱말 |\n|---|---|---|\n';
+for (let row = 0; row < 32; row++) {
+  readingMarkdown += `| ${row + 1} | ${'긴 문장에도 짧은 열의 자리가 남아야 합니다. '.repeat(5)} | ${row === 31 ? 'Supercalifragilisticexpialidocious' : 'word'} |\n`;
+}
+readingMarkdown += '\n## 검색 조합\n\nneedle<strong>Inline</strong> 과 **needleBold** — 이모지 😀needle😀.\n\n';
+readingMarkdown += '<details>\n<summary>닫힌 내용에서도 needle을 찾습니다</summary>\n\n';
+readingMarkdown += '### 숨은 제목\n\n| ID | 문장 |\n|---|---|\n| 1 | ' + '펼친 뒤 표의 높이가 달라지는 긴 문장입니다. '.repeat(30) + ' |\n\n';
+readingMarkdown += 'detailsNeedle😀는 표 레이아웃 뒤에 있어야 합니다.\n\n</details>\n\n';
+readingMarkdown += '## 코드 언어와 가로 이동\n\n```ts\ntype User = { id: number; name: string };\nconst user: User = { id: 1, name: "needle😀" };\n```\n\n';
+readingMarkdown += '```tsx\nconst card = <Card title="needle😀" />;\n```\n\n';
+readingMarkdown += '```toml\n[viewer]\nenabled = true\nmessage = "needle😀"\n```\n\n';
+readingMarkdown += '```text\n' + '0123456789'.repeat(100) + ' farRightNeedle😀\n```\n\n';
+readingMarkdown += '## 수식\n\n$needle + 1$ 은 화면에 보이는 표현에서만 찾습니다.\n\n## 마지막 위치\n\n끝까지 스크롤하면 이 제목이 목차에서 강조됩니다.\n';
+await writeFile(path.join(OUT, 'markdown-reading.md'), readingMarkdown);
+
+const searchLargePrefix = '# Search performance\n\n```text\n';
+const searchLargeSuffix = '\nfinalRawNeedle😀\n```\n';
+const searchLargeLine = 'A stable collection line. ' + '0123456789'.repeat(99) + 'abcdefg\n';
+const searchLargeBodyBytes = 5 * 1024 * 1024 - Buffer.byteLength(searchLargePrefix + searchLargeSuffix);
+const searchLargeBody = searchLargeLine.repeat(Math.ceil(searchLargeBodyBytes / searchLargeLine.length)).slice(0, searchLargeBodyBytes);
+await writeFile(path.join(OUT, 'markdown-search-large.md'), searchLargePrefix + searchLargeBody + searchLargeSuffix);
+console.log('  markdown-reading.md / markdown-search-large.md (5 MiB)');
+
 await writeFile(path.join(OUT, 'markdown-copy.md'), [
   '# Heading A', '', 'Paragraph 한글😀 with *emphasis* and [reference][ref].', '',
   '## Child', '', '- first', '- second', '',
@@ -1207,6 +1233,8 @@ const SMOKE = [
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
   { file: "long-markdown.md", expect: "prose" },
+  { file: "markdown-reading.md", expect: "prose" },
+  { file: "markdown-search-large.md", expect: "prose" },
   { file: "markdown-copy.md", expect: "prose" },
   { file: "small.json", expect: "tree", then: "treeAsTable" },
   { file: "grid-cases.json", expect: "tree" },
