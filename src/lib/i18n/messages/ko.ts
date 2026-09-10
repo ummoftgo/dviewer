@@ -180,6 +180,7 @@ export const ko = {
   "markdown.rawLoading": "원문을 읽는 중…",
   "markdown.rawUnavailable": "원문을 표시할 수 없습니다.",
   "markdown.toc": "목차",
+  "markdown.toc.current": "현재 위치",
   "markdown.imageMissing": "이미지를 찾을 수 없습니다: {src}",
   "markdown.mermaidError": "mermaid 오류: {detail}",
 

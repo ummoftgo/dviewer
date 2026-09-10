@@ -175,6 +175,7 @@ export const en: Messages = {
   "markdown.rawLoading": "Reading the source…",
   "markdown.rawUnavailable": "The source cannot be shown.",
   "markdown.toc": "Contents",
+  "markdown.toc.current": "Current position",
   "markdown.imageMissing": "Image not found: {src}",
   "markdown.mermaidError": "mermaid error: {detail}",
 

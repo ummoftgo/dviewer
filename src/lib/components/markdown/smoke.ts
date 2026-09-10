@@ -1,6 +1,7 @@
 import { copyHtml } from '../../clipboard';
 import { highlightCode } from '../../ipc';
 import { DocTab } from '../../state/docs.svelte';
+import { settings } from '../../state/settings.svelte';
 import { blockDescription, blockElements, cleanCopyDom, htmlForCopy, copyMarkdown } from './copy';
 import { rawBlock } from './blocks';
 import { enhanceBlocks, markBlocks } from './blockControls';
@@ -11,6 +12,74 @@ import { recommendWidths, type TableState } from './tables';
 
 const require = (value: unknown, message: string) => { if (!value) throw new Error(message); };
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+export async function checkToc(tab: DocTab): Promise<void> {
+  const root = document.querySelector<HTMLElement>('article.markdown-body')!;
+  const scroller = root.closest<HTMLElement>('.scroller')!;
+  const nav = document.querySelector<HTMLElement>('nav[aria-label]')!;
+  const buttons = [...nav.querySelectorAll<HTMLButtonElement>('button')];
+  require(buttons.length === tab.toc.length, 'TOC entries do not match headings');
+  const waitCurrent = (index: number) => new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => { observer.disconnect(); reject(new Error(`TOC did not activate heading ${index}`)); }, 3000);
+    const check = () => {
+      if (buttons[index].getAttribute('aria-current') !== 'true') return;
+      clearTimeout(timeout); observer.disconnect(); resolve();
+    };
+    const observer = new MutationObserver(check);
+    observer.observe(nav, { attributes: true, subtree: true, attributeFilter: ['aria-current'] });
+    check();
+  });
+  const theme = settings.theme;
+  const changeTheme = (next: typeof theme) => new Promise<void>((resolve, reject) => {
+    const first = root.firstElementChild;
+    const timer = setTimeout(() => { observer.disconnect(); reject(new Error('theme did not finish replacing the document')); }, 4000);
+    const observer = new MutationObserver(() => {
+      if (root.firstElementChild === first || !root.querySelector('[data-dviewer-ui="copy"]')) return;
+      clearTimeout(timer); observer.disconnect(); resolve();
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    settings.theme = next;
+  });
+  try {
+    scroller.scrollTop = 0;
+    await waitCurrent(0);
+    const middle = Math.floor(buttons.length / 2);
+    const heading = root.querySelector<HTMLElement>(`#${CSS.escape(tab.toc[middle].id)}`)!;
+    scroller.scrollTop += heading.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    await waitCurrent(middle);
+    await frame();
+    require(nav.scrollTop > 0, 'TOC did not follow the current heading');
+    nav.dispatchEvent(new MouseEvent('mouseenter'));
+    await frame();
+    nav.scrollTop = 0;
+    scroller.scrollTop = scroller.scrollHeight;
+    await waitCurrent(buttons.length - 1);
+    await frame();
+    require(nav.scrollTop === 0, 'TOC moved under the pointer');
+    nav.dispatchEvent(new MouseEvent('mouseleave'));
+    await frame();
+    require(nav.scrollTop > 0, 'TOC did not resume following after pointer exit');
+    buttons[1].focus({ preventScroll: true });
+    await frame();
+    nav.scrollTop = 0;
+    buttons[middle].click();
+    await waitCurrent(middle);
+    await frame();
+    require(nav.scrollTop === 0, 'TOC moved while keyboard focus was inside');
+    buttons[1].blur();
+    await changeTheme(settings.resolvedTheme === 'dark' ? 'light' : 'dark');
+    scroller.scrollTop = 0;
+    await waitCurrent(0);
+    const replaced = root.querySelector<HTMLElement>(`#${CSS.escape(tab.toc[middle].id)}`)!;
+    scroller.scrollTop += replaced.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    await waitCurrent(middle);
+  } finally {
+    if (settings.theme !== theme) await changeTheme(theme);
+    nav.dispatchEvent(new MouseEvent('mouseleave'));
+    scroller.scrollTop = 0;
+    await waitCurrent(0);
+  }
+}
 
 export async function checkTableRecommendation(): Promise<void> {
   const root = document.createElement('article');
@@ -308,6 +377,11 @@ export async function checkCopyHover(): Promise<void> {
   const controls = enhanceBlocks(root, (index) => { copied = index; });
   const block = root.querySelector('p')!;
   const button = controls.button;
+  const events: unknown[] = [];
+  for (const type of ['pointerover', 'pointerout', 'pointerleave', 'focusin', 'focusout']) root.addEventListener(type, event => {
+    events.push({ type, trusted: event.isTrusted, target: (event.target as Element)?.tagName,
+      related: ((event as PointerEvent).relatedTarget as Element)?.tagName, at: performance.now() });
+  });
   const pause = () => new Promise((resolve) => setTimeout(resolve, 240));
   try {
     button.blur();
@@ -325,7 +399,7 @@ export async function checkCopyHover(): Promise<void> {
     require(button.dataset.visible === 'true', 'copy button vanished over the margin bridge');
     button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, relatedTarget: gap }));
     await pause();
-    require(button.dataset.visible === 'true', 'copy button vanished while hovered');
+    require(button.dataset.visible === 'true', `copy button vanished while hovered: ${JSON.stringify(events)}`);
     button.click();
     require(copied === 0 && root.querySelectorAll('.block-copy').length === 1, 'hover copy cannot be clicked or was duplicated');
     button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));

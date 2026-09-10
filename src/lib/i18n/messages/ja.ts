@@ -175,6 +175,7 @@ export const ja: Messages = {
   "markdown.rawLoading": "原文を読み込み中…",
   "markdown.rawUnavailable": "原文を表示できません。",
   "markdown.toc": "目次",
+  "markdown.toc.current": "現在の位置",
   "markdown.imageMissing": "画像が見つかりません: {src}",
   "markdown.mermaidError": "mermaid エラー: {detail}",
 

@@ -15,7 +15,7 @@
 import * as ipc from "./ipc";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
-import { checkMarkdownCopy, checkTableRecommendation, measureMarkdown } from "./components/markdown/smoke";
+import { checkMarkdownCopy, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
 import { enhanceTables } from "./components/markdown/enhance";
 import { settings } from "./state/settings.svelte";
 
@@ -205,7 +205,7 @@ export async function runSmoke(): Promise<void> {
         }
       }
       if (outcome.ok && step.file === 'long-markdown.md') {
-        try { metrics = await measureMarkdown(tab); }
+        try { await checkToc(tab); metrics = await measureMarkdown(tab); }
         catch (error) { outcome = { ok: false, stage: 'markdownBenchmark', error: ipc.errorMessage(error) }; }
       }
       if (outcome.ok && step.then) {

@@ -16,6 +16,7 @@
   import { copyText } from '../../clipboard';
   import { toasts } from '../../state/toast.svelte';
   import Toc from "./Toc.svelte";
+  import { trackHeading } from './toc';
   import { enhanceTables, interceptLinks, renderMath, renderMermaid, rewriteImages, type EnhancedTables } from "./enhance";
 
   interface Props {
@@ -37,6 +38,13 @@
   let headingCopy = $state<{ index: number; format: 'raw' | 'html'; revision: number } | null>(null);
   let enhancing = $state(false);
   let tables = $state<EnhancedTables>();
+  let activeId = $state('');
+
+  $effect(() => {
+    void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody, settings.fontBodyFallback];
+    if (!article || !scroller || enhancing || !showToc) return;
+    return trackHeading(article, scroller, tab.toc.map(entry => entry.id), id => { activeId = id; });
+  });
 
   // The HTML is sanitised in Rust before it reaches us — see markdown.rs.
   $effect(() => {
@@ -192,7 +200,7 @@
   </div>
 
   {#if showToc && tab.toc.length > 1}
-    <Toc entries={tab.toc} onSelect={scrollToAnchor} />
+    <Toc entries={tab.toc} {activeId} onSelect={scrollToAnchor} />
   {/if}
 </div>
 

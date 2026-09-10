@@ -175,6 +175,7 @@ export const zhHans: Messages = {
   "markdown.rawLoading": "正在读取源码…",
   "markdown.rawUnavailable": "无法显示源码。",
   "markdown.toc": "目录",
+  "markdown.toc.current": "当前位置",
   "markdown.imageMissing": "找不到图片：{src}",
   "markdown.mermaidError": "mermaid 错误：{detail}",
 
