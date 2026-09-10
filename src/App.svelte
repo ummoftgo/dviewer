@@ -274,6 +274,7 @@
       {showToc}
       onToggleToc={() => (showToc = !showToc)}
       onOpenSettings={() => (settingsOpen = true)}
+      onSearch={() => searchBarFocus?.()}
     />
   {/if}
 

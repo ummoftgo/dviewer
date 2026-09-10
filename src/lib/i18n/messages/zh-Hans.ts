@@ -110,6 +110,7 @@ export const zhHans: Messages = {
   "toolbar.mode.raw": "源码",
   "toolbar.mode.group": "查看方式",
   "toolbar.toc": "目录",
+  "toolbar.search": "搜索 (Ctrl+F)",
   "toolbar.toc.show": "显示目录",
   "toolbar.format.label": "格式",
   "toolbar.format.title": "以其他格式读取此文档",

@@ -115,6 +115,7 @@ export const ko = {
   "toolbar.mode.raw": "원문",
   "toolbar.mode.group": "보기 방식",
   "toolbar.toc": "목차",
+  "toolbar.search": "검색 (Ctrl+F)",
   "toolbar.toc.show": "목차 보기",
   "toolbar.format.label": "형식",
   "toolbar.format.title": "이 문서를 다른 형식으로 읽습니다",

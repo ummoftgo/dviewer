@@ -110,6 +110,7 @@ export const ja: Messages = {
   "toolbar.mode.raw": "原文",
   "toolbar.mode.group": "表示方法",
   "toolbar.toc": "目次",
+  "toolbar.search": "検索 (Ctrl+F)",
   "toolbar.toc.show": "目次を表示",
   "toolbar.format.label": "形式",
   "toolbar.format.title": "この文書を別の形式で読みます",

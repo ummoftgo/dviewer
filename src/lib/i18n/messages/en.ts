@@ -110,6 +110,7 @@ export const en: Messages = {
   "toolbar.mode.raw": "Source",
   "toolbar.mode.group": "View mode",
   "toolbar.toc": "Contents",
+  "toolbar.search": "Search (Ctrl+F)",
   "toolbar.toc.show": "Show contents",
   "toolbar.format.label": "Format",
   "toolbar.format.title": "Read this document as another format",

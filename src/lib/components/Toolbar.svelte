@@ -16,9 +16,10 @@
     showToc: boolean;
     onToggleToc: () => void;
     onOpenSettings: () => void;
+    onSearch: () => void;
   }
 
-  let { tab, showToc, onToggleToc, onOpenSettings }: Props = $props();
+  let { tab, showToc, onToggleToc, onOpenSettings, onSearch }: Props = $props();
 
   let copyTarget = $state<{ tab: DocTab; revision: number } | null>(null);
   let copyButton = $state<HTMLButtonElement>();
@@ -97,6 +98,9 @@
           if (tab.mode === 'raw') void copyMarkdown(tab, 'raw');
           else copyTarget = { tab, revision: tab.markdownRevision };
         }}><Icon name="copy" /></button>
+      <button class="icon-btn" data-action="search-markdown" onclick={onSearch}
+        aria-pressed={tab.markdownSearch.open}
+        title={t('toolbar.search')} aria-label={t('toolbar.search')}><Icon name="search" /></button>
       {#if tab.mode === "rendered" && tab.toc.length > 1}
         <button
           class="icon-btn"

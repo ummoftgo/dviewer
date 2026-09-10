@@ -110,8 +110,23 @@ export async function checkSearchWorker(): Promise<void> {
   }
 }
 
+async function checkToolbarSearch(tab: DocTab): Promise<void> {
+  tab.markdownSearch.open = false;
+  await tick();
+  const button = document.querySelector<HTMLButtonElement>('.toolbar [data-action="search-markdown"]');
+  require(button?.getAttribute('aria-pressed') === 'false' && button.title === t('toolbar.search')
+    && button.getAttribute('aria-label') === t('toolbar.search'), 'toolbar search button state or tooltip is wrong');
+  button!.click();
+  await waitSearch(() => tab.markdownSearch.open && button!.getAttribute('aria-pressed') === 'true'
+    && (document.activeElement?.matches('.markdown-searchbar input[type="search"]') ?? false),
+    'toolbar button did not open and focus Markdown search');
+  if (tab.markdownSearch.query) await waitSearch(() => tab.markdownSearch.searched && !tab.markdownSearch.running, 'toolbar query did not finish');
+  button!.focus(); // The following Ctrl+F must move focus back into the search input.
+}
+
 export async function checkRenderedSearch(tab: DocTab): Promise<void> {
   const state = tab.markdownSearch;
+  await checkToolbarSearch(tab);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }));
   await waitSearch(() => document.activeElement?.matches('.markdown-searchbar input[type="search"]') ?? false, 'Ctrl+F did not focus Markdown search');
   const input = document.querySelector<HTMLInputElement>('.markdown-searchbar input[type="search"]')!;
@@ -172,6 +187,7 @@ export async function checkRawSearch(tab: DocTab): Promise<void> {
     state.query = '## Section';
     await tick();
     await waitSearch(() => !state.running && state.searched, 'raw heading query did not resume');
+    await checkToolbarSearch(tab);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }));
     await waitSearch(() => document.activeElement?.matches('.markdown-searchbar input[type="search"]') ?? false, 'Ctrl+F did not focus raw search');
     const input = document.activeElement!;
