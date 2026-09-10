@@ -2,6 +2,19 @@
 
 ← [README](../README.md)
 
+## M26 선행 수정 — 첫 제목 호버의 레이아웃 보존
+
+복사 버튼을 article 끝에 한 번만 붙이고 블록 좌표로 배치한다. 생성 전후와 다른 블록 → 첫 제목 → 다른 블록 이동에서 첫 자식·제목 위치를 검사하며, 레이아웃 변화 후 버튼 위치도 확인한다. 기존 호버 연결·클릭·숨김·해제와 키보드 선택 검사는 유지한다.
+
+| 검사 | 결과 |
+| --- | --- |
+| required cargo test | 492개 통과 |
+| vitest / check | 172개 / 오류·경고 0, 4로케일 × 386키 |
+| 새 debug 빌드 스모크 | 픽스처 39개 + 왕복 2개 통과 |
+| insertBefore 구현 복원 | 새 debug 빌드에서 sample.md의 첫 제목 위치 검사 1개 실패, 왕복 2개 통과 |
+
+관찰자와 이미지·details·글꼴 이벤트를 프레임 단위로 모으고 해제 때 모두 회수한다. 첫 제목과 다른 블록 사이를 왕복해도 흔들리지 않는지, 글꼴·너비 변경 뒤 버튼이 선택한 블록을 따라가는지는 사용자 화면 확인 조건이다. 다른 OS와 릴리스 스모크는 M26 최종 검증에서 구분해 기록한다.
+
 ## v0.16.0 릴리스 스모크 — 닫힌 details 표의 완료 대기
 
 [CI run 34371597314](https://github.com/ummoftgo/dviewer/actions/runs/34371597314)의 Windows·macOS는 `sample.md: markdownTables opened details table has invalid widths`로 실패했고 Linux는 통과했다. 제품의 조기 측정이 아니라 스모크의 조기 검증을 Windows WebView2에서 재현했다. 제품은 닫힌 표의 측정을 건너뛰고, `toggle`·`ResizeObserver` 뒤 예약한 프레임에서 너비를 적용한다. 스모크의 두 번째 프레임 콜백이 그 적용보다 먼저 실행될 수 있었다.

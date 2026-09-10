@@ -61,6 +61,7 @@ export async function checkMarkdownCopy(tab: DocTab): Promise<void> {
     else Reflect.deleteProperty(navigator.clipboard, 'writeText');
   }
 
+  await checkCopyPosition();
   await checkCopyHover();
 
   const codeHandle = enhanceCode(host, tab, () => {});
@@ -108,7 +109,35 @@ export async function checkMarkdownCopy(tab: DocTab): Promise<void> {
   firstBlock.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   controls.button.focus();
   controls.button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-  require(controls.button.nextElementSibling?.getAttribute('data-dviewer-block') === '1', 'keyboard cannot reach the next block');
+  require(host.querySelector('[data-dviewer-selected]')?.getAttribute('data-dviewer-block') === '1', 'keyboard cannot reach the next block');
+}
+
+/** A floating control must not change which document block is the first child. */
+export async function checkCopyPosition(): Promise<void> {
+  const root = document.createElement('article');
+  root.className = 'markdown-body';
+  root.style.cssText = 'position:fixed;left:-100000px;top:0;width:280px';
+  root.innerHTML = '<h1>First heading</h1><p>Another block</p>';
+  document.body.append(root);
+  markBlocks(root);
+  const heading = root.querySelector('h1')!;
+  const paragraph = root.querySelector('p')!;
+  const top = heading.getBoundingClientRect().top;
+  const controls = enhanceBlocks(root, () => {});
+  const unchanged = () => require(root.firstElementChild === heading && Math.abs(heading.getBoundingClientRect().top - top) < 1,
+    'copy control moved the first heading');
+  try {
+    unchanged();
+    for (const block of [paragraph, heading, paragraph]) {
+      block.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+      unchanged();
+      require(Math.abs(parseFloat(controls.button.style.top) - block.offsetTop) < 1, 'copy control did not follow its block');
+    }
+    heading.style.paddingBottom = '40px';
+    root.dispatchEvent(new Event('load'));
+    await frame();
+    require(Math.abs(parseFloat(controls.button.style.top) - paragraph.offsetTop) < 1, 'copy control missed a layout change');
+  } finally { controls.destroy(); root.remove(); }
 }
 
 /** Same sanitised document and table state; only the new controls differ. */

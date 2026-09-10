@@ -37,6 +37,16 @@ function createControls(root: HTMLElement, onCopy: (index: number, button: HTMLB
   button.dataset.dviewerUi = 'copy';
   button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="${ICON_PATHS.copy}" /></svg>`;
   let selected = elements[0];
+  let frame = 0;
+  const position = () => {
+    if (!selected) return;
+    button.style.top = `${selected.offsetTop}px`;
+    button.style.left = `${selected.offsetLeft}px`;
+  };
+  const schedule = () => {
+    frame ||= requestAnimationFrame(() => { frame = 0; position(); });
+  };
+  const observer = new ResizeObserver(schedule);
   let hovered = false;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   const keep = () => { hovered = true; clearTimeout(hideTimer); button.dataset.visible = 'true'; };
@@ -49,16 +59,21 @@ function createControls(root: HTMLElement, onCopy: (index: number, button: HTMLB
       if (!hovered && document.activeElement !== button) delete button.dataset.visible;
     }, 180);
   };
-  const refresh = () => { button.title = t('markdown.copy.block'); button.setAttribute('aria-label', button.title); };
+  const refresh = () => {
+    button.title = t('markdown.copy.block');
+    button.setAttribute('aria-label', button.title);
+    schedule();
+  };
   refresh();
-  if (selected) root.insertBefore(button, selected);
+  if (selected) { root.append(button); position(); observer.observe(root); }
+  root.addEventListener('load', schedule, true);
+  root.addEventListener('toggle', schedule, true);
+  document.fonts.addEventListener('loadingdone', schedule);
   const select = (element: HTMLElement, keyboard = false) => {
     if (element !== selected) {
       selected?.removeAttribute('data-dviewer-selected');
       selected = element;
-      // Absolute positioning keeps the button out of flow; its static position
-      // follows this sibling, without measuring text or page padding in JS.
-      root.insertBefore(button, selected);
+      position();
     }
     button.dataset.visible = 'true';
     if (keyboard) {
@@ -98,6 +113,11 @@ function createControls(root: HTMLElement, onCopy: (index: number, button: HTMLB
   return {
     button, refresh,
     destroy() {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      root.removeEventListener('load', schedule, true);
+      root.removeEventListener('toggle', schedule, true);
+      document.fonts.removeEventListener('loadingdone', schedule);
       root.removeEventListener('pointerover', over);
       root.removeEventListener('focusin', over);
       root.removeEventListener('pointerleave', leave);
