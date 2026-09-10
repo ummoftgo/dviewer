@@ -27,4 +27,9 @@ describe('original Markdown block ranges', () => {
   it('copies lists whole without a section question', () => expect(rawBlock('- a\n- b\n\nx', [block('1:1-2:3')], 0, true)).toBe('- a\n- b\n'));
   it('labels an explicit unsupported language', () => expect(languageLabel({name: 'Plain Text', unknown: 'foo'}, (name) => `알 수 없음: ${name}`)).toBe('알 수 없음: foo'));
   it('offers only supported favorites in the agreed order', () => expect(favoriteLanguages([{ name: 'Rust', tokens: ['rs'] }, { name: 'JSON', tokens: ['json'] }, { name: 'Other', tokens: [] }]).map((x) => x.name)).toEqual(['JSON', 'Rust']));
+  it('includes the added grammars in the quick language list', () => {
+    const names = ['Dockerfile', 'TypeScriptReact', 'TypeScript', 'TOML'];
+    expect(favoriteLanguages(names.map((name) => ({ name, tokens: [] }))).map((x) => x.name))
+      .toEqual(['TOML', 'TypeScript', 'TypeScriptReact', 'Dockerfile']);
+  });
 });

@@ -1,7 +1,8 @@
 import type { CodeLanguage, HighlightLanguage } from '../../ipc';
 
-const FAVORITES = ['JSON', 'YAML', 'XML', 'HTML', 'CSS', 'JavaScript', 'Rust', 'Python',
-  'Bourne Again Shell (bash)', 'SQL', 'Markdown', 'Plain Text'];
+const FAVORITES = ['JSON', 'YAML', 'TOML', 'XML', 'HTML', 'CSS', 'JavaScript',
+  'TypeScript', 'TypeScriptReact', 'Rust', 'Python', 'Bourne Again Shell (bash)',
+  'Dockerfile', 'SQL', 'Markdown', 'Plain Text'];
 
 export function favoriteLanguages(languages: HighlightLanguage[]): HighlightLanguage[] {
   return FAVORITES.flatMap((name) => languages.filter((language) => language.name === name));

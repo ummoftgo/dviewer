@@ -66,7 +66,7 @@ pub async fn highlight_languages() -> Result<Vec<highlight::HighlightLanguage>> 
 }
 
 #[tauri::command]
-pub async fn highlight_code(lang: String, code: String) -> Result<String> {
+pub async fn highlight_code(lang: String, code: String) -> Result<highlight::HighlightedCode> {
     if code.len() > MAX_MARKDOWN_BYTES || lang.len() > MAX_MARKDOWN_BYTES {
         return Err(Error::TooLarge {
             subject: Subject::Markdown,

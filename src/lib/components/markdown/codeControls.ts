@@ -49,10 +49,11 @@ function createControls(root: HTMLElement, tab: DocTab, open: (control: CodeCont
         tab.codeSelections.set(index, name);
         const current = () => alive && revision === tab.markdownRevision && seq === request && code.isConnected;
         try {
-          const html = await highlight(name, source);
+          const result = await highlight(name, source);
           if (!current()) return;
-          code.innerHTML = html;
-          language = { name, unknown: null };
+          code.innerHTML = result.html;
+          language = result.language;
+          tab.codeSelections.set(index, language.name);
           refresh();
         } catch {
           if (!current()) return;

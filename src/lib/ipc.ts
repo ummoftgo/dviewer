@@ -189,6 +189,7 @@ export interface RenderedMarkdown {
 
 export interface CodeLanguage { name: string; unknown: string | null }
 export interface HighlightLanguage { name: string; tokens: string[] }
+export interface HighlightedCode { html: string; language: CodeLanguage }
 
 export interface HighlightCss {
   light: string;
@@ -483,7 +484,7 @@ export function highlightLanguages(): Promise<HighlightLanguage[]> {
     throw error;
   });
 }
-export const highlightCode = (lang: string, code: string) => invoke<string>("highlight_code", { lang, code });
+export const highlightCode = (lang: string, code: string) => invoke<HighlightedCode>("highlight_code", { lang, code });
 export const highlightCss = () => invoke<HighlightCss>("highlight_css");
 export const systemFonts = () => invoke<FontFamily[]>("system_fonts");
 

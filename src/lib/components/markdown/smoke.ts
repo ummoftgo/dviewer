@@ -86,7 +86,7 @@ export async function checkMarkdownCopy(tab: DocTab): Promise<void> {
   const code = pre.querySelector('code')!;
   const source = code.textContent!;
   const expectedCode = document.createElement('code');
-  expectedCode.innerHTML = await highlightCode('JSON', source);
+  expectedCode.innerHTML = (await highlightCode('JSON', source)).html;
   const expected = expectedCode.innerHTML;
   try {
     const first = control.select('Rust');
@@ -95,6 +95,15 @@ export async function checkMarkdownCopy(tab: DocTab): Promise<void> {
     release();
     await first;
     require(code.innerHTML === expected && control.language.name === 'JSON' && target.codeSelections.get(0) === 'JSON', 'late syntax reply overwrote a newer choice');
+    for (const name of ['Fish', 'Sass', 'js']) {
+      await control.select(name);
+      const applied = await highlightCode(name, source);
+      expectedCode.innerHTML = applied.html;
+      require(control.language.name === applied.language.name && control.button.textContent?.includes(applied.language.name)
+        && target.codeSelections.get(0) === applied.language.name && code.innerHTML === expectedCode.innerHTML,
+        'syntax choice label differs from the applied grammar');
+    }
+    await control.select('JSON');
     gate = new Promise<void>((resolve) => { release = resolve; });
     pending = new Promise<void>((resolve) => { started = resolve; });
     const old = control.select('Rust');

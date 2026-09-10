@@ -16,6 +16,7 @@ Vite 8은 번들러가 rollup에서 rolldown으로 바뀌었고 esbuild를 더 �
 | `serde_yaml_ng` | YAML 파싱 | `serde_yaml` 의 유지보수 포크. 매핑이 삽입 순서를 지킵니다 |
 | `encoding_rs` | 인코딩 변환 | Gecko의 구현. Encoding Standard를 그대로 따르므로 브라우저가 읽는 것과 같게 읽습니다 |
 | `chardetng` | 인코딩 추측 | Firefox가 레거시 웹 콘텐츠에 쓰는 판별기 |
+| `two-face` | 코드 강조의 확장 문법 | 0.5.2+bat-0.26.1의 바이너리 문법 덤프. 기존 syntect 문법을 먼저 쓰고 없을 때만 로드하여 TypeScript·TSX·TOML·Dockerfile 등을 추가합니다. 별도 YAML 파서나 테마는 넣지 않습니다 |
 | `toml` | TOML 파싱 | `preserve_order` 를 켜서 테이블 키 순서를 파일 그대로 유지합니다 |
 | `rusqlite` | SQLite 읽기 | `bundled` 로 SQLite 자체를 동봉합니다 — 기계마다 다른 버전을 읽는 뷰어는 뜻이 없습니다. `serialize` 는 압축 파일 안과 주소의 데이터베이스를 열려고 켜습니다. `Connection::deserialize_bytes` 하나를 쓰기 위해서이고, 그것이 `SQLITE_DESERIALIZE_READONLY` 로 버퍼를 제자리에서 읽게 해 사본을 없앨니다. 기능 플래그뿐이라 `Cargo.lock` 은 한 줄도 바뀌지 않습니다 |
 | `calamine` | xlsx 읽기 | 순수 Rust 이고 시트를 이름만 먼저 훑을 수 있습니다. `dates` 기능을 켜서 Excel 의 일련번호를 날짜로 옮기는 일을 맡깁니다 — 1900년을 윤년으로 치는 Excel 의 오래된 버릇까지 포함해서, 직접 짜면 미묘하게 틀리기 쉬운 계산입니다 |
@@ -25,6 +26,8 @@ Vite 8은 번들러가 rollup에서 rolldown으로 바뀌었고 esbuild를 더 �
 | `chrono` | 그 날짜를 읽기 | 새로 들어오는 것이 아니라 `calamine` 이 이미 끌어오는 크레이트입니다. 접근자를 쓰려고 직접 의존으로 적었고, 기본 기능을 끄고 `std` 만 켜서 시간대 데이터는 들어오지 않습니다 |
 
 `calamine` 이 요구하는 Rust 하한이 1.88 이라, 저장소 전체의 하한도 거기에 맞춰졌습니다. `parquet` 은 1.85 를 요구하므로 이 하한을 올리지 않습니다.
+
+two-face 크레이트는 MIT 또는 Apache-2.0 중 [MIT 라이선스](licenses/two-face-MIT.txt)로 사용합니다. 포함 문법은 별도 라이선스를 따릅니다. `two_face::acknowledgement::listing().for_syntaxes()`의 66개 고지를 `License::write_md`로 추출하여 원문 그대로 [1부](licenses/two-face-syntaxes-1.md)·[2부](licenses/two-face-syntaxes-2.md)·[3부](licenses/two-face-syntaxes-3.md)에 보존했습니다. 판을 바꿀 때 이 고지도 함께 갱신해야 합니다. 테마 확장은 사용하지 않습니다.
 
 `parquet` 을 기본 기능으로 켰을 때와 비교하면 의존 크레이트가 54개에서 41개로, 정리 후 릴리스 빌드가 24초에서 절반 아래로 줄어듭니다. 이 저장소의 트리(312개)에 **실제로 새로 들어오는 것은 16개**입니다.
 

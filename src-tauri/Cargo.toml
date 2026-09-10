@@ -34,6 +34,7 @@ regex = "1"
 ammonia = "4.1.4"
 parking_lot = "0.12.5"
 syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig", "html", "parsing"] }
+two-face = "=0.5.2"
 comrak = { version = "0.54.0", features = ["syntect"] }
 ureq = { version = "3.4.0", features = ["rustls", "gzip", "brotli", "charset"] }
 url = "2.5.8"
