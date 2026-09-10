@@ -1,6 +1,9 @@
 /* Code block chrome. The token colours themselves are syntect-generated CSS,
    injected at runtime by ThemeStyles.svelte — this file only owns the box. */
 
+::highlight(md-search) { background-color: var(--match); color: var(--text); }
+::highlight(md-search-current) { background-color: var(--match-active); color: var(--text); }
+
 .markdown-body code,
 .markdown-body kbd,
 .markdown-body samp {

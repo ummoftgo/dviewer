@@ -2,6 +2,29 @@
 
 ← [README](../README.md)
 
+## M26 렌더 문서 검색
+
+순수 검색·오프셋 테스트 21개와 검색 상태의 뷰 전환/재해석 회귀 1개를 추가했다. `long-markdown.md`의 실제 검색창에서 Ctrl+F, literal 200건·regex 2건, 대소문자, Enter/Shift+Enter 왕복, Esc 해제와 WebView2 Highlight 등록을 확인한다. 별도 네이티브 DOM 검사는 문단·셀 경계, 조작 요소·숨김·수식 중복 제외, 이모지와 인라인 노드 연결, 닫힌 details와 표 레이아웃 확정 뒤 중앙 이동, 긴 코드 줄의 가로 이동을 검사한다.
+
+Worker 검사는 `^(a+)+$`와 32개의 a 뒤 느낌표를 실제 Worker에서 실행하여 1초 종료와 메인 프레임 응답을 확인한다. 종료 뒤 재검색, DOM 교체의 자동 색인 재생성, 도구 버튼 변경의 캐시 보존, 강조 없는 폴백, 질의 교체·해제도 검사한다. 오류는 단어가 아니라 전체 번역 문장을 단언한다.
+
+| 제거·변경한 가드 | 실제 실패 |
+|---|---:|
+| 결과 상한 제거 | vitest 2개 |
+| 정규식 Unicode 문자 수를 UTF-16 길이로 변경 | vitest 1개 |
+| 빈 폭 일치 제외 제거 | vitest 3개 |
+| 텍스트 노드 경계 `<=`를 `<`로 변경 | vitest 3개 |
+| 재해석 시 질의 초기화 제거 | vitest 1개 |
+| 조작 요소·수식 중복 제외 제거 | 새 debug long-markdown.md 1개 |
+| 문단·셀 구분 문자 제거 | 새 debug long-markdown.md 1개 |
+| details 레이아웃 안정 대기 제거 | 새 debug long-markdown.md 1개 |
+| 코드의 가로 스크롤 대상 제거 | 새 debug long-markdown.md 1개 |
+| Worker 제한 시간을 10초로 늘림 | 새 debug long-markdown.md 1개 |
+| 본문 교체 시 색인 무효화 제거 | 새 debug long-markdown.md 1개 |
+| Highlight 등록 제거 | 새 debug long-markdown.md 1개 |
+
+변형 복원 뒤 최종 required Rust 502개·vitest 212개·check 오류/경고 0(4×397)·새 debug 39+2가 통과했다. 모든 네이티브 변형의 왕복 2개는 통과했다. 실제 화면에서 라이트·다크 강조의 가독성, 긴 결과의 가로 이동, details 개방 뒤 위치는 별도로 확인한다.
+
 ## M26 목차 현재 위치
 
 제목 200개인 `long-markdown.md`에서 처음·중간·바닥의 aria-current, 목차 자체 스크롤, hover 억제·해제 후 재개, 키보드 포커스 억제, 항목 클릭과 테마 변경 뒤 현재 위치를 검사한다. 순수 activeHeading 테스트는 빈 목록·맨 위·중간·바닥·정확한 경계·같은 좌표·단일 제목을 다루는 7개다. 최종 required Rust 502개·vitest 190개·check 오류/경고 0(4×388)·새 debug 39+2가 통과했다. 테마 변경은 기존 후처리 수명주기가 추적기를 재생성함을 실제 창에서 확인했으므로 별도 갱신 조건을 추가하지 않았다.

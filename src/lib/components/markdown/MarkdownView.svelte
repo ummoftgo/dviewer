@@ -17,14 +17,16 @@
   import { toasts } from '../../state/toast.svelte';
   import Toc from "./Toc.svelte";
   import { trackHeading } from './toc';
+  import MarkdownSearchBar from './MarkdownSearchBar.svelte';
   import { enhanceTables, interceptLinks, renderMath, renderMermaid, rewriteImages, type EnhancedTables } from "./enhance";
 
   interface Props {
     tab: DocTab;
     showToc: boolean;
+    focusSearch?: (() => void) | null;
   }
 
-  let { tab, showToc }: Props = $props();
+  let { tab, showToc, focusSearch = $bindable(null) }: Props = $props();
 
   let scroller = $state<HTMLElement>();
   let article = $state<HTMLElement>();
@@ -180,9 +182,11 @@
   }
 </script>
 
-<div class="layout" class:with-toc={showToc && tab.toc.length > 1}>
+<div class="layout" class:with-toc={showToc && tab.toc.length > 1} class:with-search={tab.markdownSearch.open}>
+  <MarkdownSearchBar {tab} root={article} {scroller} ready={tab.html !== null && !enhancing} bind:focusSearch />
   <div
     class="scroller"
+    tabindex="-1"
     bind:this={scroller}
     onscroll={(e) => (tab.scrollTop = e.currentTarget.scrollTop)}
   >
@@ -232,6 +236,7 @@
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     height: 100%;
     min-height: 0;
   }
@@ -239,6 +244,8 @@
   .layout.with-toc {
     grid-template-columns: minmax(0, 1fr) 15rem;
   }
+
+  .layout.with-search { grid-template-rows: auto minmax(0, 1fr); }
 
   .scroller {
     height: 100%;

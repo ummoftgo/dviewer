@@ -28,8 +28,32 @@ import { NodeHistory } from "./history.svelte";
 import { recents } from "./recents.svelte";
 import { settings } from "./settings.svelte";
 import type { TableState } from "../components/markdown/tables";
+import type { SearchError } from '../components/markdown/search';
 
 export type ViewMode = "rendered" | "raw";
+
+/** Query options survive view switches; DOM ranges belong only to the view. */
+export class MarkdownSearchState {
+  open = $state(false);
+  query = $state('');
+  caseSensitive = $state(false);
+  how = $state<'literal' | 'regex'>('literal');
+  hits = $state(0);
+  current = $state(-1);
+  capped = $state(false);
+  running = $state(false);
+  searched = $state(false);
+  supported = $state(true);
+  error = $state<SearchError | null>(null);
+  detail = $state('');
+  seq = $state(0);
+
+  reset() {
+    this.seq++;
+    this.hits = 0; this.current = -1; this.capped = false;
+    this.running = false; this.searched = false; this.error = null; this.detail = '';
+  }
+}
 
 class SearchState {
   /**
@@ -162,6 +186,7 @@ export class DocTab {
 
   // Markdown
   markdownRevision = $state(0);
+  readonly markdownSearch = new MarkdownSearchState();
   codeLanguages: Record<string, ipc.CodeLanguage> = {};
   readonly codeSelections = new Map<number, string>();
   private rawRequest: Promise<string> | null = null;
@@ -287,6 +312,9 @@ export class DocTab {
     this.order.reset();
     this.tables.clear();
     this.markdownRevision++;
+    this.markdownSearch.open = false;
+    this.markdownSearch.query = '';
+    this.markdownSearch.reset();
     this.rawRequest = null;
     this.codeLanguages = {};
     this.codeSelections.clear();

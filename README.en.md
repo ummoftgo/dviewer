@@ -8,7 +8,7 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 
 | View | Formats | What it does |
 | --- | --- | --- |
-| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting with 193 languages (including TypeScript, TSX, TOML and Dockerfile), Mermaid, KaTeX. Whole-document and block copy as source or HTML. Raw/rendered toggle; current-heading indication with automatic TOC scrolling; a page-width dropdown and settings slider; automatic column-width recommendations with fill-width tables by default, column resizing, content fitting, and scrolling/fill-width modes |
+| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting with 193 languages (including TypeScript, TSX, TOML and Dockerfile), Mermaid, KaTeX. Whole-document and block copy as source or HTML. Raw/rendered toggle; current-heading indication with automatic TOC scrolling; rendered-document search (Ctrl+F); a page-width dropdown and settings slider; automatic column-width recommendations with fill-width tables by default, column resizing, content fitting, and scrolling/fill-width modes |
 | Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in grid subtabs (except XML) |
 | Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, header context menu for sorting, filtering one column and fitting its width (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
@@ -115,6 +115,8 @@ The technical documentation lives in `doc/` (Korean).
 | [Dependencies](doc/dependencies.md) | Why each package was chosen, and vulnerability checks |
 
 ## Known limits
+
+- Markdown search is limited to 2,000 matches, 256 characters per regular expression and 1 second per query. Zero-width matches are excluded. Rendered search excludes markup, app controls, hidden content and duplicate math representations; closed details are included and opened on navigation. Environments without the highlight API show a notice and scroll to matches without highlighting them.
 
 - Self-update is available only for Windows x64 portable exe and NSIS installations. Update files are limited to 256MiB and manifests to 64KiB. NSIS rejects installation when the installer path and document arguments exceed its 1,024 UTF-16-unit command-line buffer, including NUL. Close some documents and retry.
 

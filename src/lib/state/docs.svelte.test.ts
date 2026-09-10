@@ -474,3 +474,18 @@ test("code language choices survive raw switches and reset on reinterpretation",
   expect(tab.markdownRevision).toBe(revision + 1);
   expect(tab.codeSelections.size).toBe(0);
 });
+
+test('Markdown search keeps its query across views but clears it on reinterpretation', () => {
+  const tab = new DocTab(meta({ type: 'text' }, 'markdown'));
+  const search = tab.markdownSearch;
+  search.open = true; search.query = 'needle'; search.how = 'regex'; search.caseSensitive = true;
+  search.hits = 4; search.current = 2; search.capped = true; search.running = true;
+  const seq = search.seq;
+  search.reset();
+  tab.mode = 'raw';
+  expect([search.open, search.query, search.how, search.caseSensitive]).toEqual([true, 'needle', 'regex', true]);
+  expect([search.hits, search.current, search.capped, search.running]).toEqual([0, -1, false, false]);
+  expect(search.seq).toBeGreaterThan(seq);
+  tab.invalidate();
+  expect([search.open, search.query, search.hits]).toEqual([false, '', 0]);
+});

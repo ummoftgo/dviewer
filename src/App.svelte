@@ -217,9 +217,7 @@
           }
           return;
         case "f":
-          // Every view but prose has a search box of its own; prose has the
-          // browser's own find, which this must not shadow.
-          if (active && active.view !== "prose") {
+          if (active) {
             event.preventDefault();
             searchBarFocus?.();
           }
@@ -304,7 +302,7 @@
         {:else if active.mode === "raw"}
           <RawView tab={active} />
         {:else}
-          <MarkdownView tab={active} {showToc} />
+          <MarkdownView tab={active} {showToc} bind:focusSearch={searchBarFocus} />
         {/if}
       {/key}
     {/if}
