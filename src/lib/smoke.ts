@@ -15,7 +15,7 @@
 import * as ipc from "./ipc";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
-import { checkMarkdownCopy, measureMarkdown } from "./components/markdown/smoke";
+import { checkMarkdownCopy, checkTableRecommendation, measureMarkdown } from "./components/markdown/smoke";
 import { enhanceTables } from "./components/markdown/enhance";
 import { settings } from "./state/settings.svelte";
 
@@ -233,6 +233,7 @@ export async function runSmoke(): Promise<void> {
 
 /** This uses the rendered fixture, including hidden and unsupported HTML tables. */
 async function checkMarkdownTables(tab: DocTab) {
+  await checkTableRecommendation();
   const require = (condition: unknown, message: string) => {
     if (!condition) throw new Error(message);
   };
@@ -263,6 +264,7 @@ async function checkMarkdownTables(tab: DocTab) {
   const viewport = wrap.querySelector<HTMLElement>(".table-viewport")!;
   const toggle = wrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!;
   const reset = wrap.querySelector<HTMLButtonElement>('[data-action="reset"]')!;
+  const recommend = wrap.querySelector<HTMLButtonElement>('[data-action="recommend"]')!;
   const grip = wrap.querySelector<HTMLElement>(".table-grip")!;
   const firstCell = table.rows[0].cells[0];
   const widths = () => [...table.rows[0].cells].map((cell) => cell.getBoundingClientRect().width);
@@ -270,6 +272,7 @@ async function checkMarkdownTables(tab: DocTab) {
   const close = (a: number, b: number) => Math.abs(a - b) < 1;
   const state = tab.tables.get(Number(wrap.dataset.table))!;
   if (state.mode !== "scroll") toggle.click();
+  require(recommend.disabled, 'recommendation was enabled in scrolling mode');
   key(grip, "ArrowRight");
   require(state.scrollWidths && !reset.disabled, "keyboard resize did not save scroll widths");
   const scrollWidths = [...state.scrollWidths!];
@@ -295,6 +298,11 @@ async function checkMarkdownTables(tab: DocTab) {
   require(close(widths()[0], scrollWidths[0] + 8), "scroll widths were lost across mode changes");
   toggle.click();
   require(JSON.stringify(state.fillRatios) === JSON.stringify(ratios), "fill ratios were lost across mode changes");
+  require(!recommend.disabled, 'recommendation was disabled in fill mode');
+  const savedScroll = JSON.stringify(state.scrollWidths);
+  recommend.click();
+  require(!state.fillRatios && JSON.stringify(state.scrollWidths) === savedScroll, 'recommendation cleared scroll widths or retained manual fill');
+  require(widths().every((width, i) => close(width, fillBefore[i])), 'recommendation did not restore automatic widths');
   reset.click();
   require(state.mode === "fill" && !state.scrollWidths && !state.fillRatios && reset.disabled, "reset changed the mode or kept manual widths");
 

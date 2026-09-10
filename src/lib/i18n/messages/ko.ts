@@ -172,6 +172,7 @@ export const ko = {
   "markdown.table.scroll": "가로 스크롤",
   "markdown.table.fill": "문서 너비 채우기",
   "markdown.table.reset": "너비 초기화",
+  "markdown.table.recommend": "너비 추천",
   "markdown.table.resize": "열 {column} 너비 조절",
   "markdown.table.resizeHint": "드래그하거나 좌우 화살표로 조절합니다. 두 번 누르거나 Enter로 내용에 맞춥니다.",
   "markdown.rendering": "문서를 렌더링하는 중…",

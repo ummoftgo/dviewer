@@ -167,6 +167,7 @@ export const ja: Messages = {
   "markdown.table.scroll": "横スクロール",
   "markdown.table.fill": "文書の幅に合わせる",
   "markdown.table.reset": "幅をリセット",
+  "markdown.table.recommend": "幅を自動調整",
   "markdown.table.resize": "列 {column} の幅を調整",
   "markdown.table.resizeHint": "ドラッグまたは左右の矢印で調整します。ダブルクリックまたはEnterで内容に合わせます。",
   "markdown.rendering": "文書をレンダリング中…",

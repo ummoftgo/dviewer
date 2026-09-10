@@ -11,7 +11,8 @@ import { toasts } from "../../state/toast.svelte";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DocMeta } from "../../ipc";
 import { ICON_PATHS } from "../Icon.svelte";
-import { fillWidths, rectangularColumns, resizeWidths, widthRatios, type TableMode, type TableState } from "./tables";
+import { fillWidths, recommendWidths, rectangularColumns, resizeWidths, widthRatios, type ColumnMeasure, type TableMode, type TableState } from "./tables";
+import { measureColumns } from './measureTable';
 
 /** Collapse `.` and `..` segments so a path is safe to hand to the asset protocol. */
 function normalizeSegments(path: string): string {
@@ -223,7 +224,10 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     const reset = document.createElement("button");
     reset.type = "button";
     reset.dataset.action = "reset";
-    toolbar.append(toggle, reset);
+    const recommend = document.createElement('button');
+    recommend.type = 'button';
+    recommend.dataset.action = 'recommend';
+    toolbar.append(toggle, recommend, reset);
     table.before(wrap);
     viewport.append(table);
     wrap.append(toolbar, viewport);
@@ -239,6 +243,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     else table.prepend(group);
     const cells = [...table.rows[0].cells];
     let natural: number[] | undefined;
+    let intrinsic: ColumnMeasure[] | undefined;
     let border = 0;
     let minimum = 0;
     const grips = cells.map((cell, column) => {
@@ -317,6 +322,10 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       reset.textContent = t("markdown.table.reset");
       reset.title = reset.textContent;
       reset.disabled = !state.scrollWidths && !state.fillRatios;
+      recommend.title = t('markdown.table.recommend');
+      recommend.setAttribute('aria-label', recommend.title);
+      recommend.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="${ICON_PATHS['fit-width']}" /></svg>`;
+      recommend.disabled = state.mode !== 'fill';
       grips.forEach((grip, column) => {
         const disabled = state.mode === "fill" && count === 1;
         grip.tabIndex = disabled ? -1 : 0;
@@ -352,7 +361,12 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       if (!natural) measure();
       wrap.dataset.mode = state.mode;
       if (state.mode === "fill") {
-        applyWidths(fillWidths(state.fillRatios ?? natural!, viewport.clientWidth - border, minimum));
+        const available = viewport.clientWidth - border;
+        if (state.fillRatios) applyWidths(fillWidths(state.fillRatios, available, minimum));
+        else {
+          intrinsic ??= measureColumns(table, root);
+          applyWidths(recommendWidths(intrinsic, available, minimum));
+        }
       } else if (state.scrollWidths) {
         applyWidths(state.scrollWidths.map((width) => Math.max(minimum, width)));
       } else {
@@ -381,14 +395,16 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       delete state.scrollWidths;
       delete state.fillRatios;
       natural = undefined;
+      intrinsic = undefined;
       layout();
     };
-    refreshers.push(() => { natural = undefined; schedule(layout); });
+    recommend.onclick = () => { delete state.fillRatios; layout(); };
+    refreshers.push(() => { natural = undefined; intrinsic = undefined; schedule(layout); });
     layouts.set(viewport, layout);
     observer.observe(viewport);
     layout();
     cleanups.push(() => {
-      toggle.onclick = reset.onclick = null;
+      toggle.onclick = reset.onclick = recommend.onclick = null;
       group.remove();
       table.prepend(...oldGroups);
       table.style.removeProperty("width");

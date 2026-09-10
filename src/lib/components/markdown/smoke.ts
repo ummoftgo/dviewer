@@ -5,9 +5,77 @@ import { blockDescription, blockElements, cleanCopyDom, htmlForCopy, copyMarkdow
 import { rawBlock } from './blocks';
 import { enhanceBlocks, markBlocks } from './blockControls';
 import { enhanceCode } from './codeControls';
+import { measureColumns } from './measureTable';
+import { enhanceTables } from './enhance';
+import { recommendWidths, type TableState } from './tables';
 
 const require = (value: unknown, message: string) => { if (!value) throw new Error(message); };
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+export async function checkTableRecommendation(): Promise<void> {
+  const root = document.createElement('article');
+  root.className = 'markdown-body';
+  root.style.cssText = 'position:fixed;left:-100000px;top:0;width:900px';
+  const table = document.createElement('table');
+  for (let i = 0; i < 32; i++) {
+    const row = table.insertRow();
+    row.insertCell().textContent = i === 31 ? 'Supercalifragilisticexpialidocious' : 'ID';
+    row.insertCell().textContent = 'A sentence with many separate words. '.repeat(12);
+  }
+  const lastCell = table.rows[31].cells[0];
+  lastCell.style.whiteSpace = 'nowrap';
+  root.append(table);
+  document.body.append(root);
+  const word = document.createRange();
+  word.selectNodeContents(lastCell);
+  const wordWidth = word.getBoundingClientRect().width;
+  const original = table.rows[0];
+  const observation = new MutationObserver(() => {});
+  observation.observe(document.body, { childList: true });
+  try {
+    const measured = measureColumns(table, root);
+    const probe = observation.takeRecords().flatMap((record) => [...record.addedNodes])
+      .find((node) => node instanceof HTMLElement && node.dataset.dviewerUi === 'table-measure') as HTMLElement;
+    require(probe?.querySelector('table')?.rows.length === 20, 'recommendation did not limit its sample to 20 rows');
+    require(!probe.isConnected && !root.querySelector('[data-dviewer-ui="table-measure"]'), 'measurement DOM leaked into the document');
+    require(table.rows.length === 32 && table.rows[0] === original, 'measurement replaced or copied the original rows');
+    require(measured[0].min >= wordWidth && measured[0].min > 100, 'recommendation broke a sampled word into characters');
+    require(measured[1].max > measured[1].min * 3, 'recommendation lost the difference between words and sentences');
+    const states = new Map<number, TableState>();
+    const handle = enhanceTables(root, states, 'fill');
+    try {
+      const state = states.get(0)!;
+      const viewport = table.parentElement!;
+      const widths = [...table.rows[0].cells].map((cell) => cell.getBoundingClientRect().width);
+      const border = table.getBoundingClientRect().width - widths.reduce((sum, width) => sum + width, 0);
+      const minimum = 3 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const expected = recommendWidths(measured, viewport.clientWidth - border, minimum);
+      require(widths.every((width, i) => Math.abs(width - expected[i]) < 1), 'default fill did not use the measured recommendation');
+      require(!state.fillRatios, 'automatic recommendation was frozen as manual ratios');
+      const group = table.querySelector('colgroup')!;
+      const columnState = () => [...group.querySelectorAll('col')].map((col) => col.style.width).join(',');
+      const changed = (update: () => void) => new Promise<void>((resolve, reject) => {
+        const before = columnState();
+        const timer = setTimeout(() => { watcher.disconnect(); reject(new Error('recommended layout did not complete')); }, 20_000);
+        const watcher = new MutationObserver(() => {
+          if (columnState() === before) return;
+          clearTimeout(timer); watcher.disconnect(); resolve();
+        });
+        watcher.observe(group, { attributes: true, attributeFilter: ['style'], subtree: true });
+        update();
+      });
+      await changed(() => { root.style.width = '1050px'; });
+      require(Math.abs(table.getBoundingClientRect().width - viewport.clientWidth) < 1 && !state.fillRatios,
+        'automatic recommendation did not follow the document width');
+      await changed(() => { root.style.fontSize = `${parseFloat(getComputedStyle(root).fontSize) + 3}px`; handle.refresh(); });
+      const refreshed = measureColumns(table, root);
+      require(refreshed[0].min > measured[0].min, 'font probe did not grow the sampled word');
+      const after = recommendWidths(refreshed, viewport.clientWidth - border, minimum);
+      require([...table.rows[0].cells].every((cell, i) => Math.abs(cell.getBoundingClientRect().width - after[i]) < 1),
+        'font refresh kept stale recommended measurements');
+    } finally { handle.destroy(); }
+  } finally { observation.disconnect(); root.remove(); }
+}
 
 /** Runs in the native smoke WebView. No DOM emulator or UI-test dependency. */
 export async function checkMarkdownCopy(tab: DocTab): Promise<void> {

@@ -39,6 +39,28 @@ export function fillWidths(weights: readonly number[], available: number, minimu
   return widths;
 }
 
+export interface ColumnMeasure { min: number; max: number }
+
+/** Reserve word widths first; long sentences share spare room on a square-root curve. */
+export function recommendWidths(columns: readonly ColumnMeasure[], available: number, minimum: number): number[] {
+  const widths = columns.map((column) => Math.max(minimum, column.min));
+  let remaining = available - widths.reduce((sum, width) => sum + width, 0);
+  if (remaining <= 0 || !columns.length) return widths;
+  const growing = columns.map((column, index) => ({ index, capacity: Math.max(0, column.max - widths[index]) }))
+    .filter(({ capacity }) => capacity > 0).sort((a, b) => a.capacity - b.capacity);
+  let weightSum = growing.reduce((sum, { capacity }) => sum + Math.sqrt(capacity), 0);
+  for (const { index, capacity } of growing) {
+    const weight = Math.sqrt(capacity);
+    const added = Math.min(capacity, remaining * weight / weightSum);
+    widths[index] += added;
+    remaining -= added;
+    weightSum -= weight;
+  }
+  // max-content is a saturation point: a full page still uses all its width.
+  if (remaining > 0) return widths.map((width) => width + remaining / widths.length);
+  return widths;
+}
+
 export function widthRatios(widths: readonly number[]): number[] {
   const total = widths.reduce((sum, width) => sum + width, 0);
   let remaining = 100;

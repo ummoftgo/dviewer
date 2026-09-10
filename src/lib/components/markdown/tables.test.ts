@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { fillWidths, rectangularColumns, resizeWidths, widthRatios } from "./tables";
+import { fillWidths, recommendWidths, rectangularColumns, resizeWidths, widthRatios } from "./tables";
 
 const row = (count: number) => ({ cells: Array.from({ length: count }, () => ({ colSpan: 1, rowSpan: 1 })) });
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
@@ -87,4 +87,51 @@ test("the last column uses its left neighbor", () => {
 test("one fill column has nowhere to redistribute, but one scroll column can grow", () => {
   expect(resizeWidths([240], 0, 70, "fill", 48)).toEqual([240]);
   expect(resizeWidths([240], 0, 70, "scroll", 48)).toEqual([310]);
+});
+
+test('recommendation reserves each sampled word width before sharing spare room', () => {
+  const widths = recommendWidths([{ min: 120, max: 500 }, { min: 80, max: 700 }], 320, 48);
+  expect(widths[0]).toBeGreaterThanOrEqual(120);
+  expect(widths[1]).toBeGreaterThanOrEqual(80);
+  expect(sum(widths)).toBeCloseTo(320);
+});
+
+test('a sentence with nine times the spare capacity receives only three times the spare width', () => {
+  expect(recommendWidths([{ min: 50, max: 150 }, { min: 50, max: 950 }], 300, 48)).toEqual([100, 200]);
+});
+
+test('a saturated short column gives its excess share to the remaining column', () => {
+  expect(recommendWidths([{ min: 50, max: 75 }, { min: 50, max: 950 }], 300, 48)).toEqual([75, 225]);
+});
+
+test('once every column saturates, the unused document width is shared evenly', () => {
+  expect(recommendWidths([{ min: 40, max: 60 }, { min: 80, max: 120 }], 300, 20)).toEqual([120, 180]);
+});
+
+test('sampled words wider than the document keep their minimum and overflow', () => {
+  expect(recommendWidths([{ min: 100, max: 500 }, { min: 80, max: 200 }], 90, 48)).toEqual([100, 80]);
+});
+
+test('short cells still keep the UI minimum', () => {
+  expect(recommendWidths([{ min: 0, max: 20 }, { min: 10, max: 30 }], 96, 48)).toEqual([48, 48]);
+});
+
+test('a single recommended column fills the page or retains its minimum', () => {
+  expect(recommendWidths([{ min: 10, max: 40 }], 100, 48)).toEqual([100]);
+  expect(recommendWidths([{ min: 10, max: 40 }], 5, 48)).toEqual([48]);
+});
+
+test('equal columns receive equal recommended widths', () => {
+  const widths = recommendWidths(Array.from({ length: 3 }, () => ({ min: 40, max: 200 })), 300, 48);
+  for (const width of widths) expect(width).toBeCloseTo(100);
+});
+
+test('recommendation preserves column order and leaves the measurements intact', () => {
+  const columns = [{ min: 50, max: 950 }, { min: 50, max: 150 }];
+  expect(recommendWidths(columns, 300, 48)).toEqual([200, 100]);
+  expect(columns).toEqual([{ min: 50, max: 950 }, { min: 50, max: 150 }]);
+});
+
+test('a document without columns has no recommendation', () => {
+  expect(recommendWidths([], 300, 48)).toEqual([]);
 });

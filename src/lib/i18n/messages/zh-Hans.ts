@@ -167,6 +167,7 @@ export const zhHans: Messages = {
   "markdown.table.scroll": "横向滚动",
   "markdown.table.fill": "填满文档宽度",
   "markdown.table.reset": "重置列宽",
+  "markdown.table.recommend": "推荐列宽",
   "markdown.table.resize": "调整第 {column} 列的宽度",
   "markdown.table.resizeHint": "拖动或使用左右方向键调整宽度。双击或按 Enter 可适应内容。",
   "markdown.rendering": "正在渲染文档…",
