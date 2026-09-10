@@ -140,3 +140,42 @@ export async function checkRenderedSearch(tab: DocTab): Promise<void> {
     require(!state.open && !CSS.highlights.has('md-search') && !CSS.highlights.has('md-search-current'), 'Escape did not close and clear Markdown search');
   } finally { state.open = false; state.query = ''; await tick(); }
 }
+
+export async function checkRawSearch(tab: DocTab): Promise<void> {
+  const state = tab.markdownSearch;
+  state.open = true; state.query = '## Section'; state.how = 'literal'; state.caseSensitive = true;
+  await tick();
+  await waitSearch(() => state.searched && !state.running, 'rendered markup query did not finish');
+  require(state.hits === 0, 'rendered search unexpectedly included heading markup');
+  try {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', ctrlKey: true, bubbles: true }));
+    await waitSearch(() => !!document.querySelector('.raw-view .source') && state.searched && !state.running,
+      'raw view did not rerun the shared query');
+    require(state.query === '## Section' && state.hits === 200, 'raw view lost the query or did not search markup');
+    const source = document.querySelector<HTMLElement>('.raw-view .source')!;
+    const scroller = source.closest<HTMLElement>('.scroller')!;
+    const gutter = scroller.querySelector<HTMLElement>('.gutter')!;
+    require(source.childNodes.length === 1 && source.textContent === tab.raw, 'raw highlighting changed the source text node');
+    require(getComputedStyle(source).lineHeight === getComputedStyle(gutter).lineHeight, 'raw search misaligned the line-number gutter');
+    state.query = '200';
+    await tick();
+    await waitSearch(() => !state.running && state.searched, 'raw numeric query did not finish');
+    require(state.hits === findMatches(tab.raw!, '200', { how: 'literal', caseSensitive: true }).ranges.length,
+      'raw search included the line-number gutter');
+    state.query = '## Section';
+    await tick();
+    await waitSearch(() => !state.running && state.searched, 'raw heading query did not resume');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }));
+    await waitSearch(() => document.activeElement?.matches('.markdown-searchbar input[type="search"]') ?? false, 'Ctrl+F did not focus raw search');
+    const input = document.activeElement!;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
+    await waitSearch(() => state.current === 199 && scroller.scrollTop > 0, 'raw search did not navigate to its last match');
+    require(CSS.highlights.get('md-search')?.size === 200 && CSS.highlights.get('md-search-current')?.size === 1,
+      'raw search highlights are missing');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', ctrlKey: true, bubbles: true }));
+    await waitSearch(() => !!document.querySelector('article.markdown-body') && state.searched && !state.running,
+      'rendered view did not rerun the query after the round trip');
+    require(state.query === '## Section' && state.hits === 0 && !CSS.highlights.get('md-search-current'),
+      'raw ranges survived the rendered view switch');
+  } finally { state.open = false; state.query = ''; tab.mode = 'rendered'; await tick(); }
+}

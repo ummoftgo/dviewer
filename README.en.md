@@ -8,7 +8,7 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 
 | View | Formats | What it does |
 | --- | --- | --- |
-| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting with 193 languages (including TypeScript, TSX, TOML and Dockerfile), Mermaid, KaTeX. Whole-document and block copy as source or HTML. Raw/rendered toggle; current-heading indication with automatic TOC scrolling; rendered-document search (Ctrl+F); a page-width dropdown and settings slider; automatic column-width recommendations with fill-width tables by default, column resizing, content fitting, and scrolling/fill-width modes |
+| Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting with 193 languages (including TypeScript, TSX, TOML and Dockerfile), Mermaid, KaTeX. Whole-document and block copy as source or HTML. Raw/rendered toggle; current-heading indication with automatic TOC scrolling; rendered/source search (Ctrl+F); a page-width dropdown and settings slider; automatic column-width recommendations with fill-width tables by default, column resizing, content fitting, and scrolling/fill-width modes |
 | Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in grid subtabs (except XML) |
 | Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, header context menu for sorting, filtering one column and fitting its width (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
@@ -91,7 +91,8 @@ Both the manifest and update file are authenticated with the embedded public key
 | `Ctrl PageDown` / `Ctrl PageUp` | Cycle the active document’s subtabs |
 | `Ctrl E` | Toggle Markdown raw/rendered |
 | `Enter` / `Shift Enter` | Next / previous search hit |
-| `Ctrl F` | Tree search (all / keys / values / paths), table search |
+| `Ctrl F` | Tree search (all / keys / values / paths), table search, rendered/source Markdown search |
+| `Esc` in Markdown search | Close search and clear highlights |
 | `Ctrl +` `Ctrl -` `Ctrl 0` | Interface scale |
 | `←` `→` `Enter` in the tree | Fold / unfold |
 | Clicking `{ 3 }` `[ 3 ]` `< 3 >` in the tree | Fold / unfold |

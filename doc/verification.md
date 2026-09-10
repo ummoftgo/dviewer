@@ -2,6 +2,18 @@
 
 ← [README](../README.md)
 
+## M26 원문 검색
+
+같은 `## Section` 질의가 Ctrl+E 렌더→원문→렌더 전환에서 0→200→0건으로 다시 계산되는지 실제 창에서 검사한다. 원문 source는 텍스트 노드 하나로 유지하고, 줄 번호의 line-height와 일치 건수를 대조한다. 숫자 `200`의 원문 일치 수와 DOM 검색 결과가 같아야 하므로 거터를 잘못 포함하면 실패한다. Ctrl+F 포커스, Shift+Enter로 마지막 일치 이동, 전환 뒤 이전 Range 해제도 확인한다.
+
+| 변형 | 실제 실패 |
+|---|---:|
+| 원문 준비 연결 제거 | 새 debug long-markdown.md 1개 |
+| 색인 대상을 거터를 포함한 scroller로 변경 | 새 debug long-markdown.md 1개 |
+| App의 원문 Ctrl+F 바인딩 제거 | 새 debug long-markdown.md 1개 |
+
+변형 복원 뒤 required Rust 502개·vitest 212개·check 오류/경고 0(4×397)·새 debug 39+2가 통과했다. 추가 검색 엔진이나 백엔드 명령은 만들지 않았다.
+
 ## M26 렌더 문서 검색
 
 순수 검색·오프셋 테스트 21개와 검색 상태의 뷰 전환/재해석 회귀 1개를 추가했다. `long-markdown.md`의 실제 검색창에서 Ctrl+F, literal 200건·regex 2건, 대소문자, Enter/Shift+Enter 왕복, Esc 해제와 WebView2 Highlight 등록을 확인한다. 별도 네이티브 DOM 검사는 문단·셀 경계, 조작 요소·숨김·수식 중복 제외, 이모지와 인라인 노드 연결, 닫힌 details와 표 레이아웃 확정 뒤 중앙 이동, 긴 코드 줄의 가로 이동을 검사한다.

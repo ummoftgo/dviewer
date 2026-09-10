@@ -3,13 +3,16 @@
   import { t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
   import { errorMessage } from "../../ipc";
+  import MarkdownSearchBar from './MarkdownSearchBar.svelte';
 
   interface Props {
     tab: DocTab;
+    focusSearch?: (() => void) | null;
   }
 
-  let { tab }: Props = $props();
+  let { tab, focusSearch = $bindable(null) }: Props = $props();
   let scroller = $state<HTMLElement>();
+  let source = $state<HTMLElement>();
 
   $effect(() => {
     const target = tab;
@@ -48,8 +51,11 @@
   });
 </script>
 
+<div class="layout" class:with-search={tab.markdownSearch.open}>
+<MarkdownSearchBar {tab} root={source} {scroller} ready={tab.raw !== null} bind:focusSearch />
 <div
   class="scroller"
+  tabindex="-1"
   bind:this={scroller}
   onscroll={(e) => (tab.rawScrollTop = e.currentTarget.scrollTop)}
 >
@@ -58,12 +64,15 @@
   {:else}
     <div class="raw-view">
       <div class="gutter" aria-hidden="true">{gutter}</div>
-      <pre class="source">{tab.raw}</pre>
+      <pre class="source" bind:this={source}>{tab.raw}</pre>
     </div>
   {/if}
 </div>
+</div>
 
 <style>
+  .layout { display: grid; grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; }
+  .layout.with-search { grid-template-rows: auto minmax(0, 1fr); }
   .scroller {
     height: 100%;
     overflow: auto;

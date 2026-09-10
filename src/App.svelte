@@ -300,7 +300,7 @@
         {:else if active.view === "archive"}
           <ArchiveView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.mode === "raw"}
-          <RawView tab={active} />
+          <RawView tab={active} bind:focusSearch={searchBarFocus} />
         {:else}
           <MarkdownView tab={active} {showToc} bind:focusSearch={searchBarFocus} />
         {/if}
