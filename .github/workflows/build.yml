@@ -20,9 +20,8 @@ permissions:
   contents: read
 
 jobs:
-  # Runs on every push and pull request. Bundling is the slow part, so main
-  # only proves the code compiles and its tests pass — on all three targets,
-  # because a Linux-only job would not catch a Windows or macOS break.
+  # Runs on every push and pull request, on all three targets: a Linux-only
+  # job would not catch a Windows or macOS break.
   test:
     name: test (${{ matrix.os }})
     strategy:
@@ -97,11 +96,60 @@ jobs:
         if: runner.os == 'Windows'
         run: node scripts/test-updater-replace.mjs
 
+  # Tags can restore main's cache. Workflow concurrency cancels older main
+  # runs, including this warm-up; no bundles or signing are needed here.
+  warm:
+    name: warm (${{ matrix.slug }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            slug: linux-x86_64
+            target: ""
+            rust-targets: ""
+          - os: macos-latest
+            slug: macos-universal
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - os: windows-latest
+            slug: windows-x64
+            target: ""
+            rust-targets: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: bundle-${{ matrix.slug }}
+          cache-on-failure: true
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci
+      - name: Warm release build
+        run: npm run tauri build -- --no-bundle ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+      - name: Warm the Parquet example
+        working-directory: src-tauri
+        run: cargo build --release ${{ runner.os == 'macOS' && '--target aarch64-apple-darwin' || '' }} --example parquet
+
   # Tags only. Manual runs can opt in with the `bundle` input to rehearse a
   # release without cutting one.
   bundle:
     name: bundle (${{ matrix.slug }})
-    needs: test
     if: startsWith(github.ref, 'refs/tags/v') || inputs.bundle
     strategy:
       fail-fast: false
@@ -141,7 +189,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          key: bundle-${{ matrix.slug }}
+          shared-key: bundle-${{ matrix.slug }}
+          cache-on-failure: true
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -183,7 +232,7 @@ jobs:
       # it writes it. See `scripts/gen-fixtures.mjs`.
       - name: Generate the Parquet fixture
         working-directory: src-tauri
-        run: cargo run --release --example parquet -- write ../fixtures
+        run: cargo run --release ${{ runner.os == 'macOS' && '--target aarch64-apple-darwin' || '' }} --example parquet -- write ../fixtures
 
       # A Linux runner has no display, and a window that cannot be created is
       # not a defect in the app.
@@ -271,7 +320,7 @@ jobs:
   # One job creates the release, so three parallel bundlers cannot race to
   # create it and end up with duplicates.
   release:
-    needs: bundle
+    needs: [test, bundle]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
