@@ -5,7 +5,8 @@ export function activeHeading(tops: readonly number[], scrollTop: number, offset
   let low = 0, high = tops.length;
   while (low < high) {
     const mid = (low + high) >>> 1;
-    if (tops[mid] <= scrollTop + offset) low = mid + 1;
+    // Native scrolling rounds its destination; layout positions stay fractional.
+    if (tops[mid] <= scrollTop + offset + 1) low = mid + 1;
     else high = mid;
   }
   return Math.max(0, low - 1);
