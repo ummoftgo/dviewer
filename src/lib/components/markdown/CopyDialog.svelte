@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t } from '../../i18n';
+  import { settings } from '../../state/settings.svelte';
   let { heading = false, onChoose, onClose }: {
     heading?: boolean;
     onChoose: (choice: 'raw' | 'html' | 'heading' | 'section') => void;
@@ -12,6 +13,12 @@
 
 <dialog bind:this={dialog} aria-label={t(heading ? 'markdown.copy.childrenQuestion' : 'markdown.copy.question')} onclose={onClose}>
   <h2>{t(heading ? 'markdown.copy.childrenQuestion' : 'markdown.copy.question')}</h2>
+  {#if !heading}
+    <label class="styled"><input type="checkbox" checked={settings.markdownCopyStyled} onchange={(event) => {
+      settings.markdownCopyStyled = event.currentTarget.checked;
+      settings.save();
+    }} />{t('markdown.copy.styled')}</label>
+  {/if}
   <div class="actions">
     {#if heading}
       <button class="btn" onclick={() => onChoose('heading')}>{t('markdown.copy.headingOnly')}</button>
@@ -30,4 +37,5 @@
   dialog::backdrop { background: rgb(0 0 0 / 0.35); }
   h2 { margin-top: 0; font-size: 1.15em; }
   .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .styled { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 1rem; }
 </style>

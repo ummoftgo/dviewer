@@ -432,6 +432,8 @@ export const ko = {
   "error.fontsFailed": "글꼴 목록을 읽지 못했습니다: {detail}",
   "error.unknown": "알 수 없는 오류입니다: {detail}",
   "markdown.copy.png": "PNG로 복사",
+  "markdown.copy.styled": "HTML에 스타일 포함",
+  "markdown.copy.styledLimit": "스타일 포함 HTML이 4MiB를 넘어 스타일 없이 복사했습니다.",
   "markdown.copy.tex": "TeX 원문 복사",
   "markdown.copy.mathml": "MathML 복사",
   "markdown.copy.texDone": "TeX 원문 복사됨",

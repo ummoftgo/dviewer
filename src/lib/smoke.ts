@@ -17,6 +17,7 @@ import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
 import { checkMarkdownCopy, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
 import { checkDiagramCopy, checkMathCopy } from './components/markdown/imageSmoke';
+import { checkStyledCopy } from './components/markdown/styledSmoke';
 import { checkRenderedSearch, checkRawSearch, checkSearchIndex, checkSearchWorker, checkReadingSearch, measureSearch, measureLargeSearch, measureTocScroll } from './components/markdown/searchSmoke';
 import { enhanceTables } from "./components/markdown/enhance";
 import { settings } from "./state/settings.svelte";
@@ -204,6 +205,7 @@ export async function runSmoke(): Promise<void> {
           await checkMarkdownCopy(tab);
           await checkDiagramCopy();
           await checkMathCopy(tab);
+          await checkStyledCopy(tab);
         } catch (error) {
           outcome = { ok: false, stage: "markdownTables", error: ipc.errorMessage(error) };
         }

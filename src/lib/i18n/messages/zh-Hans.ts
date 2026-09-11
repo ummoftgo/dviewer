@@ -427,6 +427,8 @@ export const zhHans: Messages = {
   "error.fontsFailed": "无法读取字体列表：{detail}",
   "error.unknown": "未知错误：{detail}",
   "markdown.copy.png": "复制为PNG",
+  "markdown.copy.styled": "在HTML中包含样式",
+  "markdown.copy.styledLimit": "带样式的HTML超过4MiB，已复制不带样式的HTML。",
   "markdown.copy.tex": "复制TeX源码",
   "markdown.copy.mathml": "复制MathML",
   "markdown.copy.texDone": "已复制TeX源码",

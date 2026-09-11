@@ -427,6 +427,8 @@ export const en: Messages = {
   "error.fontsFailed": "Could not read the font list: {detail}",
   "error.unknown": "Unknown error: {detail}",
   "markdown.copy.png": "Copy as PNG",
+  "markdown.copy.styled": "Include styles in HTML",
+  "markdown.copy.styledLimit": "Styled HTML exceeded 4MiB; copied without styles.",
   "markdown.copy.tex": "Copy TeX source",
   "markdown.copy.mathml": "Copy MathML",
   "markdown.copy.texDone": "TeX source copied",

@@ -35,11 +35,13 @@ export function htmlClipboardPayload(html: string): Record<string, string> {
 }
 
 /** Both MIME types must succeed together; a plain-only fallback would lie about HTML. */
-export async function copyHtml(html: string): Promise<void> {
+export async function copyHtml(html: string | Promise<string>): Promise<void> {
+  const payload = Promise.resolve(html).then(htmlClipboardPayload);
+  void payload.catch(() => {});
   if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined'
       || (ClipboardItem.supports && !ClipboardItem.supports('text/html'))) throw new Error(t('toast.copyFailed'));
   await navigator.clipboard.write([new ClipboardItem(Object.fromEntries(
-    Object.entries(htmlClipboardPayload(html)).map(([type, text]) => [type, new Blob([text], { type })]),
+    ['text/html', 'text/plain'].map(type => [type, payload.then(value => new Blob([value[type]], { type }))]),
   ))]);
 }
 

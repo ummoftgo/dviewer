@@ -6,6 +6,26 @@ import { getValue, setValue } from "../persist";
 vi.mock("../persist", () => ({ getValue: vi.fn(), setValue: vi.fn() }));
 beforeEach(() => vi.clearAllMocks());
 
+test('styled HTML choice loads, saves and resets to off', async () => {
+  vi.mocked(getValue).mockResolvedValueOnce({ markdownCopyStyled: true });
+  const settings = new Settings();
+  expect(settings.markdownCopyStyled).toBe(false);
+  await settings.load();
+  expect(settings.markdownCopyStyled).toBe(true);
+  settings.save();
+  expect(setValue).toHaveBeenLastCalledWith('settings', expect.objectContaining({ markdownCopyStyled: true }));
+  settings.reset();
+  expect(settings.markdownCopyStyled).toBe(false);
+  expect(setValue).toHaveBeenLastCalledWith('settings', expect.objectContaining({ markdownCopyStyled: false }));
+});
+
+test('an invalid saved styled HTML flag does not enable the option', async () => {
+  vi.mocked(getValue).mockResolvedValueOnce({ markdownCopyStyled: 'true' });
+  const settings = new Settings();
+  await settings.load();
+  expect(settings.markdownCopyStyled).toBe(false);
+});
+
 test("concurrent settings loads wait for the same saved default", async () => {
   let resolve!: (value: { markdownTableMode: string; markdownPageWidth: number }) => void;
   vi.mocked(getValue).mockReturnValueOnce(new Promise((done) => { resolve = done; }));

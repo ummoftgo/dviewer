@@ -427,6 +427,8 @@ export const ja: Messages = {
   "error.fontsFailed": "フォント一覧を読み込めませんでした: {detail}",
   "error.unknown": "不明なエラーです: {detail}",
   "markdown.copy.png": "PNGとしてコピー",
+  "markdown.copy.styled": "HTMLにスタイルを含める",
+  "markdown.copy.styledLimit": "スタイル付きHTMLが4MiBを超えたため、スタイルなしでコピーしました。",
   "markdown.copy.tex": "TeXソースをコピー",
   "markdown.copy.mathml": "MathMLをコピー",
   "markdown.copy.texDone": "TeXソースをコピーしました",

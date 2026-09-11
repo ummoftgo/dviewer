@@ -24,6 +24,7 @@ const DEFAULTS = {
   inspectorKeyRatio: 0.4,
   markdownTableMode: "fill" as TableMode,
   markdownPageWidth: 52,
+  markdownCopyStyled: false,
 };
 
 type Persisted = typeof DEFAULTS;
@@ -36,6 +37,7 @@ export class Settings {
   markdownTableMode = $state<TableMode>(DEFAULTS.markdownTableMode);
   /** Maximum rendered page width in rem; zero removes the maximum. */
   markdownPageWidth = $state(DEFAULTS.markdownPageWidth);
+  markdownCopyStyled = $state(DEFAULTS.markdownCopyStyled);
   /**
    * Kept in `i18n` rather than here, because `t()` has to read it and the
    * settings store imports too much to be reachable from there. This pair of
@@ -94,6 +96,7 @@ export class Settings {
   private async read() {
     const saved = await getValue<Partial<Persisted>>(STORE_KEY);
     if (!saved) return;
+    if (typeof saved.markdownCopyStyled === 'boolean') this.markdownCopyStyled = saved.markdownCopyStyled;
 
     if (saved.markdownTableMode === "scroll" || saved.markdownTableMode === "fill") {
       this.markdownTableMode = saved.markdownTableMode;
@@ -138,6 +141,7 @@ export class Settings {
       inspectorKeyRatio: this.inspectorKeyRatio,
       markdownTableMode: this.markdownTableMode,
       markdownPageWidth: this.markdownPageWidth,
+      markdownCopyStyled: this.markdownCopyStyled,
     } satisfies Persisted);
   }
 

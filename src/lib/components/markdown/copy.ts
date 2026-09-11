@@ -3,6 +3,8 @@ import { copyHtml, copyText } from '../../clipboard';
 import { t } from '../../i18n';
 import { toasts } from '../../state/toast.svelte';
 import { rawBlock, sectionEnd, type CopyBlock } from './blocks';
+import { settings } from '../../state/settings.svelte';
+import { styledHtml } from './styledCopy';
 
 const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'PRE',
   'TABLE', 'BLOCKQUOTE', 'DETAILS', 'FIGURE', 'DL', 'SECTION', 'DIV', 'HR']);
@@ -15,7 +17,9 @@ export function blockDescription(element: HTMLElement): CopyBlock {
 
 /** Receives only Rust-sanitised HTML, never author source or rendered SVG/KaTeX. */
 export function htmlForCopy(html: string, index?: number, children = false): string {
-  const root = document.createElement('article');
+  const template = document.createElement('template');
+  template.innerHTML = '<article></article>';
+  const root = template.content.firstElementChild as HTMLElement;
   root.innerHTML = html;
   if (index !== undefined) {
     const elements = blockElements(root);
@@ -44,7 +48,12 @@ export async function copyMarkdown(tab: DocTab, format: 'raw' | 'html', index?: 
   try {
     if (format === 'html') {
       if (html === null) throw new Error(t('toast.copyFailed'));
-      await copyHtml(htmlForCopy(html, index, children));
+      const fragment = htmlForCopy(html, index, children);
+      if (settings.markdownCopyStyled) {
+        const rendered = styledHtml(fragment);
+        await copyHtml(rendered.then(result => result.html));
+        if ((await rendered).limited) { toasts.show(t('markdown.copy.styledLimit'), 'info'); return; }
+      } else await copyHtml(fragment);
     } else {
       const raw = await tab.loadRaw();
       if (tab.markdownRevision !== revision) return;
