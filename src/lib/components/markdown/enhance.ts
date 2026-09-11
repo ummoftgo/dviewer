@@ -379,6 +379,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       }
       viewport.scrollLeft = left;
       const widths = currentWidths();
+      wrap.dataset.overflow = String(table.getBoundingClientRect().width > viewport.clientWidth + 1);
       grips.forEach((grip, column) => {
         grip.setAttribute("aria-valuemin", String(Math.round(minimum)));
         grip.setAttribute("aria-valuenow", String(Math.round(widths[column])));

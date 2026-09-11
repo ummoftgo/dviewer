@@ -203,6 +203,15 @@
 
 .markdown-body .table-viewport { overflow-x: auto; }
 
+.markdown-body .table-wrap[data-mode="fill"][data-overflow="false"] > .table-viewport { overflow: visible; }
+.markdown-body .table-wrap[data-mode="fill"][data-overflow="false"] > .table-viewport thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-subtle);
+  box-shadow: 0 1px var(--border);
+}
+
 .markdown-body .table-viewport > table {
   display: table;
   max-width: none;
