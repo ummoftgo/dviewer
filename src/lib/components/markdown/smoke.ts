@@ -64,7 +64,14 @@ export async function checkToc(tab: DocTab): Promise<void> {
     nav.scrollTop = 0;
     buttons[middle].click();
     await waitCurrent(middle);
-    await frame();
+    let lastScroll = scroller.scrollTop, stableSince = performance.now();
+    const deadline = stableSince + 3000;
+    while (performance.now() - stableSince < 100) {
+      await frame();
+      if (scroller.scrollTop !== lastScroll) { lastScroll = scroller.scrollTop; stableSince = performance.now(); }
+      require(performance.now() < deadline, 'TOC click did not settle');
+    }
+    require(buttons[middle].getAttribute('aria-current') === 'true', 'TOC lost the clicked heading after native scroll rounding');
     require(nav.scrollTop === 0, 'TOC moved while keyboard focus was inside');
     buttons[1].blur();
     await changeTheme(settings.resolvedTheme === 'dark' ? 'light' : 'dark');
@@ -95,6 +102,7 @@ export async function checkTableRecommendation(): Promise<void> {
   lastCell.style.whiteSpace = 'nowrap';
   root.append(table);
   document.body.append(root);
+  await document.fonts.ready;
   const word = document.createRange();
   word.selectNodeContents(lastCell);
   const wordWidth = word.getBoundingClientRect().width;
@@ -111,15 +119,34 @@ export async function checkTableRecommendation(): Promise<void> {
     require(measured[0].min >= wordWidth && measured[0].min > 100, 'recommendation broke a sampled word into characters');
     require(measured[1].max > measured[1].min * 3, 'recommendation lost the difference between words and sentences');
     const states = new Map<number, TableState>();
+    // A not-yet-sized viewport must receive its first recommendation later.
+    root.style.width = '0px';
     const handle = enhanceTables(root, states, 'fill');
     try {
+      root.style.width = '900px';
       const state = states.get(0)!;
       const viewport = table.parentElement!;
+      // The product's observer was registered first. Its queued layout must run
+      // before this observer's frame; returning a handle does not mean it settled.
+      await new Promise<void>((resolve, reject) => {
+        let frameId = 0;
+        const timer = setTimeout(() => {
+          watcher.disconnect(); cancelAnimationFrame(frameId);
+          reject(new Error('initial recommended layout did not complete'));
+        }, 20_000);
+        const watcher = new ResizeObserver(() => {
+          if (!viewport.clientWidth) return;
+          watcher.disconnect();
+          frameId = requestAnimationFrame(() => { clearTimeout(timer); resolve(); });
+        });
+        watcher.observe(viewport);
+      });
       const widths = [...table.rows[0].cells].map((cell) => cell.getBoundingClientRect().width);
       const border = table.getBoundingClientRect().width - widths.reduce((sum, width) => sum + width, 0);
       const minimum = 3 * parseFloat(getComputedStyle(document.documentElement).fontSize);
       const expected = recommendWidths(measured, viewport.clientWidth - border, minimum);
-      require(widths.every((width, i) => Math.abs(width - expected[i]) < 1), 'default fill did not use the measured recommendation');
+      require(widths.every((width, i) => Math.abs(width - expected[i]) < 1),
+        `default fill did not use the measured recommendation: ${JSON.stringify({ widths, expected, viewport: viewport.clientWidth, columns: [...table.querySelectorAll('col')].map(col => col.style.width) })}`);
       require(!state.fillRatios, 'automatic recommendation was frozen as manual ratios');
       const group = table.querySelector('colgroup')!;
       const columnState = () => [...group.querySelectorAll('col')].map((col) => col.style.width).join(',');

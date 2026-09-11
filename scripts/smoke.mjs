@@ -23,6 +23,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { parseResults } from './smoke-results.mjs';
 
 const release = process.argv.includes("--release");
 const keep = process.argv.includes("--keep");
@@ -98,14 +99,9 @@ function run(args, timeoutMs) {
  * got to the end, whatever else the file says — and the last line before it is
  * then the document it was working on.
  */
-async function results(file) {
+async function results(file, streaming = false) {
   const text = await readFile(file, "utf8").catch(() => "");
-  const lines = text
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .map((line) => JSON.parse(line));
-  const summary = lines.at(-1)?.summary ?? null;
-  return { lines: summary ? lines.slice(0, -1) : lines, summary };
+  return parseResults(text, streaming);
 }
 
 /**
@@ -117,7 +113,7 @@ async function results(file) {
 async function waitForListening(file, ended) {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const { lines } = await results(file);
+    const { lines } = await results(file, true);
     if (lines.some((line) => line.step === "listening")) return "ready";
     if (ended()) return "gone";
     await sleep(100);

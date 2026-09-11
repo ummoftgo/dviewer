@@ -64,6 +64,8 @@ jobs:
         run: npm run check
       - if: runner.os == 'Linux'
         run: npm test
+      - name: Check smoke result framing
+        run: node --test scripts/smoke-results.test.mjs
       - if: runner.os == 'Linux'
         run: npm run build
 
