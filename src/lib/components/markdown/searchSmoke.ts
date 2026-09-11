@@ -71,15 +71,28 @@ export async function checkSearchWorker(): Promise<void> {
     handle.search(query, { how, caseSensitive: true }, true);
     await waitSearch(() => !state.running, 'search worker did not finish');
   };
+  const input = document.createElement('input');
+  scroller.append(input);
   try {
-    let frames = 0, frame = 0;
-    const heartbeat = () => { frames++; frame = requestAnimationFrame(heartbeat); };
+    let frames = 0, inputs = 0, frame = 0;
+    input.oninput = () => { if (state.running && input.value === 'responsive') inputs++; };
+    const heartbeat = () => {
+      if (state.running) {
+        frames++;
+        input.value = 'responsive';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      frame = requestAnimationFrame(heartbeat);
+    };
     frame = requestAnimationFrame(heartbeat);
     try { await run('^(a+)+$', 'regex'); }
     finally { cancelAnimationFrame(frame); }
-    require(state.error === 'timeout' && frames > 2, 'pathological regex did not time out with the UI responsive');
+    require(frames > 0 && inputs > 0, 'regex search blocked pending animation frames or input handling');
+    require(!state.running && state.searched && state.hits === 0 && state.current === -1 && !state.capped && !state.detail
+      && (state.error === null || state.error === 'timeout'),
+    `regex search ended outside the zero-match/timeout contract: ${state.error ?? 'no error'}, hits=${state.hits}`);
     await run('!');
-    require(state.hits === 1 && !state.error, 'search did not recover after terminating the worker');
+    require(state.hits === 1 && !state.error, 'search did not recover after the regex query');
     const seq = state.seq;
     root.textContent = 'changed changed';
     await waitSearch(() => state.seq > seq && !state.running, 'search did not rebuild the replaced text index');
@@ -95,10 +108,31 @@ export async function checkSearchWorker(): Promise<void> {
     state.supported = false;
     await run('changed');
     require(state.hits === 2 && !state.error && root.innerHTML === snapshot, 'search without Highlight API changed the DOM or lost results');
-    handle.search('^(a+)+$', { how: 'regex', caseSensitive: true }, true);
-    handle.search('changed', { how: 'literal', caseSensitive: true }, true);
-    await waitSearch(() => !state.running, 'replacement query did not finish');
-    require(state.hits === 2 && !state.error, 'stale search overwrote the replacement query');
+    const NativeWorker = window.Worker;
+    let previous: { worker: Worker; reply: NonNullable<Worker['onmessage']>; seq: number } | undefined;
+    // Keep a real handler so termination cannot hide a broken generation guard.
+    window.Worker = class extends NativeWorker {
+      override postMessage(message: { seq: number }) {
+        if (!previous && this.onmessage) previous = { worker: this, reply: this.onmessage, seq: message.seq };
+        super.postMessage(message);
+      }
+    };
+    try {
+      handle.search('missing', { how: 'literal', caseSensitive: true }, true);
+      await waitSearch(() => !!previous, 'previous query never created its worker');
+      handle.search('changed', { how: 'literal', caseSensitive: true }, true);
+      const replacementSeq = state.seq;
+      const lateReply = () => previous!.reply.call(previous!.worker, new MessageEvent('message', {
+        data: { seq: previous!.seq, result: { ranges: [[0, 1]], capped: true } },
+      }));
+      lateReply();
+      require(state.running && state.seq === replacementSeq && state.hits === 0 && !state.error && !state.capped,
+        'stale search ended the pending replacement query');
+      await waitSearch(() => !state.running, 'replacement query did not finish');
+      lateReply();
+      require(state.seq === replacementSeq && state.hits === 2 && state.current === 0 && !state.error && !state.capped,
+        'stale search overwrote the completed replacement query');
+    } finally { window.Worker = NativeWorker; }
     handle.search('changed', { how: 'literal', caseSensitive: true }, true);
     handle.destroy();
     await new Promise(resolve => setTimeout(resolve, 180));

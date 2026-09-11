@@ -2,6 +2,18 @@
 
 ← [README](../README.md)
 
+## v0.18.0 Linux 검색 스모크 수정 — 엔진에 독립적인 종료 계약
+
+805c568 뒤 태그 빌드에서 Linux만 M26의 `pathological regex did not time out with the UI responsive`로 실패했다는 사용자 보고를 받았다. 기존 단언은 timeout과 프레임 수 초과를 한 문장으로 묶어 실패 경로를 구분하지 못했고, `^(a+)+$`가 모든 엔진에서 반드시 시간 초과한다는 가정도 부적절했다. Linux의 실제 완료 시간이나 실패한 조건은 로컬에서 확인하지 않았다.
+
+하네스만 수정했다. 검색 대기 중 rAF와 합성 input 이벤트 처리를 확인하고, 종료 상태는 정상 완료(0건) 또는 timeout만 허용한다. 두 경로 모두 running=false·searched=true·hits=0·current=-1·capped=false·빈 detail이어야 하며 다른 오류는 실패한다. 후속 일반 검색의 정상 결과도 확인한다. 세대 검사는 실제 Worker의 응답 콜백을 보존해 교체 질의 대기 중과 완료 후에 이전 세대의 결과를 직접 전달한다. 워커 종료나 디바운스 취소만으로 늦은 응답 검사가 통과하지 않도록 했다. Worker 생성자 대체는 finally에서 복원한다.
+
+| 검증 | 결과 |
+|---|---|
+| vitest·check | 226개(21파일) 통과 · 오류 0/경고 0 · 4로케일×410키 |
+| Windows 새 debug 스모크 | 1회 41개+왕복2 통과(20초), 실행 전후 dviewer 종료 |
+| 생략 | 제품 코드 변경이 없어 release 스모크 생략. Linux/WebKit·Rust 테스트·clippy 미실행 |
+
 ## v0.18.0 WebKit CI 실패 수정 — 내보내기 루트 테마 계약
 
 사용자가 전달한 run 34613132672에서 Linux·macOS release는 `styled HTML lost the inherited theme`로 실패했고 Windows는 통과했다. 기존 코드는 루트까지 계산값과 브라우저 기본값을 비교해 같으면 생략하므로 글자색·배경색·본문 글꼴의 명시를 보장하지 못했다. 다만 측정 루트에 이미 `background-color: var(--bg)`를 지정하고 있었으며 기존 메시지는 누락된 속성을 구분하지 않았다. 따라서 WebKit에서 실제로 어느 속성이 어떤 값이었는지와 투명 배경 가설은 미확인이다. WebKit은 로컬 실행하지 않았다.
