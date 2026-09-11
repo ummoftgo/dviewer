@@ -42,3 +42,12 @@ export async function copyHtml(html: string): Promise<void> {
     Object.entries(htmlClipboardPayload(html)).map(([type, text]) => [type, new Blob([text], { type })]),
   ))]);
 }
+
+/** Keep the write in the user gesture while the renderer finishes its Blob. */
+export async function copyPng(blob: Promise<Blob>): Promise<void> {
+  // Observe a rendering failure even when MIME support fails before the write.
+  void blob.catch(() => {});
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined'
+      || (ClipboardItem.supports && !ClipboardItem.supports('image/png'))) throw new Error(t('toast.copyFailed'));
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+}

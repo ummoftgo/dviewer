@@ -13,6 +13,7 @@
   import { enhanceBlocks, markBlocks, type BlockInfo } from './blockControls';
   import { rawBlock } from './blocks';
   import { copyMarkdown } from './copy';
+  import { copyDiagram } from './imageCopy';
   import { copyText } from '../../clipboard';
   import { toasts } from '../../state/toast.svelte';
   import Toc from "./Toc.svelte";
@@ -165,6 +166,12 @@
         action: () => chooseCopy(index, 'raw') },
       { label: t('markdown.copy.html'), icon: 'copy', action: () => chooseCopy(index, 'html') },
     ];
+    const block = article?.querySelector<HTMLElement>(`[data-dviewer-block="${index}"]`);
+    const svg = block?.matches('.mermaid-block') ? block.querySelector<SVGSVGElement>('svg') : null;
+    if (svg) items.unshift(
+      { label: t('markdown.copy.png'), icon: 'copy', action: () => { void copyDiagram(svg, 'png'); } },
+      { label: t('markdown.copy.svg'), icon: 'copy', action: () => { void copyDiagram(svg, 'svg'); } },
+    );
     const code = blocks[index]?.code;
     if (code !== null && code !== undefined) items.push({ label: t('markdown.copy.code'), icon: 'copy', action: () => {
       void copyText(code).then(() => {
