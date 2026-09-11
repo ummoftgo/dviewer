@@ -11,6 +11,14 @@ export function inlineStyles(computed: Record<string, string>, defaults: Record<
     .map(property => `${property}:${computed[property]};`).join('');
 }
 
+export function rootThemeStyles(theme: Pick<CSSStyleDeclaration, 'getPropertyValue'>): string {
+  return inlineStyles({
+    color: theme.getPropertyValue('--text').trim(),
+    'background-color': theme.getPropertyValue('--bg').trim(),
+    'font-family': theme.getPropertyValue('--font-body').trim(),
+  }, {});
+}
+
 const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
 export function limitStyledHtml(styled: string, original: string, limit = STYLED_HTML_LIMIT) {
   return bytes(styled) > limit ? { html: original, limited: true } : { html: styled, limited: false };
@@ -43,7 +51,6 @@ export async function styledHtml(html: string, limit = STYLED_HTML_LIMIT): Promi
   // UA styles remain (h1, strong, lists); inherited values come from exported parents.
   for (const node of defaults) node.style.all = 'revert';
   baseline.style.all = 'initial';
-  source.style.backgroundColor = 'var(--bg)';
   let lowerBound = bytes(output.outerHTML);
   if (lowerBound > limit) return { html, limited: true };
   const host = document.createElement('div');
@@ -53,10 +60,12 @@ export async function styledHtml(html: string, limit = STYLED_HTML_LIMIT): Promi
   document.body.append(host);
   try {
     await document.fonts.ready;
+    const rootTheme = rootThemeStyles(getComputedStyle(document.documentElement));
     for (let index = 0; index < targets.length; index++) {
       const actual = getComputedStyle(sources[index]), normal = getComputedStyle(defaults[index]);
       const values = (style: CSSStyleDeclaration) => Object.fromEntries(COPY_STYLES.map(property => [property, style.getPropertyValue(property)]));
-      const inline = inlineStyles(values(actual), values(normal));
+      // The export root owns its theme even when an engine reports default values.
+      const inline = inlineStyles(values(actual), values(normal)) + (index === 0 ? rootTheme : '');
       if (!inline) continue;
       targets[index].style.cssText = inline;
       defaults[index].style.cssText += inline;

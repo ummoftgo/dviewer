@@ -25,7 +25,14 @@ export async function checkStyledCopy(tab: DocTab): Promise<void> {
     const template = document.createElement('template');
     template.innerHTML = html;
     const root = template.content.firstElementChild as HTMLElement;
-    require(root && root.style.fontFamily && root.style.color && root.style.backgroundColor, 'styled HTML lost the inherited theme');
+    const missing = (['fontFamily', 'color', 'backgroundColor'] as const).filter(property => !root?.style[property]);
+    require(missing.length === 0, `styled HTML lost the inherited theme: missing ${missing.join(', ')}`);
+    const theme = getComputedStyle(document.documentElement);
+    const expected = document.createElement('div').style;
+    for (const [property, token] of [['color', '--text'], ['background-color', '--bg'], ['font-family', '--font-body']]) {
+      expected.setProperty(property, theme.getPropertyValue(token).trim());
+      require(root.style.getPropertyValue(property) === expected.getPropertyValue(property), `styled HTML root ${property} differs from theme token ${token}`);
+    }
     require(!template.content.querySelector('[class]') && ![...template.content.querySelectorAll('*')].some(node => [...node.attributes].some(attribute => attribute.name.startsWith('data-'))), 'styled HTML retained app classes or data attributes');
     require(root.querySelector<HTMLElement>('h1')?.style.fontSize && root.querySelector<HTMLElement>('th')?.style.backgroundColor, 'heading or table styling was omitted');
     require(root.querySelector('pre span[style]'), 'code highlighting was omitted');

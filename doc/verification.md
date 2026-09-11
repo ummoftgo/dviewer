@@ -2,6 +2,19 @@
 
 ← [README](../README.md)
 
+## v0.18.0 WebKit CI 실패 수정 — 내보내기 루트 테마 계약
+
+사용자가 전달한 run 34613132672에서 Linux·macOS release는 `styled HTML lost the inherited theme`로 실패했고 Windows는 통과했다. 기존 코드는 루트까지 계산값과 브라우저 기본값을 비교해 같으면 생략하므로 글자색·배경색·본문 글꼴의 명시를 보장하지 못했다. 다만 측정 루트에 이미 `background-color: var(--bg)`를 지정하고 있었으며 기존 메시지는 누락된 속성을 구분하지 않았다. 따라서 WebKit에서 실제로 어느 속성이 어떤 값이었는지와 투명 배경 가설은 미확인이다. WebKit은 로컬 실행하지 않았다.
+
+제품 계약에 따라 documentElement의 계산된 --text·--bg·--font-body를 내보내기 루트의 color·background-color·font-family에 항상 명시한다. 사용자 글꼴처럼 다른 변수를 참조하는 토큰도 [CSS 변수의 계산값 규칙](https://www.w3.org/TR/css-variables-1/#defining-variables)에 따라 해소된 값을 읽는다. 후손 비교 전에 비교 루트에도 같은 인라인 값을 적용하며 후손의 기본값 생략은 유지한다. 스모크는 빠진 속성 이름을 오류에 포함하고, 세 값이 실제 토큰과 일치하는지도 확인한다.
+
+| 검증 | 결과 |
+|---|---|
+| 회귀 | 측정값이 기본값과 같아 모두 생략되는 입력에서도 루트 토큰 세 값은 명시, 후손은 계속 생략 |
+| vitest·check | 226개(21파일) 통과 · 오류 0/경고 0 · 4로케일×410키 |
+| Windows 새 debug·release 스모크 | 각 1회 41개+왕복2 통과(debug 20초 / release 17초), 각 실행 전 dviewer 종료 |
+| 미실행 | WebKit·CI 재빌드·Rust 테스트·clippy·변형 시험(이번 지시에 없음) |
+
 ## v0.18.0 릴리스 전 스모크 수정 — HTML 복사 설정 독립성
 
 판올림 f8d6ec0에서 기본 HTML 검사가 사용자의 저장된 markdownCopyStyled를 통제하지 않는 하네스 결함을 재현했다. 같은 새 debug 빌드와 sample.md에서 스토어 true는 `HTML clipboard payload changed`로 실패하고 false는 통과했다. 생성기 재실행 전후 sample.md SHA256은 C2C368EA21A1FB67562D6F1CD057EE7D0628BE08976E051BA07C26AEA6B3F909로 같았다.
