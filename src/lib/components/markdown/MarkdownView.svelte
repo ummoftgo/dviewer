@@ -13,7 +13,7 @@
   import { enhanceBlocks, markBlocks, type BlockInfo } from './blockControls';
   import { rawBlock } from './blocks';
   import { copyMarkdown } from './copy';
-  import { copyDiagram } from './imageCopy';
+  import { copyDiagram, copyMath } from './imageCopy';
   import { copyText } from '../../clipboard';
   import { toasts } from '../../state/toast.svelte';
   import Toc from "./Toc.svelte";
@@ -172,6 +172,14 @@
       { label: t('markdown.copy.png'), icon: 'copy', action: () => { void copyDiagram(svg, 'png'); } },
       { label: t('markdown.copy.svg'), icon: 'copy', action: () => { void copyDiagram(svg, 'svg'); } },
     );
+    const math = block?.matches('[data-dviewer-math]') ? block : block?.querySelector<HTMLElement>('[data-dviewer-math]');
+    if (math) {
+      const mathItems: MenuItem[] = [];
+      if (math.querySelector('.katex-display')) mathItems.push({ label: t('markdown.copy.png'), icon: 'copy', action: () => { void copyMath(math, 'png'); } });
+      mathItems.push({ label: t('markdown.copy.tex'), icon: 'copy', action: () => { void copyMath(math, 'tex'); } });
+      if (math.querySelector('math')) mathItems.push({ label: t('markdown.copy.mathml'), icon: 'copy', action: () => { void copyMath(math, 'mathml'); } });
+      items.unshift(...mathItems);
+    }
     const code = blocks[index]?.code;
     if (code !== null && code !== undefined) items.push({ label: t('markdown.copy.code'), icon: 'copy', action: () => {
       void copyText(code).then(() => {

@@ -154,13 +154,16 @@ export async function renderMath(root: HTMLElement) {
 
   for (const node of nodes) {
     const displayMode = node.dataset.mathStyle === "display";
+    const source = node.textContent ?? '';
+    if (displayMode) node.dataset.dviewerMath = source;
     try {
-      const html = katex.renderToString(node.textContent ?? "", {
+      const html = katex.renderToString(source, {
         displayMode,
         throwOnError: true,
-        output: "html",
+        output: displayMode ? "htmlAndMathml" : "html",
       });
       const wrapper = document.createElement(displayMode ? "div" : "span");
+      if (displayMode) wrapper.dataset.dviewerMath = source;
       wrapper.innerHTML = html;
       transferBlock(node, wrapper);
       node.replaceWith(wrapper);

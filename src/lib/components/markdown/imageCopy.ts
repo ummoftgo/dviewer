@@ -87,3 +87,15 @@ export async function copyDiagram(svg: SVGSVGElement, format: 'svg' | 'png'): Pr
     toasts.show(t('markdown.copy.svgDone'));
   } catch { toasts.show(t('markdown.copy.imageFailed'), 'error'); }
 }
+
+export async function copyMath(root: HTMLElement, format: 'tex' | 'mathml' | 'png'): Promise<void> {
+  if (format === 'png') return copyImage(import('./mathImage').then(module => module.mathPng(root)));
+  try {
+    const math = root.querySelector('math');
+    const text = format === 'tex' ? root.dataset.dviewerMath
+      : math ? new XMLSerializer().serializeToString(math) : undefined;
+    if (text === undefined) throw new Error('Formula source is unavailable');
+    await copyText(text);
+    toasts.show(t(format === 'tex' ? 'markdown.copy.texDone' : 'markdown.copy.mathmlDone'));
+  } catch { toasts.show(t('toast.copyFailed'), 'error'); }
+}
