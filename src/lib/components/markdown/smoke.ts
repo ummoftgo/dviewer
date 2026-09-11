@@ -199,9 +199,12 @@ export async function checkMarkdownCopy(tab: DocTab): Promise<void> {
   // depend on OS clipboard focus. A separate interactive check reads back OS MIME.
   const descriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, 'write');
   const textDescriptor = Object.getOwnPropertyDescriptor(navigator.clipboard, 'writeText');
+  const previousStyled = settings.markdownCopyStyled;
   let copiedText = '';
   let items: ClipboardItems = [];
   try {
+    // This case asserts unstyled HTML; never inherit a reader's saved preference.
+    settings.markdownCopyStyled = false;
     Object.defineProperty(navigator.clipboard, 'write', { configurable: true, value: async (value: ClipboardItems) => { items = value; } });
     await copyMarkdown(tab, 'html');
     require(items.length === 1 && items[0].types.includes('text/html') && items[0].types.includes('text/plain'), 'HTML copy is missing a MIME type');
@@ -219,6 +222,7 @@ export async function checkMarkdownCopy(tab: DocTab): Promise<void> {
     try { await copyHtml(html); } catch { rejected = true; }
     require(rejected, 'failed HTML copy was reported as success');
   } finally {
+    settings.markdownCopyStyled = previousStyled;
     if (descriptor) Object.defineProperty(navigator.clipboard, 'write', descriptor);
     else Reflect.deleteProperty(navigator.clipboard, 'write');
     if (textDescriptor) Object.defineProperty(navigator.clipboard, 'writeText', textDescriptor);

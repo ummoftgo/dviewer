@@ -2,6 +2,19 @@
 
 ← [README](../README.md)
 
+## v0.18.0 릴리스 전 스모크 수정 — HTML 복사 설정 독립성
+
+판올림 f8d6ec0에서 기본 HTML 검사가 사용자의 저장된 markdownCopyStyled를 통제하지 않는 하네스 결함을 재현했다. 같은 새 debug 빌드와 sample.md에서 스토어 true는 `HTML clipboard payload changed`로 실패하고 false는 통과했다. 생성기 재실행 전후 sample.md SHA256은 C2C368EA21A1FB67562D6F1CD057EE7D0628BE08976E051BA07C26AEA6B3F909로 같았다.
+
+workspace는 설정 로드를 기다린 뒤 문서를 연다. 기대값은 htmlForCopy의 스타일 없는 문자열인데 제품 copyMarkdown은 저장값 true에 따라 스타일 포함 HTML을 생성한다. 양쪽 모두 tab.html을 사용하므로 복제 머리글 생성 순서는 관여하지 않는다. getType의 완료를 await하므로 미완료 페이로드를 먼저 읽은 문제도 아니다. 제품 코드는 유지하고 기본 HTML 검사에서 false를 명시한 뒤 finally에서 이전 값을 복원한다. 스타일 검사의 true/false 명시와 복원도 유지한다. 앞선 M28 최종 통과는 당시 설정 조건의 결과이며 지속 설정 독립성까지 증명하지 못했다.
+
+| 검증 | 결과 |
+|---|---|
+| 수정 전 집중 재현 | 저장 true: sample.md 1개 실패 / 저장 false: 같은 파일 통과 |
+| 수정 후 vitest·check | 225개 통과 · 오류 0/경고 0 · 4로케일×410키 |
+| 수정 후 전체 스모크 | 새 debug 저장 true 1회: 41+왕복2 통과(20초) · 새 release 저장 false 1회: 41+왕복2 통과(17초); 각각 끔/켬을 모두 검사 |
+| 스토어 보존 | 종료 후 원문 바이트 복원, 백업과 SHA256 일치 |
+
 ## M28 — 이미지 복사·스타일 HTML·표 머리글
 
 2026-09-11 Windows에서 단계별로 새 debug 바이너리를 빌드해 확인했다. 기존 생성기 목록의 sample.md와 markdown-reading.md에 이미지·스타일 HTML·고정 머리글 검사 세 종류를 추가했으므로 픽스처 수는 41+왕복2를 유지한다. 백엔드·의존성·판번호는 변경하지 않았다.

@@ -16,6 +16,7 @@ export async function checkStyledCopy(tab: DocTab): Promise<void> {
       items = value;
       await value[0].getType('text/html');
     } });
+    // Both branches are explicit; this test must also work after a saved true.
     settings.markdownCopyStyled = true;
     await copyMarkdown(tab, 'html');
     require(items.length === 1, 'styled copy did not reach the clipboard');
