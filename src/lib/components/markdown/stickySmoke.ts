@@ -1,3 +1,7 @@
+import { scrollTranslate } from './stickyHead';
+import { indexText } from './searchDom';
+import { cleanCopyDom } from './copy';
+
 const require = (value: unknown, message: string) => { if (!value) throw new Error(message); };
 
 /** Observe layout/scroll completion and its actual geometry, never a frame count. */
@@ -26,7 +30,7 @@ export async function checkStickyTables(): Promise<void> {
   const table = viewport.querySelector('table')!;
   const head = table.querySelector<HTMLElement>('thead th')!;
   const toggle = wrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!;
-  const saved = { top: scroller.scrollTop, mode: wrap.dataset.mode };
+  const saved = { top: scroller.scrollTop, left: viewport.scrollLeft, mode: wrap.dataset.mode };
   try {
     await document.fonts.ready;
     if (wrap.dataset.mode !== 'fill') toggle.click();
@@ -37,8 +41,34 @@ export async function checkStickyTables(): Promise<void> {
     await waitTable(wrap, scroller, () => Math.abs(head.getBoundingClientRect().top - scroller.getBoundingClientRect().top) <= 1, 'fill header did not stick to the scroller top');
     scroller.scrollTop += table.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + 20;
     await waitTable(wrap, scroller, () => head.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().top + 1, 'fill header outlived its table');
+    toggle.click();
+    const layer = wrap.querySelector<HTMLElement>('.table-head-layer')!;
+    const clone = layer.querySelector<HTMLTableElement>('.table-head-clone')!;
+    const sameWidths = () => [...table.rows[0].cells].every((cell, index) => Math.abs(cell.getBoundingClientRect().width - clone.rows[0].cells[index].getBoundingClientRect().width) <= 1);
+    await waitTable(wrap, scroller, () => wrap.dataset.mode === 'scroll' && sameWidths(), 'scroll clone did not use natural column widths');
+    scroller.scrollTop = 0;
+    await waitTable(wrap, scroller, () => !layer.hasAttribute('data-active'), 'clone appeared before its original header passed the top');
+    scroller.scrollTop += table.getBoundingClientRect().top - scroller.getBoundingClientRect().top + head.getBoundingClientRect().height + 20;
+    await waitTable(wrap, scroller, () => layer.hasAttribute('data-active') && Math.abs(clone.getBoundingClientRect().top - scroller.getBoundingClientRect().top) <= 1, 'scroll header did not stick');
+    require(viewport.scrollWidth > viewport.clientWidth + 1, 'sticky fixture no longer exercises horizontal overflow');
+    viewport.scrollLeft = Math.min(120, viewport.scrollWidth - viewport.clientWidth);
+    await waitTable(wrap, scroller, () => clone.style.transform === scrollTranslate(viewport.scrollLeft), 'clone did not follow horizontal scrolling');
+    const grip = table.querySelector<HTMLElement>('.table-grip')!;
+    const previousWidth = table.rows[0].cells[0].getBoundingClientRect().width;
+    grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    await waitTable(wrap, scroller, () => table.rows[0].cells[0].getBoundingClientRect().width > previousWidth && sameWidths(), 'clone did not follow a resized column');
+    require(layer.inert && layer.getAttribute('aria-hidden') === 'true' && !clone.querySelector('.table-grip'), 'clone exposes interactive controls');
+    require(!indexText(root).nodes.some(entry => layer.contains(entry.node)), 'clone entered the search index');
+    const copied = wrap.cloneNode(true) as HTMLElement;
+    cleanCopyDom(copied);
+    require(!copied.querySelector('.table-head-clone'), 'clone entered copied HTML');
+    wrap.querySelector<HTMLButtonElement>('[data-action="reset"]')!.click();
+    await waitTable(wrap, scroller, sameWidths, 'clone lost alignment after reset');
+    scroller.scrollTop += table.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + 20;
+    await waitTable(wrap, scroller, () => !layer.hasAttribute('data-active'), 'scroll header outlived its table');
   } finally {
     if (wrap.dataset.mode !== saved.mode) toggle.click();
+    viewport.scrollLeft = saved.left;
     scroller.scrollTop = saved.top;
   }
 }

@@ -195,13 +195,30 @@
 }
 
 .markdown-body .table-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   position: relative;
   min-width: 0;
   margin: 0 0 1em;
   padding-top: 1.9rem;
 }
 
-.markdown-body .table-viewport { overflow-x: auto; }
+.markdown-body .table-viewport { grid-area: 1 / 1; min-width: 0; overflow-x: auto; }
+
+.markdown-body .table-head-layer {
+  grid-area: 1 / 1;
+  align-self: start;
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  visibility: hidden;
+  pointer-events: none;
+}
+.markdown-body .table-head-layer[data-active] { visibility: visible; }
+.markdown-body .table-head-clip { overflow: hidden; }
+.markdown-body .table-head-clone { display: table; table-layout: fixed; max-width: none; overflow: visible; margin: 0; }
+.markdown-body .table-head-clone th { background: var(--bg-subtle); }
 
 .markdown-body .table-wrap[data-mode="fill"][data-overflow="false"] > .table-viewport { overflow: visible; }
 .markdown-body .table-wrap[data-mode="fill"][data-overflow="false"] > .table-viewport thead th {

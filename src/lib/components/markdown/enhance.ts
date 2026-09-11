@@ -13,6 +13,7 @@ import type { DocMeta } from "../../ipc";
 import { ICON_PATHS } from "../Icon.svelte";
 import { fillWidths, recommendWidths, rectangularColumns, resizeWidths, widthRatios, type ColumnMeasure, type TableMode, type TableState } from "./tables";
 import { measureColumns } from './measureTable';
+import { stickyHead } from './stickyHead';
 
 /** Collapse `.` and `..` segments so a path is safe to hand to the asset protocol. */
 function normalizeSegments(path: string): string {
@@ -245,6 +246,8 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     if (caption) caption.after(group);
     else table.prepend(group);
     const cells = [...table.rows[0].cells];
+    const sticky = stickyHead(wrap, viewport, table);
+    if (sticky) cleanups.push(() => sticky.destroy());
     let natural: number[] | undefined;
     let intrinsic: ColumnMeasure[] | undefined;
     let border = 0;
@@ -379,7 +382,9 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       }
       viewport.scrollLeft = left;
       const widths = currentWidths();
-      wrap.dataset.overflow = String(table.getBoundingClientRect().width > viewport.clientWidth + 1);
+      const tableWidth = table.getBoundingClientRect().width;
+      wrap.dataset.overflow = String(tableWidth > viewport.clientWidth + 1);
+      sticky?.update(widths, tableWidth);
       grips.forEach((grip, column) => {
         grip.setAttribute("aria-valuemin", String(Math.round(minimum)));
         grip.setAttribute("aria-valuenow", String(Math.round(widths[column])));
