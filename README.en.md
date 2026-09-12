@@ -37,6 +37,8 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 
 Session restoration is enabled by default. The main window reopens local files and URLs in tab order, preserving the active document and source/rendered mode, then opens startup requests. Archive entries collapse to their local root file. Pasted text, derived tabs, other windows, scroll positions, and selections are not restored; `--new` and smoke runs neither restore nor save the session.
 
+Installers register supported Markdown, JSON, YAML, TOML, CSV/TSV, Parquet, and SQLite extensions as file-handler candidates; the user chooses the default app. Portable Windows executables do not register associations, and AppImage needs separate desktop integration. Both the macOS DMG and portable ZIP contain an `.app` with file-association declarations.
+
 ## Requirements
 
 - Node.js 20 or later (developed on 24), npm

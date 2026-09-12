@@ -238,6 +238,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                window::deliver(app, cli::LaunchRequest::from_urls(urls));
+            }
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(updater) = app.try_state::<std::sync::Arc<update::service::Updater>>() {
                     updater.stop();

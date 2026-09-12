@@ -15,6 +15,15 @@ A의 세션 검사는 준비된 file/url만 저장하고 아카이브 항목을 
 
 Svelte 자동 분석은 App·SettingsPanel·Settings에 문제를 보고하지 않았으나 Session 모듈에서는 도구 내부 오류가 발생했다. 세션 모듈은 실제 Svelte 검사와 vitest로 검증했다. 화면 확인과 최종 release 검증은 마일스톤 끝에 수행한다.
 
+B는 연결 선언의 확장자가 source.rs 지원표에 포함되는지와 중복·Viewer 역할·MIME 존재를 검사하고, URL 변환은 공백·한글·#이 포함된 file URL의 경로 복원과 원격 URL 보존을 검사했다. macOS Finder 전달과 설치본의 연결 후보 등록은 이 Windows 검증에 포함되지 않는다.
+
+| B 검증 | 결과 |
+|---|---|
+| Rust | fixtures required 506개 통과 |
+| check·debug | 오류0/경고0 · 4×412키 · 새 debug 41개+왕복2(20초) |
+| vitest | 프런트 동작 변경이 없어 A의233개 통과 결과 재사용 |
+| 지정 변형② | xls 연결 추가 시 대조1개 실패(unsupported association: xls), 원복 후 전체 통과 |
+
 ## v0.18.0 Linux 검색 스모크 수정 — 엔진에 독립적인 종료 계약
 
 805c568 뒤 태그 빌드에서 Linux만 M26의 `pathological regex did not time out with the UI responsive`로 실패했다는 사용자 보고를 받았다. 기존 단언은 timeout과 프레임 수 초과를 한 문장으로 묶어 실패 경로를 구분하지 못했고, `^(a+)+$`가 모든 엔진에서 반드시 시간 초과한다는 가정도 부적절했다. Linux의 실제 완료 시간이나 실패한 조건은 로컬에서 확인하지 않았다.

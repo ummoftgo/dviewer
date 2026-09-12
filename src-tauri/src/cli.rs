@@ -35,6 +35,20 @@ impl LaunchRequest {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty() && self.urls.is_empty()
     }
+
+    pub fn from_urls(urls: &[url::Url]) -> Self {
+        let mut request = Self::default();
+        for url in urls {
+            if url.scheme() == "file" {
+                if let Ok(path) = url.to_file_path() {
+                    request.files.push(path.to_string_lossy().into_owned());
+                }
+            } else {
+                request.urls.push(url.as_str().to_owned());
+            }
+        }
+        request
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -165,6 +179,17 @@ fn push(into: &mut Vec<String>, value: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opened_urls_decode_file_paths_but_preserve_remote_urls() {
+        let path = std::env::temp_dir().join("문서 #1.json");
+        let remote = url::Url::parse("https://example.com/a%20b.json?q=1").unwrap();
+        let request = LaunchRequest::from_urls(&[
+            url::Url::from_file_path(&path).unwrap(), remote.clone(),
+        ]);
+        assert_eq!(request.files, [path.to_string_lossy().into_owned()]);
+        assert_eq!(request.urls, [remote.to_string()]);
+    }
 
     fn parsed(args: &[&str]) -> Launch {
         parse(args)

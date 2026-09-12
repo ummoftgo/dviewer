@@ -87,6 +87,24 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Zip, ZIP_EXTS),
 ];
 
+#[cfg(test)]
+#[test]
+fn file_associations_only_advertise_supported_extensions() {
+    let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let associations = config["bundle"]["fileAssociations"].as_array().unwrap();
+    assert!(!associations.is_empty());
+    let mut seen = std::collections::HashSet::new();
+    for association in associations {
+        assert_eq!(association["role"], "Viewer");
+        assert!(!association["mimeType"].as_str().unwrap().is_empty());
+        for extension in association["ext"].as_array().unwrap() {
+            let extension = extension.as_str().unwrap();
+            assert!(BY_EXTENSION.iter().any(|(_, extensions)| extensions.contains(&extension)), "unsupported association: {extension}");
+            assert!(seen.insert(extension), "duplicate association: {extension}");
+        }
+    }
+}
+
 /// Decide how to read a document: extension first, then a peek at the content.
 ///
 /// Content sniffing is deliberately limited to JSON and XML. Both announce
