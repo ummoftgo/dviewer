@@ -1470,7 +1470,10 @@ lines', 'tab\there', -7, 0.5, x'');",
         let path = dir.join("wal-header.sqlite");
         std::fs::write(&path, header_with(WAL)).expect("write");
 
-        let mapped = DocBytes::map_file(&path).expect("map");
+        let file = std::fs::File::open(&path).expect("open");
+        // Exercise the mapped variant explicitly; small files normally become
+        // Owned. SAFETY: this test never modifies the file while it is mapped.
+        let mapped = DocBytes::Mapped(unsafe { memmap2::Mmap::map(&file).expect("map") });
         let after = adopt_image(mapped);
         assert!(matches!(after, DocBytes::Mapped(_)));
         assert_eq!(&after[VERSION_BYTES], &[WAL, WAL], "in memory");

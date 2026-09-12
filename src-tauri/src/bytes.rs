@@ -11,11 +11,20 @@ use parquet::file::reader::{ChunkReader, Length};
 
 use crate::error::Result;
 
+// Small files must not retain a mapping that can block an editor's save,
+// deletion or rename, or fault after truncation. Large files stay mapped to
+// avoid copying their entire contents into the heap.
+const OWNED_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+fn keeps_in_memory(len: u64) -> bool {
+    len <= OWNED_MAX_BYTES
+}
+
 /// The bytes of an open document.
 ///
-/// Files are memory-mapped so a 500MB JSON never enters the heap; URL and
-/// pasted content arrives as an owned buffer. Everything downstream works
-/// against `&[u8]` and does not care which it got.
+/// Local files up to 64 MiB are copied; larger files are memory-mapped so a
+/// 500MB JSON never enters the heap. URL and pasted content arrives as an owned
+/// buffer. Everything downstream works against `&[u8]` regardless of storage.
 ///
 /// A mapped file that changes on disk under us is a real hazard, and a bigger
 /// one than it first looks. Content edited in place gives torn reads, which a
@@ -27,10 +36,9 @@ use crate::error::Result;
 /// Watching and remapping narrows the stale interval but does not make reads
 /// concurrent with external writes safe.
 ///
-/// Defending against it properly costs the reason the map exists — copying the
-/// file, or installing a signal handler and unwinding out of it. Neither is
-/// worth it for a viewer, so it stands as a documented limitation. See the
-/// "알려진 한계" section of the README.
+/// The owned copy removes this mapping hazard for small files. For larger
+/// files the memory cost of copying would defeat the reason the map exists,
+/// so the risk remains documented in the README's known limitations.
 pub enum DocBytes {
     Mapped(Mmap),
     Owned(Vec<u8>),
@@ -40,9 +48,8 @@ impl DocBytes {
     pub fn map_file(path: &Path) -> Result<Self> {
         let file = File::open(path)?;
         let len = file.metadata()?.len();
-        // Mapping a zero-length file fails on Windows; there is nothing to map.
-        if len == 0 {
-            return Ok(Self::Owned(Vec::new()));
+        if keeps_in_memory(len) {
+            return Ok(Self::Owned(std::fs::read(path)?));
         }
         // SAFETY: we never write through the map, and the map is dropped with
         // the document. External modification is the accepted risk documented
@@ -141,5 +148,32 @@ impl ChunkReader for SharedBytes {
     /// a column chunk that is about to be decoded anyway.
     fn get_bytes(&self, start: u64, length: usize) -> ParquetResult<Bytes> {
         Ok(Bytes::copy_from_slice(self.slice(start, length)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owned_limit_includes_exactly_64_mib() {
+        for len in [0, 1, OWNED_MAX_BYTES - 1, OWNED_MAX_BYTES] {
+            assert!(keeps_in_memory(len), "{len} bytes must be owned");
+        }
+        for len in [OWNED_MAX_BYTES + 1, u64::MAX] {
+            assert!(!keeps_in_memory(len), "{len} bytes must stay mapped");
+        }
+    }
+
+    #[test]
+    fn small_and_empty_files_are_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("document.json");
+        for content in [b"".as_slice(), b"{\"value\":1}".as_slice()] {
+            std::fs::write(&path, content).unwrap();
+            let bytes = DocBytes::map_file(&path).unwrap();
+            assert!(matches!(bytes, DocBytes::Owned(_)));
+            assert_eq!(&*bytes, content);
+        }
     }
 }
