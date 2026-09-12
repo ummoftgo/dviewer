@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State, Window};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::encoding;
 use crate::error::{Error, Result};
@@ -16,50 +16,52 @@ struct Changed {
 }
 
 #[tauri::command]
-pub fn watch_doc(
-    app: AppHandle,
-    window: Window,
-    state: State<'_, AppState>,
-    doc_id: DocId,
-) -> Result<()> {
-    if !state.docs_owned_by(window.label()).contains(&doc_id) {
-        return Err(Error::NoSuchDoc { id: doc_id });
-    }
-    let doc = state.get(doc_id)?;
-    let DocSource::File { path } = &doc.source else {
-        return Ok(());
-    };
-    if Path::new(path).extension().is_some_and(|ext| {
-        ext.to_str()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"))
-    }) {
-        return Ok(());
-    }
-    // Gzip may be identified by its bytes even without a .gz suffix.
-    use std::io::Read;
-    let mut header = [0; 2];
-    let mut file = std::fs::File::open(path)?;
-    if file.read(&mut header)? == 2 && header == [0x1f, 0x8b] {
-        return Ok(());
-    }
-    let path = normalize(Path::new(path))?;
-    let mut watcher = state.watcher.lock();
-    if !state.docs_owned_by(window.label()).contains(&doc_id) {
-        return Err(Error::NoSuchDoc { id: doc_id });
-    }
-    if watcher.is_none() {
-        *watcher = Some(
-            FileWatch::new(move |id, label| {
-                let _ = app.emit_to(label, "doc:changed", Changed { id });
-            })
-            .map_err(Error::internal)?,
-        );
-    }
-    watcher
-        .as_mut()
-        .unwrap()
-        .register(doc_id, path, window.label().to_owned())
-        .map_err(Error::internal)
+pub async fn watch_doc(app: AppHandle, window: Window, doc_id: DocId) -> Result<()> {
+    let label = window.label().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        if !state.docs_owned_by(&label).contains(&doc_id) {
+            return Err(Error::NoSuchDoc { id: doc_id });
+        }
+        let doc = state.get(doc_id)?;
+        let DocSource::File { path } = &doc.source else {
+            return Ok(());
+        };
+        if Path::new(path).extension().is_some_and(|ext| {
+            ext.to_str()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"))
+        }) {
+            return Ok(());
+        }
+        // Gzip may be identified by its bytes even without a .gz suffix.
+        use std::io::Read;
+        let mut header = [0; 2];
+        let mut file = std::fs::File::open(path)?;
+        if file.read(&mut header)? == 2 && header == [0x1f, 0x8b] {
+            return Ok(());
+        }
+        let path = normalize(Path::new(path))?;
+        let mut watcher = state.watcher.lock();
+        if !state.docs_owned_by(&label).contains(&doc_id) {
+            return Err(Error::NoSuchDoc { id: doc_id });
+        }
+        if watcher.is_none() {
+            let emitter = app.clone();
+            *watcher = Some(
+                FileWatch::new(move |id, label| {
+                    let _ = emitter.emit_to(label, "doc:changed", Changed { id });
+                })
+                .map_err(Error::internal)?,
+            );
+        }
+        watcher
+            .as_mut()
+            .unwrap()
+            .register(doc_id, path, label)
+            .map_err(Error::internal)
+    })
+    .await
+    .map_err(Error::internal)?
 }
 
 #[tauri::command]

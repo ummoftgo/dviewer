@@ -39,7 +39,7 @@ Session restoration is enabled by default. The main window reopens local files a
 
 Installers register supported Markdown, JSON, YAML, TOML, CSV/TSV, Parquet, and SQLite extensions as file-handler candidates; the user chooses the default app. Portable Windows executables do not register associations, and AppImage needs separate desktop integration. Both the macOS DMG and portable ZIP contain an `.app` with file-association declarations.
 
-Open local files reload automatically after a detected save. Turn this off in settings to receive a change notification instead. Reload closes derived table tabs and node panels; open them again from the new document. URLs, gzip files, and archive entries are not watched.
+Open local files reload automatically after a detected save. Continuous writes do not postpone updates until writing stops. Turn this off in settings to receive a change notification instead. Reload closes derived table tabs and node panels; open them again from the new document. URLs, gzip files, and archive entries are not watched.
 
 ## Requirements
 

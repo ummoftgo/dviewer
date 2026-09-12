@@ -145,6 +145,34 @@ test('multiple saves during one reload coalesce into one additional reload', asy
   expect(tab.meta.generation).toBe(2);
 });
 
+test('a reload cancelled by reinterpretation retries without another save event', async () => {
+  const tab = (await workspace.openPath('C:/cancelled.json'))!;
+  let reject!: (error: unknown) => void;
+  vi.mocked(ipc.reloadDoc).mockClear()
+    .mockImplementationOnce(() => new Promise<DocMeta>((_, fail) => { reject = fail; }))
+    .mockResolvedValueOnce({ ...tab.meta, generation: 2 });
+  const pending = workspace.reload(tab.id);
+  tab.meta = { ...tab.meta, generation: 1 };
+  reject({ code: 'cancelled' });
+  await pending;
+  expect(ipc.reloadDoc).toHaveBeenCalledTimes(2);
+  expect(tab.meta.generation).toBe(2);
+  expect(tab.error).toBeNull();
+});
+
+test('a cancelled reload does not retry after the tab closes', async () => {
+  const tab = (await workspace.openPath('C:/closed-cancelled.json'))!;
+  let reject!: (error: unknown) => void;
+  vi.mocked(ipc.reloadDoc).mockClear()
+    .mockImplementationOnce(() => new Promise<DocMeta>((_, fail) => { reject = fail; }));
+  const pending = workspace.reload(tab.id);
+  await workspace.close(tab.id);
+  reject({ code: 'cancelled' });
+  await pending;
+  expect(ipc.reloadDoc).toHaveBeenCalledTimes(1);
+  expect(workspace.tabs).toEqual([]);
+});
+
 test('disabled automatic reload reports the complete message without reloading', async () => {
   const tab = (await workspace.openPath('C:/changed.md'))!;
   i18n.setting = 'ko'; settings.autoReload = false;

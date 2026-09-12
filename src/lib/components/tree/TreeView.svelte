@@ -35,6 +35,8 @@
   }
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
+  const generation = untrack(() => tab.meta.generation ?? 0);
+  const current = () => (tab.meta.generation ?? 0) === generation;
   let searchBar = $state<ReturnType<typeof TreeSearchBar>>();
 
   $effect(() => {
@@ -136,7 +138,7 @@
   // Written only when a row is actually loaded, so scrolling the selection out
   // of the window never blanks the inspector.
   $effect(() => {
-    if (selected) tab.selectedNode = selected.id;
+    if (current() && selected) tab.selectedNode = selected.id;
   });
 
   // Every landing place goes on the history, wherever it came from: the tree,
@@ -164,11 +166,10 @@
   // Kick off indexing the first time a JSON tab is shown.
   $effect(() => {
     const target = tab;
-    if (target.treeStats || target.indexing || target.error) return;
-    const generation = target.meta.generation;
+    if (!current() || target.treeStats || target.indexing || target.error) return;
     target.indexing = { done: 0, total: target.meta.byteLen };
     treeOpen(target.id).catch((err) => {
-      if (target.meta.generation !== generation) return;
+      if (!current()) return;
       target.error = errorMessage(err);
       target.indexing = null;
     });
@@ -202,7 +203,7 @@
       .then((row) => {
         // The reader can select something else during the round trip, and the
         // answer to the question they have moved on from must not undo it.
-        if (row !== null && tab.selectedNode === node) selectedRow = row;
+        if (current() && row !== null && tab.selectedNode === node) selectedRow = row;
       })
       .catch(() => {});
   });
@@ -237,6 +238,7 @@
   }
 
   async function ensureWindow(force = false) {
+    if (!current()) return;
     const stats = tab.treeStats;
     if (!stats || !viewport) return;
 
@@ -257,11 +259,11 @@
     try {
       const fetched = await treeRows(tab.id, start, count);
       // A later scroll has already superseded this request.
-      if (seq !== requestSeq) return;
+      if (!current() || seq !== requestSeq) return;
       windowStart = start;
       rows = fetched;
     } catch (err) {
-      if (seq === requestSeq) tab.error = errorMessage(err);
+      if (current() && seq === requestSeq) tab.error = errorMessage(err);
     }
   }
 
@@ -275,11 +277,12 @@
   // --- tree shape ---------------------------------------------------------
 
   async function toggle(row: TreeRow) {
-    if (!row.container) return;
+    if (!current() || !row.container) return;
     try {
-      tab.treeStats = await treeToggle(tab.id, row.id);
+      const stats = await treeToggle(tab.id, row.id);
+      if (current()) tab.treeStats = stats;
     } catch (err) {
-      tab.error = errorMessage(err);
+      if (current()) tab.error = errorMessage(err);
     }
   }
 
@@ -301,7 +304,7 @@
       try {
         const path = await pathOf(tab.id, row.id);
         // The pointer may have moved on while the path was in flight.
-        if (hoverAnchor !== anchor) return;
+        if (!current() || hoverAnchor !== anchor) return;
         const rect = anchor.getBoundingClientRect();
         // Above the key by default so it never covers the rows below, which is
         // where the eye goes next. Near the top edge there is no room, so flip.
@@ -364,10 +367,11 @@
   });
 
   async function detach(nodeId: number) {
+    if (!current()) return;
     try {
       await openPanel(tab.id, nodeId);
     } catch (err) {
-      tab.error = errorMessage(err);
+      if (current()) tab.error = errorMessage(err);
     }
   }
 

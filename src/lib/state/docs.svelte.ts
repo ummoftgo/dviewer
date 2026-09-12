@@ -636,7 +636,11 @@ class Workspace {
           tab.invalidate();
           tab.meta = meta;
         } catch (error) {
-          if (this.tabs.includes(tab) && (tab.meta.generation ?? 0) === generation) tab.error = ipc.errorMessage(error);
+          if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'cancelled') {
+            entry.again = true;
+          } else if (this.tabs.includes(tab) && (tab.meta.generation ?? 0) === generation) {
+            tab.error = ipc.errorMessage(error);
+          }
         }
       } while (entry.again && this.tabs.includes(tab));
     })().finally(() => { this.reloads.delete(id); });

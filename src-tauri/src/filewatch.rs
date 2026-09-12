@@ -44,6 +44,13 @@ struct Registry {
 }
 
 impl Registry {
+    fn changed(&mut self, path: PathBuf, now: Instant) {
+        if self.files.contains_key(&path) {
+            // Continuous writers still get a delivery after the first interval.
+            self.pending.entry(path).or_insert(now + DEBOUNCE);
+        }
+    }
+
     fn register(&mut self, id: DocId, path: PathBuf, window: String) -> bool {
         let parent = path
             .parent()
@@ -101,9 +108,7 @@ impl FileWatch {
             let (state, wake) = &*incoming;
             let mut state = state.lock();
             for path in paths {
-                if state.files.contains_key(&path) {
-                    state.pending.insert(path, Instant::now() + DEBOUNCE);
-                }
+                state.changed(path, Instant::now());
             }
             wake.notify_one();
         })?;
@@ -190,6 +195,25 @@ impl Drop for FileWatch {
 mod tests {
     use super::*;
     use notify::event::CreateKind;
+
+    #[test]
+    fn continuous_writes_keep_the_first_deadline_until_delivery() {
+        let path = std::env::temp_dir().join("continuous.log");
+        let mut registry = Registry::default();
+        registry.register(1, path.clone(), "main".into());
+        let start = Instant::now();
+        for millis in [0, 100, 200, 299, 400, 500] {
+            registry.changed(path.clone(), start + Duration::from_millis(millis));
+            assert_eq!(registry.pending[&path], start + DEBOUNCE);
+        }
+        registry.pending.remove(&path);
+        let next = start + Duration::from_secs(1);
+        registry.changed(path.clone(), next);
+        assert_eq!(registry.pending[&path], next + DEBOUNCE);
+        registry.remove(1);
+        registry.changed(path, next);
+        assert!(registry.pending.is_empty());
+    }
 
     #[test]
     fn registrations_share_the_parent_until_the_last_document_leaves() {
