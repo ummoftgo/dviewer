@@ -248,7 +248,11 @@ jobs:
       # it writes it. See `scripts/gen-fixtures.mjs`.
       - name: Generate the Parquet fixture
         working-directory: src-tauri
-        run: cargo run --release ${{ runner.os == 'macOS' && '--target aarch64-apple-darwin' || '' }} --example parquet -- write ../fixtures
+        # Match tauri build's dependency features as well as its deployment target.
+        run: cargo run --release ${{ runner.os == 'macOS' && '--target aarch64-apple-darwin' || '' }} --features custom-protocol --example parquet -- write ../fixtures
+        env:
+          # Match the Tauri default; update if bundle.macOS.minimumSystemVersion or that default changes.
+          MACOSX_DEPLOYMENT_TARGET: "10.13"
 
       # A Linux runner has no display, and a window that cannot be created is
       # not a defect in the app.
