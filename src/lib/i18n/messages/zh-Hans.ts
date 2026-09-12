@@ -3,6 +3,8 @@ import type { Messages } from "./ko";
 export const zhHans: Messages = {
   "settings.restoreSession": "启动时打开上次的文档",
   "session.failed": "无法打开上次的 {count} 个文档",
+  "settings.autoReload": "文件更改时重新加载",
+  "doc.changed": "文件已更改",
   "subtab.stale": "这是格式或编码更改前的表格。",
   "subtab.self.tree": "树",
   "subtab.self.prose": "文本",

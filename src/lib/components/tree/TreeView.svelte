@@ -165,8 +165,10 @@
   $effect(() => {
     const target = tab;
     if (target.treeStats || target.indexing || target.error) return;
+    const generation = target.meta.generation;
     target.indexing = { done: 0, total: target.meta.byteLen };
     treeOpen(target.id).catch((err) => {
+      if (target.meta.generation !== generation) return;
       target.error = errorMessage(err);
       target.indexing = null;
     });

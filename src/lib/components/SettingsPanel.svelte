@@ -65,6 +65,9 @@
       <label><input type="checkbox" checked={settings.restoreSession}
         onchange={(event) => { settings.restoreSession = event.currentTarget.checked; settings.save(); }} />
         {t("settings.restoreSession")}</label>
+      <label><input type="checkbox" checked={settings.autoReload}
+        onchange={(event) => { settings.autoReload = event.currentTarget.checked; settings.save(); }} />
+        {t("settings.autoReload")}</label>
     </section>
     <section>
       <h3>{t("settings.markdownTables")}</h3>

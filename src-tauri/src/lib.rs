@@ -22,6 +22,7 @@ pub mod xml;
 pub mod update;
 
 mod commands;
+mod filewatch;
 #[cfg(test)]
 mod testing;
 mod window;
@@ -180,6 +181,9 @@ pub fn run() {
             commands::set_doc_encoding,
             commands::encoding_choices,
             commands::startup_request,
+            commands::watch_doc,
+            commands::unwatch_doc,
+            commands::reload_doc,
             commands::open_panel,
             commands::panel_info,
             commands::doc_source_text,
@@ -243,6 +247,7 @@ pub fn run() {
                 window::deliver(app, cli::LaunchRequest::from_urls(urls));
             }
             if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<AppState>().stop_watching();
                 if let Some(updater) = app.try_state::<std::sync::Arc<update::service::Updater>>() {
                     updater.stop();
                 }

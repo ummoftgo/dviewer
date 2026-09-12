@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   /**
    * CSV, TSV and logs as a grid.
    *
@@ -32,6 +33,8 @@
   }
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
+  const generation = untrack(() => tab.meta.generation ?? 0);
+  const current = () => (tab.meta.generation ?? 0) === generation;
 
   let searchBar = $state<ReturnType<typeof SearchBar>>();
   let grid = $state<ReturnType<typeof DataGrid>>();
@@ -69,6 +72,7 @@
     if (target.tableStats || target.indexing || target.error) return;
     target.indexing = { done: 0, total: target.meta.byteLen };
     tableOpen(target.id).catch((err) => {
+      if (!current()) return;
       target.error = errorMessage(err);
       target.indexing = null;
     });
@@ -89,6 +93,7 @@
    * switch already does with everything derived from the old reading.
    */
   async function applyShape(shape: TableShape, toTop = false) {
+    if (!current()) return;
     tab.order.reset();
     tab.tableStats = shape.stats;
     tab.header = shape.header;
@@ -106,7 +111,7 @@
         true,
       );
     } catch (err) {
-      tab.error = errorMessage(err);
+      if (current()) tab.error = errorMessage(err);
     }
   }
 
@@ -158,7 +163,7 @@
     try {
       await applyShape(await tableSetExpand(tab.id, !(tab.tableStats?.expanded ?? false)));
     } catch (err) {
-      tab.error = errorMessage(err);
+      if (current()) tab.error = errorMessage(err);
     }
   }
 
@@ -166,7 +171,7 @@
     try {
       await applyShape(await tableSetPlain(tab.id, !(tab.tableStats?.plain ?? false)));
     } catch (err) {
-      tab.error = errorMessage(err);
+      if (current()) tab.error = errorMessage(err);
     }
   }
 

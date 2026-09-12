@@ -24,6 +24,7 @@ import type {
 } from "../ipc";
 import { chainOf, opensAs, sameSource } from "../source";
 import { forgetDoc } from "../components/tree/actions";
+import { toasts } from './toast.svelte';
 import { NodeHistory } from "./history.svelte";
 import { recents } from "./recents.svelte";
 import { settings } from "./settings.svelte";
@@ -337,10 +338,20 @@ export class DocTab {
     this.selectedCell = null;
     this.pendingCell = null;
     this.tableSearch.reset();
+    this.collections = [];
+    this.collection = null;
+    this.gridStats = null;
+    this.schema = null;
+    this.entries = [];
+    this.openingEntry = null;
+    this.nameEncoding = null;
+    this.namesGuessed = false;
+    this.hiddenEntries = 0;
   }
 }
 
 class Workspace {
+  private reloads = new Map<number, { again: boolean; task: Promise<void> }>();
   tabs = $state<DocTab[]>([]);
   activeId = $state<number | null>(null);
   /** Errors that belong to no tab, e.g. a file that failed to open at all. */
@@ -497,6 +508,9 @@ class Workspace {
       tab.markdownTableMode = tableMode;
       tab.meta = loaded;
       tab.status = "ready";
+      if (tab.meta.source.type === 'file') {
+        void ipc.watchDoc(tab.id).catch(error => console.warn('[dviewer] could not watch document:', error));
+      }
       if (tab.meta.source.type === "file") {
         recents.add({ path: tab.meta.source.path, title: tab.meta.title, kind: tab.meta.kind });
       }
@@ -562,6 +576,7 @@ class Workspace {
     if (!tab || tab.kind === kind) return;
     try {
       const meta = await ipc.setDocKind(id, kind);
+      if (!this.tabs.includes(tab) || (meta.generation ?? 0) < (tab.meta.generation ?? 0)) return;
       // The document id survives re-indexing but the node ids under it do not,
       // and the path cache is keyed by both — so it has to go with them.
       forgetDoc(id);
@@ -578,6 +593,7 @@ class Workspace {
     if (!tab || tab.meta.encoding.name === encodingName) return;
     try {
       const meta = await ipc.setDocEncoding(id, encodingName);
+      if (!this.tabs.includes(tab) || (meta.generation ?? 0) < (tab.meta.generation ?? 0)) return;
       // Byte offsets do not survive a change of encoding, so every index built
       // from the old reading has to go with it — the cached paths included.
       forgetDoc(id);
@@ -588,8 +604,48 @@ class Workspace {
     }
   }
 
-  tab(id: number): DocTab | null {
-    return this.tabs.find((t) => t.id === id) ?? null;
+  /** Coalesce saves during a reload, and never apply a reply to a closed or newer tab. */
+  changed(id: number): Promise<void> {
+    if (!this.tab(id)) return Promise.resolve();
+    if (settings.autoReload) return this.reload(id);
+    toasts.show(t('doc.changed'), 'info');
+    return Promise.resolve();
+  }
+
+  reload(id: number): Promise<void> {
+    const pending = this.reloads.get(id);
+    if (pending) { pending.again = true; return pending.task; }
+    const tab = this.tab(id);
+    if (!tab || tab.meta.source.type !== 'file') return Promise.resolve();
+    const entry = { again: false, task: Promise.resolve() };
+    entry.task = (async () => {
+      do {
+        entry.again = false;
+        const generation = tab.meta.generation ?? 0;
+        try {
+          const meta = await ipc.reloadDoc(id);
+          if (!this.tabs.includes(tab) || (meta.generation ?? 0) <= (tab.meta.generation ?? 0)) continue;
+          // Descendant node identities cannot survive this source replacement.
+          const active = this.activeId;
+          const closing = this.tabs.filter(child => child.meta.source.type === 'treeSlice' && child.meta.source.parent === id)
+            .map(child => this.close(child.id));
+          if (active !== null && this.tabs.some(tab => tab.id === active)) this.activeId = active;
+          await Promise.all(closing);
+          if (!this.tabs.includes(tab) || (meta.generation ?? 0) <= (tab.meta.generation ?? 0)) continue;
+          forgetDoc(id);
+          tab.invalidate();
+          tab.meta = meta;
+        } catch (error) {
+          if (this.tabs.includes(tab) && (tab.meta.generation ?? 0) === generation) tab.error = ipc.errorMessage(error);
+        }
+      } while (entry.again && this.tabs.includes(tab));
+    })().finally(() => { this.reloads.delete(id); });
+    this.reloads.set(id, entry);
+    return entry.task;
+  }
+
+  tab(id: number, generation?: number): DocTab | null {
+    return this.tabs.find(t => t.id === id && (generation === undefined || (t.meta.generation ?? 0) === generation)) ?? null;
   }
 }
 

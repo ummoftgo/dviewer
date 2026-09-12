@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   /**
    * One file, several collections, one grid.
    *
@@ -41,6 +42,8 @@
   }
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
+  const generation = untrack(() => tab.meta.generation ?? 0);
+  const current = () => (tab.meta.generation ?? 0) === generation;
 
   let grid = $state<ReturnType<typeof DataGrid>>();
   let controls = $state<ReturnType<typeof GridControls>>();
@@ -96,11 +99,12 @@
     loading = true;
     list(target.id)
       .then((result) => {
+        if (!current()) return;
         target.collections = result.items;
         if (result.items.length > 0) select(result.items[0].name);
       })
       .catch((err) => {
-        target.error = errorMessage(err);
+        if (current()) target.error = errorMessage(err);
       })
       .finally(() => {
         loading = false;
@@ -126,7 +130,9 @@
     tab.tableSearch.reset();
     loading = true;
     try {
-      tab.gridStats = await choose(tab.id, name);
+      const stats = await choose(tab.id, name);
+      if (!current() || tab.collection !== name) return;
+      tab.gridStats = stats;
       await grid?.refresh(true);
       // The schema comes second: the rows are what the reader is waiting for,
       // and the panel is one they may never open.
@@ -135,10 +141,10 @@
           ? await parquetSchema(tab.id)
           : await sqliteSchema(tab.id, name);
         // The reader may have moved on during the round trip.
-        if (tab.collection === name) tab.schema = described;
+        if (current() && tab.collection === name) tab.schema = described;
       }
     } catch (err) {
-      tab.error = errorMessage(err);
+      if (current()) tab.error = errorMessage(err);
     } finally {
       loading = false;
     }
@@ -153,10 +159,12 @@
     tab.order.reset();
     loading = true;
     try {
-      tab.gridStats = await xlsxSetFormulas(tab.id, !(tab.gridStats?.formulas ?? false));
+      const stats = await xlsxSetFormulas(tab.id, !(tab.gridStats?.formulas ?? false));
+      if (!current()) return;
+      tab.gridStats = stats;
       await grid?.refresh();
     } catch (err) {
-      tab.error = errorMessage(err);
+      if (current()) tab.error = errorMessage(err);
     } finally {
       loading = false;
     }

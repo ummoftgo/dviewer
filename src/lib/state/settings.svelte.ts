@@ -26,6 +26,7 @@ const DEFAULTS = {
   markdownPageWidth: 52,
   markdownCopyStyled: false,
   restoreSession: true,
+  autoReload: true,
 };
 
 type Persisted = typeof DEFAULTS;
@@ -40,6 +41,7 @@ export class Settings {
   markdownPageWidth = $state(DEFAULTS.markdownPageWidth);
   markdownCopyStyled = $state(DEFAULTS.markdownCopyStyled);
   restoreSession = $state(DEFAULTS.restoreSession);
+  autoReload = $state(DEFAULTS.autoReload);
   /**
    * Kept in `i18n` rather than here, because `t()` has to read it and the
    * settings store imports too much to be reachable from there. This pair of
@@ -100,6 +102,7 @@ export class Settings {
     if (!saved) return;
     if (typeof saved.markdownCopyStyled === 'boolean') this.markdownCopyStyled = saved.markdownCopyStyled;
     if (typeof saved.restoreSession === 'boolean') this.restoreSession = saved.restoreSession;
+    if (typeof saved.autoReload === 'boolean') this.autoReload = saved.autoReload;
 
     if (saved.markdownTableMode === "scroll" || saved.markdownTableMode === "fill") {
       this.markdownTableMode = saved.markdownTableMode;
@@ -146,6 +149,7 @@ export class Settings {
       markdownPageWidth: this.markdownPageWidth,
       markdownCopyStyled: this.markdownCopyStyled,
       restoreSession: this.restoreSession,
+      autoReload: this.autoReload,
     } satisfies Persisted);
   }
 

@@ -93,9 +93,11 @@
 
   $effect(() => {
     if (tab.entries.length > 0 || loading) return;
+    const generation = tab.meta.generation;
     loading = true;
     archiveEntries(tab.id)
       .then((listing) => {
+        if (tab.meta.generation !== generation) return;
         tab.entries = listing.entries;
         tab.nameEncoding = listing.nameEncoding;
         tab.namesGuessed = listing.namesGuessed;
@@ -107,7 +109,7 @@
       // The archive tab is where this failure belongs. `workspace.notice` is
       // only ever drawn by the start pane, so a message sent there from a tab
       // that is on screen would go nowhere.
-      .catch((err) => (tab.error = errorMessage(err)))
+      .catch((err) => { if (tab.meta.generation === generation) tab.error = errorMessage(err); })
       .finally(() => (loading = false));
   });
 

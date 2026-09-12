@@ -6,6 +6,18 @@ import { getValue, setValue } from "../persist";
 vi.mock("../persist", () => ({ getValue: vi.fn(), setValue: vi.fn() }));
 beforeEach(() => vi.clearAllMocks());
 
+test('automatic reload defaults on and round-trips the disabled choice', async () => {
+  const settings = new Settings();
+  expect(settings.autoReload).toBe(true);
+  vi.mocked(getValue).mockResolvedValueOnce({ autoReload: false });
+  await settings.load();
+  expect(settings.autoReload).toBe(false);
+  settings.save();
+  expect(setValue).toHaveBeenLastCalledWith('settings', expect.objectContaining({ autoReload: false }));
+  settings.reset();
+  expect(settings.autoReload).toBe(true);
+});
+
 test('session restoration defaults on and round-trips the disabled choice', async () => {
   const settings = new Settings();
   expect(settings.restoreSession).toBe(true);

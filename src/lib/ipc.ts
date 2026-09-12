@@ -448,6 +448,8 @@ export const smokeCloseSelf = () => invoke<void>("smoke_close_self");
 
 export const setDocEncoding = (docId: number, encodingName: string) =>
   invoke<DocMeta>("set_doc_encoding", { docId, encodingName });
+export const watchDoc = (docId: number) => invoke<void>('watch_doc', { docId });
+export const reloadDoc = (docId: number) => invoke<DocMeta>('reload_doc', { docId });
 export const startupRequest = () => invoke<LaunchRequest & { skipRestore: boolean }>("startup_request");
 
 /** What a detached key/value window is looking at. */
@@ -648,24 +650,29 @@ export const gridSearch = (
 
 export interface IndexProgress {
   docId: number;
+  generation: number;
   bytesDone: number;
   bytesTotal: number;
 }
 
 export interface IndexReady {
   docId: number;
+  generation: number;
   stats: TreeStats;
   elapsedMs: number;
 }
 
 export interface DocErrorEvent {
   docId: number;
+  generation: number;
+  seq: number | null;
   /** The failure as `BackendError`, for `errorMessage` to put into words. */
   error: unknown;
 }
 
 export interface SearchBatch {
   docId: number;
+  generation: number;
   seq: number;
   hits: SearchHit[];
   total: number;
@@ -673,6 +680,7 @@ export interface SearchBatch {
 
 export interface SearchDone {
   docId: number;
+  generation: number;
   seq: number;
   summary: SearchSummary;
   elapsedMs: number;
@@ -680,12 +688,14 @@ export interface SearchDone {
 
 export interface TableReady {
   docId: number;
+  generation: number;
   stats: TableStats;
   header: string[];
   elapsedMs: number;
 }
 
 type EventMap = {
+  "doc:changed": { id: number };
   "update:state": UpdateStatus;
   "grid:progress": { docId: number; request: number; done: number; total: number };
   "tree:progress": IndexProgress;

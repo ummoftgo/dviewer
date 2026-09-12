@@ -82,56 +82,59 @@
 
   onMount(() => {
     const subscriptions = [
-      ipc.on("tree:progress", ({ docId, bytesDone, bytesTotal }) => {
-        const tab = workspace.tab(docId);
+      ipc.on('doc:changed', ({ id }) => {
+        void workspace.changed(id);
+      }),
+      ipc.on("tree:progress", ({ docId, generation, bytesDone, bytesTotal }) => {
+        const tab = workspace.tab(docId, generation);
         if (tab) tab.indexing = { done: bytesDone, total: bytesTotal };
       }),
-      ipc.on("tree:ready", ({ docId, stats }) => {
-        const tab = workspace.tab(docId);
+      ipc.on("tree:ready", ({ docId, generation, stats }) => {
+        const tab = workspace.tab(docId, generation);
         if (!tab) return;
         tab.treeStats = stats;
         tab.indexing = null;
         tab.error = null;
       }),
-      ipc.on("tree:error", ({ docId, error }) => {
-        const tab = workspace.tab(docId);
+      ipc.on("tree:error", ({ docId, generation, error }) => {
+        const tab = workspace.tab(docId, generation);
         if (!tab) return;
         tab.error = ipc.errorMessage(error);
         tab.indexing = null;
       }),
       // Batches from a search the reader has already replaced are dropped
       // rather than appended: cancelling does not unsend what is in flight.
-      ipc.on("tree:search-batch", ({ docId, seq, hits }) => {
-        const tab = workspace.tab(docId);
+      ipc.on("tree:search-batch", ({ docId, generation, seq, hits }) => {
+        const tab = workspace.tab(docId, generation);
         if (!tab || seq !== tab.search.seq) return;
         tab.search.hits = [...tab.search.hits, ...hits];
       }),
-      ipc.on("tree:search-done", ({ docId, seq, summary }) => {
-        const tab = workspace.tab(docId);
+      ipc.on("tree:search-done", ({ docId, generation, seq, summary }) => {
+        const tab = workspace.tab(docId, generation);
         if (!tab || seq !== tab.search.seq) return;
         tab.search.running = false;
         tab.search.summary = summary;
       }),
-      ipc.on("tree:search-error", ({ docId, error }) => {
-        const tab = workspace.tab(docId);
-        if (!tab) return;
+      ipc.on("tree:search-error", ({ docId, generation, seq, error }) => {
+        const tab = workspace.tab(docId, generation);
+        if (!tab || seq !== tab.search.seq) return;
         tab.search.running = false;
         tab.search.error = ipc.errorMessage(error);
       }),
-      ipc.on("table:progress", ({ docId, bytesDone, bytesTotal }) => {
-        const tab = workspace.tab(docId);
+      ipc.on("table:progress", ({ docId, generation, bytesDone, bytesTotal }) => {
+        const tab = workspace.tab(docId, generation);
         if (tab) tab.indexing = { done: bytesDone, total: bytesTotal };
       }),
-      ipc.on("table:ready", ({ docId, stats, header }) => {
-        const tab = workspace.tab(docId);
+      ipc.on("table:ready", ({ docId, generation, stats, header }) => {
+        const tab = workspace.tab(docId, generation);
         if (!tab) return;
         tab.tableStats = stats;
         tab.header = header;
         tab.indexing = null;
         tab.error = null;
       }),
-      ipc.on("table:error", ({ docId, error }) => {
-        const tab = workspace.tab(docId);
+      ipc.on("table:error", ({ docId, generation, error }) => {
+        const tab = workspace.tab(docId, generation);
         if (!tab) return;
         tab.error = ipc.errorMessage(error);
         tab.indexing = null;
@@ -281,7 +284,7 @@
     {:else}
       <!-- Keyed so switching tabs rebuilds the view against the right document
            instead of reusing another tab's DOM and scroll state. -->
-      {#key active.id}
+      {#key `${active.id}:${active.meta.generation ?? 0}`}
         {#if active.status === "opening"}
           <!-- The tab is on screen before the backend has answered, so this is
                what fills it until the document exists. -->

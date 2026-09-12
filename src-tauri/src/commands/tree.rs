@@ -19,6 +19,7 @@ use crate::tree::{ChildrenPage, TreeDoc, TreeRow, TreeStats, scanner::ScanLimits
 #[serde(rename_all = "camelCase")]
 struct IndexReady {
     doc_id: DocId,
+    generation: u32,
     stats: TreeStats,
     elapsed_ms: u64,
 }
@@ -31,6 +32,8 @@ struct IndexReady {
 #[tauri::command]
 pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> Result<()> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     // Taken once, not asked-then-taken: those are two separate locks, and a
     // format switch between them clears the tree the second one expects.
     if let Some(tree) = doc.tree() {
@@ -38,6 +41,7 @@ pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
             "tree:ready",
             IndexReady {
                 doc_id,
+                generation,
                 stats: tree.stats(),
                 elapsed_ms: 0,
             },
@@ -49,8 +53,8 @@ pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
     let Some(cancel) = state.start_index_job(doc_id) else {
         return Ok(());
     };
-    let source = doc.bytes();
-    let kind = doc.kind();
+    let source = snapshot.bytes;
+    let kind = snapshot.kind;
 
     std::thread::spawn(move || {
         // Hands the slot back whichever way this thread leaves — success,
@@ -71,6 +75,7 @@ pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
                     "tree:progress",
                     IndexProgress {
                         doc_id,
+                        generation,
                         bytes_done: done,
                         bytes_total: total,
                     },
@@ -85,11 +90,12 @@ pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
         match built {
             Ok(json) => {
                 let stats = json.stats();
-                doc.set_tree(Arc::new(json));
+                if doc.set_tree(generation, Arc::new(json)).is_err() { return; }
                 let _ = app.emit(
                     "tree:ready",
                     IndexReady {
                         doc_id,
+                        generation,
                         stats,
                         elapsed_ms: started.elapsed().as_millis() as u64,
                     },
@@ -100,6 +106,8 @@ pub fn tree_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> R
                     "tree:error",
                     DocError {
                         doc_id,
+                        generation,
+                        seq: None,
                         error: err,
                     },
                 );
@@ -283,6 +291,7 @@ pub fn tree_node_text(
 #[serde(rename_all = "camelCase")]
 struct SearchBatch {
     doc_id: DocId,
+    generation: u32,
     /// The search that produced this, echoed back so a view can tell the tail
     /// of an abandoned query from the head of the current one.
     seq: u64,
@@ -294,6 +303,7 @@ struct SearchBatch {
 #[serde(rename_all = "camelCase")]
 struct SearchDone {
     doc_id: DocId,
+    generation: u32,
     seq: u64,
     summary: SearchSummary,
     elapsed_ms: u64,
@@ -308,6 +318,7 @@ pub fn tree_search(
     doc_id: DocId,
     options: SearchOptions,
 ) -> Result<()> {
+    let generation = state.get(doc_id)?.generation();
     let json = tree_doc(&state, doc_id)?;
     let cancel = state.start_search_job(doc_id);
     let seq = options.seq;
@@ -319,6 +330,7 @@ pub fn tree_search(
                 "tree:search-batch",
                 SearchBatch {
                     doc_id,
+                    generation,
                     seq,
                     hits: hits.to_vec(),
                     total,
@@ -335,6 +347,7 @@ pub fn tree_search(
                     "tree:search-done",
                     SearchDone {
                         doc_id,
+                        generation,
                         seq,
                         summary,
                         elapsed_ms: started.elapsed().as_millis() as u64,
@@ -349,6 +362,8 @@ pub fn tree_search(
                     "tree:search-error",
                     DocError {
                         doc_id,
+                        generation,
+                        seq: Some(seq),
                         error: err,
                     },
                 );

@@ -16,6 +16,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DocKind, DocMeta, DocSource, TreeRow } from "../ipc";
 import { settings } from "./settings.svelte";
+import { toasts } from './toast.svelte';
+import { i18n } from '../i18n';
 
 vi.mock("../persist", () => ({ getValue: vi.fn(async () => undefined), setValue: vi.fn() }));
 
@@ -63,6 +65,8 @@ vi.mock("../ipc", async (importOriginal) => {
     ),
     closeDoc: vi.fn(async (docId: number) => void closed.push(docId)),
     gridOrder: vi.fn(),
+    watchDoc: vi.fn(async () => {}),
+    reloadDoc: vi.fn(),
     treeAsTable: vi.fn(async (parent: number, node: number) => {
       const waiting = gate;
       gate = null;
@@ -74,6 +78,83 @@ vi.mock("../ipc", async (importOriginal) => {
 
 const { DocTab, workspace } = await import("./docs.svelte");
 const ipc = await import("../ipc");
+
+test('reload drops every derived view and child without activating a background parent', async () => {
+  const parent = (await workspace.openPath('C:/parent.json'))!;
+  const child = (await workspace.openTreeTable(parent, { id: 0, kind: 'array', key: 'items', index: null } as TreeRow))!;
+  const neighbor = (await workspace.openPath('C:/neighbor.md'))!;
+  parent.html = 'old'; parent.raw = 'old'; parent.schema = 'old';
+  parent.collections = [{ name: 'old', isView: false }]; parent.collection = 'old';
+  parent.entries = [{ index: 0, name: 'old' } as typeof parent.entries[number]];
+  parent.selectedNode = 7; parent.scrollTop = 120;
+  vi.mocked(ipc.reloadDoc).mockResolvedValueOnce({ ...parent.meta, generation: 1 });
+  await workspace.reload(parent.id);
+  expect(workspace.tabs.includes(child)).toBe(false);
+  expect(workspace.activeId).toBe(neighbor.id);
+  expect([parent.html, parent.raw, parent.schema, parent.collection, parent.selectedNode]).toEqual([null, null, null, null, null]);
+  expect(parent.collections).toEqual([]); expect(parent.entries).toEqual([]);
+  expect(parent.scrollTop).toBe(120);
+  expect(workspace.tab(parent.id, 0)).toBeNull();
+  expect(workspace.tab(parent.id, 1)).toBe(parent);
+});
+
+test('a late reload reply cannot revive a closed document', async () => {
+  const tab = (await workspace.openPath('C:/closed.json'))!;
+  let resolve!: (meta: DocMeta) => void;
+  vi.mocked(ipc.reloadDoc).mockImplementationOnce(() => new Promise<DocMeta>(done => { resolve = done; }));
+  const pending = workspace.reload(tab.id);
+  await workspace.close(tab.id);
+  resolve({ ...tab.meta, generation: 1 }); await pending;
+  expect(workspace.tabs).toEqual([]);
+});
+
+test.each([[2, 1, 'newer'], [1, 2, null]])('reload orders replies by returned generation (%s then %s)', async (current, returned, html) => {
+  const tab = (await workspace.openPath('C:/newer.json'))!;
+  let resolve!: (meta: DocMeta) => void;
+  vi.mocked(ipc.reloadDoc).mockImplementationOnce(() => new Promise<DocMeta>(done => { resolve = done; }));
+  const pending = workspace.reload(tab.id);
+  tab.meta = { ...tab.meta, generation: current as number }; tab.html = 'newer';
+  resolve({ ...tab.meta, generation: returned as number }); await pending;
+  expect(tab.meta.generation).toBe(2); expect(tab.html).toBe(html);
+});
+
+test.each(['kind', 'encoding'])('a late %s reply cannot roll back a reloaded document', async change => {
+  const tab = (await workspace.openPath('C:/reinterpreted.json'))!;
+  let resolve!: (meta: DocMeta) => void;
+  const command = vi.spyOn(ipc, change === 'kind' ? 'setDocKind' : 'setDocEncoding')
+    .mockImplementationOnce(() => new Promise<DocMeta>(done => { resolve = done; }));
+  const pending = change === 'kind' ? workspace.setKind(tab.id, 'text') : workspace.setEncoding(tab.id, 'UTF-16LE');
+  vi.mocked(ipc.reloadDoc).mockResolvedValueOnce({ ...tab.meta, generation: 2 });
+  await workspace.reload(tab.id);
+  tab.html = 'reloaded';
+  resolve({ ...tab.meta, generation: 1 }); await pending;
+  expect(tab.meta.generation).toBe(2); expect(tab.html).toBe('reloaded');
+  command.mockRestore();
+});
+
+test('multiple saves during one reload coalesce into one additional reload', async () => {
+  const tab = (await workspace.openPath('C:/saving.json'))!;
+  let resolve!: (meta: DocMeta) => void;
+  vi.mocked(ipc.reloadDoc).mockClear().mockImplementationOnce(() => new Promise<DocMeta>(done => { resolve = done; }))
+    .mockResolvedValueOnce({ ...tab.meta, generation: 2 });
+  const first = workspace.reload(tab.id);
+  expect(workspace.reload(tab.id)).toBe(first);
+  expect(workspace.reload(tab.id)).toBe(first);
+  resolve({ ...tab.meta, generation: 1 }); await first;
+  expect(ipc.reloadDoc).toHaveBeenCalledTimes(2);
+  expect(tab.meta.generation).toBe(2);
+});
+
+test('disabled automatic reload reports the complete message without reloading', async () => {
+  const tab = (await workspace.openPath('C:/changed.md'))!;
+  i18n.setting = 'ko'; settings.autoReload = false;
+  const show = vi.spyOn(toasts, 'show').mockImplementation(() => 0);
+  vi.mocked(ipc.reloadDoc).mockClear();
+  await workspace.changed(tab.id);
+  expect(ipc.reloadDoc).not.toHaveBeenCalled();
+  expect(show).toHaveBeenCalledExactlyOnceWith('파일이 바뀌었습니다', 'info');
+  show.mockRestore(); settings.autoReload = true;
+});
 
 test('launch requests open in sequence and leave the last requested document active', async () => {
   const url = vi.spyOn(ipc, 'openUrl').mockImplementation(async value => meta({ type: 'url', url: value }));

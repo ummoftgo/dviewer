@@ -22,8 +22,10 @@ use crate::error::Result;
 /// read-only viewer can live with — reopen and the question goes away. But a
 /// file *truncated* while mapped is different: on Linux and macOS, touching a
 /// page past the new end raises SIGBUS and takes the process with it, with no
-/// error to report and nothing to catch. Windows does not have this problem,
-/// because the OS refuses to shrink a file that has a mapping open.
+/// error to report and nothing to catch. Windows saves can also succeed while
+/// mapped; access to an invalidated mapping can then produce an in-page error.
+/// Watching and remapping narrows the stale interval but does not make reads
+/// concurrent with external writes safe.
 ///
 /// Defending against it properly costs the reason the map exists — copying the
 /// file, or installing a signal handler and unwinding out of it. Neither is

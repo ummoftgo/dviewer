@@ -13,18 +13,22 @@ import type { MenuItem } from "../menu";
 
 /** Paths never change for a given node, so each one is fetched once. */
 const paths = new Map<string, string>();
+const requests = new Map<number, object>();
 
 export async function pathOf(docId: number, nodeId: number): Promise<string> {
   const key = `${docId}:${nodeId}`;
   const cached = paths.get(key);
   if (cached !== undefined) return cached;
+  const request = requests.get(docId) ?? {};
+  requests.set(docId, request);
   const path = await treePath(docId, nodeId);
-  paths.set(key, path);
+  if (requests.get(docId) === request) paths.set(key, path);
   return path;
 }
 
 /** Drop a closed document's paths rather than hold them for the session. */
 export function forgetDoc(docId: number) {
+  requests.delete(docId);
   const prefix = `${docId}:`;
   for (const key of [...paths.keys()]) {
     if (key.startsWith(prefix)) paths.delete(key);

@@ -3,6 +3,8 @@ import type { Messages } from "./ko";
 export const en: Messages = {
   "settings.restoreSession": "Open previous documents at startup",
   "session.failed": "Could not open {count} previous documents",
+  "settings.autoReload": "Reload when a file changes",
+  "doc.changed": "The file has changed",
   "subtab.stale": "This table predates the format/encoding change.",
   "subtab.self.tree": "Tree",
   "subtab.self.prose": "Text",

@@ -32,6 +32,8 @@ pub async fn archive_entries(
     doc_id: DocId,
 ) -> Result<ArchiveListing> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     if doc.kind() != DocKind::Zip {
         return Err(Error::WrongView {
             subject: Subject::Archive,
@@ -46,14 +48,14 @@ pub async fn archive_entries(
     // touches a header per entry. For a hundred thousand of them that is a
     // tenth of a second, which is long enough to be felt if the UI thread spent
     // it. A cold file makes it disk-bound on top of that.
-    let bytes = Arc::clone(&doc.source_bytes);
+    let bytes = doc.source_bytes();
     let archive = tauri::async_runtime::spawn_blocking(move || ArchiveDoc::open(bytes))
         .await
         .map_err(Error::internal)??;
 
     let archive = Arc::new(archive);
     let listing = archive.listing().clone();
-    doc.set_archive(archive);
+    doc.set_archive(generation, archive)?;
     Ok(listing)
 }
 
@@ -145,7 +147,7 @@ pub(crate) fn open_archive(
         Arc::clone(&bytes),
         encoding::verbatim(bytes),
     );
-    doc.set_archive(Arc::new(archive));
+    doc.set_archive(0, Arc::new(archive))?;
     Ok(doc)
 }
 

@@ -16,6 +16,7 @@ use crate::table::{self, CellText, TableDoc, TablePage, TableSearch, TableStats}
 #[serde(rename_all = "camelCase")]
 struct TableReady {
     doc_id: DocId,
+    generation: u32,
     stats: TableStats,
     header: Vec<String>,
     elapsed_ms: u64,
@@ -27,11 +28,14 @@ struct TableReady {
 #[tauri::command]
 pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> Result<()> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     if let Some(existing) = doc.table() {
         let _ = app.emit(
             "table:ready",
             TableReady {
                 doc_id,
+                generation,
                 stats: existing.stats(),
                 header: existing.header(),
                 elapsed_ms: 0,
@@ -39,7 +43,7 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
         );
         return Ok(());
     }
-    if doc.kind().view() != DocView::Table {
+    if snapshot.kind.view() != DocView::Table {
         return Err(Error::WrongView {
             subject: Subject::Table,
         });
@@ -49,9 +53,9 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
     let Some(cancel) = state.start_index_job(doc_id) else {
         return Ok(());
     };
-    let bytes = doc.bytes();
+    let bytes = snapshot.bytes;
     let total = bytes.len();
-    let records = table::Records::for_kind(doc.kind(), &bytes);
+    let records = table::Records::for_kind(snapshot.kind, &bytes);
 
     std::thread::spawn(move || {
         // Hands the slot back whichever way this thread leaves — success,
@@ -66,6 +70,7 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
                 "table:progress",
                 IndexProgress {
                     doc_id,
+                    generation,
                     bytes_done: done,
                     bytes_total: total,
                 },
@@ -79,11 +84,12 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
                 }
                 let stats = built.stats();
                 let header = built.header();
-                doc.set_table(Arc::new(built));
+                if doc.set_table(generation, Arc::new(built)).is_err() { return; }
                 let _ = app.emit(
                     "table:ready",
                     TableReady {
                         doc_id,
+                        generation,
                         stats,
                         header,
                         elapsed_ms: started.elapsed().as_millis() as u64,
@@ -98,6 +104,8 @@ pub fn table_open(app: AppHandle, state: State<'_, AppState>, doc_id: DocId) -> 
                     "table:error",
                     DocError {
                         doc_id,
+                        generation,
+                        seq: None,
                         error: err,
                     },
                 );
@@ -192,6 +200,8 @@ pub async fn sqlite_select(
     name: String,
 ) -> Result<GridStats> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     let database = doc.database().ok_or(Error::NotReady {
         subject: Subject::Database,
     })?;
@@ -211,7 +221,7 @@ pub async fn sqlite_select(
         truncated: grid.truncated(),
         formulas: false,
     };
-    doc.set_collection(Arc::new(grid));
+    doc.set_collection(generation, Arc::new(grid))?;
     Ok(stats)
 }
 
@@ -233,6 +243,8 @@ pub fn sqlite_collections(
     doc_id: DocId,
 ) -> Result<Collections> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     if doc.kind() != DocKind::Sqlite {
         return Err(Error::WrongView {
             subject: Subject::Database,
@@ -254,7 +266,7 @@ pub fn sqlite_collections(
         _ => crate::sqlite::SqliteDoc::open_bytes(doc.bytes())?,
     });
     let items = database.collections().to_vec();
-    doc.set_database(database);
+    doc.set_database(generation, database)?;
     Ok(Collections { items })
 }
 
@@ -361,6 +373,8 @@ pub async fn grid_search(
 #[tauri::command]
 pub async fn xlsx_sheets(state: State<'_, AppState>, doc_id: DocId) -> Result<Collections> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     if doc.kind() != DocKind::Xlsx {
         return Err(Error::WrongView {
             subject: Subject::Workbook,
@@ -375,13 +389,13 @@ pub async fn xlsx_sheets(state: State<'_, AppState>, doc_id: DocId) -> Result<Co
     // Whatever the document was opened from, its bytes are here — a mapped
     // file, a download, an entry unpacked out of an archive. calamine reads a
     // workbook out of any of them.
-    let bytes = doc.bytes();
+    let bytes = snapshot.bytes;
     let workbook = tauri::async_runtime::spawn_blocking(move || crate::xlsx::XlsxDoc::open(bytes))
         .await
         .map_err(Error::internal)??;
 
     let items = named(workbook.sheets());
-    doc.set_workbook(Arc::new(workbook));
+    doc.set_workbook(generation, Arc::new(workbook))?;
     Ok(Collections { items })
 }
 
@@ -407,6 +421,8 @@ pub async fn xlsx_select(
     name: String,
 ) -> Result<GridStats> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     let workbook = doc.workbook().ok_or(Error::NotReady {
         subject: Subject::Workbook,
     })?;
@@ -426,7 +442,7 @@ pub async fn xlsx_select(
         truncated: sheet.truncated(),
         formulas: false,
     };
-    doc.set_sheet(Arc::new(sheet));
+    doc.set_sheet(generation, Arc::new(sheet))?;
     Ok(stats)
 }
 
@@ -442,7 +458,8 @@ pub async fn xlsx_set_formulas(
     formulas: bool,
 ) -> Result<GridStats> {
     let doc = state.get(doc_id)?;
-    doc.clear_order();
+    let generation = doc.generation();
+    doc.clear_order_at(generation)?;
     let sheet = doc.sheet().ok_or(Error::NotReady {
         subject: Subject::Workbook,
     })?;
@@ -451,7 +468,7 @@ pub async fn xlsx_set_formulas(
     tauri::async_runtime::spawn_blocking(move || switching.set_formulas(formulas))
         .await
         .map_err(Error::internal)??;
-    doc.clear_order();
+    doc.clear_order_at(generation)?;
 
     Ok(GridStats {
         first_row_number: 1,
@@ -473,6 +490,8 @@ pub async fn xlsx_set_formulas(
 #[tauri::command]
 pub async fn parquet_open(state: State<'_, AppState>, doc_id: DocId) -> Result<Collections> {
     let doc = state.get(doc_id)?;
+    let snapshot = doc.snapshot();
+    let generation = snapshot.generation;
     if doc.kind() != DocKind::Parquet {
         return Err(Error::WrongView {
             subject: Subject::Columnar,
@@ -484,7 +503,7 @@ pub async fn parquet_open(state: State<'_, AppState>, doc_id: DocId) -> Result<C
         });
     }
 
-    let bytes = doc.bytes();
+    let bytes = snapshot.bytes;
     // Reading the footer seeks twice and parses thrift; small, but not
     // something to do on the event loop.
     let columnar =
@@ -493,7 +512,7 @@ pub async fn parquet_open(state: State<'_, AppState>, doc_id: DocId) -> Result<C
             .map_err(Error::internal)??;
 
     let items = vec![only(columnar.name())];
-    doc.set_columnar(Arc::new(columnar));
+    doc.set_columnar(generation, Arc::new(columnar))?;
     Ok(Collections { items })
 }
 

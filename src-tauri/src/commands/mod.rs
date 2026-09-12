@@ -8,6 +8,7 @@
 
 mod archive;
 mod document;
+mod file;
 mod markdown;
 mod panel;
 mod order;
@@ -17,6 +18,7 @@ mod tree;
 
 pub use archive::*;
 pub use document::*;
+pub use file::*;
 pub use markdown::*;
 pub use panel::*;
 pub use order::*;
@@ -34,6 +36,7 @@ use crate::state::DocId;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct IndexProgress {
     pub doc_id: DocId,
+    pub generation: u32,
     pub bytes_done: usize,
     pub bytes_total: usize,
 }
@@ -49,6 +52,8 @@ pub(crate) struct IndexProgress {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DocError {
     pub doc_id: DocId,
+    pub generation: u32,
+    pub seq: Option<u64>,
     pub error: crate::error::Error,
 }
 

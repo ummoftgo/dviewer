@@ -222,11 +222,18 @@ pub struct Document {
     /// The file exactly as it is on disk. Kept so another encoding can be
     /// applied later without going back to the disk — and because for a UTF-8
     /// document this is the same allocation the rest of the app reads.
-    pub source_bytes: Arc<DocBytes>,
     inner: RwLock<DocInner>,
 }
 
+pub struct DocumentSnapshot {
+    pub bytes: Arc<DocBytes>,
+    pub kind: DocKind,
+    pub generation: u32,
+    pub chosen_encoding: Option<&'static encoding_rs::Encoding>,
+}
+
 struct DocInner {
+    source_bytes: Arc<DocBytes>,
     kind: DocKind,
     generation: u32,
     badge_kind: Option<DocKind>,
@@ -275,8 +282,8 @@ impl Document {
             title,
             source,
             base_dir,
-            source_bytes,
             inner: RwLock::new(DocInner {
+                source_bytes,
                 kind,
                 generation: 0,
                 badge_kind: None,
@@ -305,12 +312,50 @@ impl Document {
         Arc::clone(&self.inner.read().bytes)
     }
 
+    pub fn source_bytes(&self) -> Arc<DocBytes> {
+        self.inner.read().source_bytes.clone()
+    }
+
+    pub fn generation(&self) -> u32 { self.inner.read().generation }
+
+    pub fn snapshot(&self) -> DocumentSnapshot {
+        let inner = self.inner.read();
+        DocumentSnapshot {
+            bytes: inner.bytes.clone(), kind: inner.kind, generation: inner.generation,
+            chosen_encoding: (inner.encoding_source == EncodingSource::Chosen).then_some(inner.encoding),
+        }
+    }
+
+    pub fn replace_source(&self, generation: u32, source_bytes: Arc<DocBytes>, kind: DocKind, decoded: Decoded) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        Self::invalidate_order(&mut inner);
+        inner.source_bytes = source_bytes;
+        inner.bytes = decoded.bytes;
+        inner.encoding = decoded.encoding;
+        inner.encoding_source = decoded.source;
+        inner.encoding_warning = decoded.warning;
+        inner.kind = kind;
+        inner.generation += 1;
+        inner.tree = None;
+        inner.table = None;
+        inner.tree_table = None;
+        inner.badge_kind = None;
+        inner.database = None;
+        inner.collection = None;
+        inner.workbook = None;
+        inner.sheet = None;
+        inner.columnar = None;
+        inner.archive = None;
+        Ok(())
+    }
+
     /// Re-read the file as `encoding`. Everything derived from the old reading
     /// is dropped: the byte offsets an index is built from do not survive a
     /// change of encoding.
     pub fn set_encoding(&self, encoding: &'static encoding_rs::Encoding) {
-        let decoded = encoding::decode_as(Arc::clone(&self.source_bytes), encoding);
         let mut inner = self.inner.write();
+        let decoded = encoding::decode_as(Arc::clone(&inner.source_bytes), encoding);
         Self::invalidate_order(&mut inner);
         inner.bytes = decoded.bytes;
         inner.encoding = decoded.encoding;
@@ -348,20 +393,20 @@ impl Document {
     }
 
     pub fn as_tree_table(&self, id: DocId, node: u32, cancel: &AtomicBool) -> Result<Document> {
-        let (tree, generation, kind, decoded) = {
+        let (tree, generation, kind, decoded, source_bytes) = {
             let inner = self.inner.read();
             let tree = inner.tree.clone().ok_or(Error::NotReady { subject: crate::error::Subject::Tree })?;
             let decoded = Decoded {
                 bytes: Arc::clone(&tree.bytes), encoding: inner.encoding,
                 source: inner.encoding_source, warning: inner.encoding_warning.clone(),
             };
-            (tree, inner.generation, inner.kind, decoded)
+            (tree, inner.generation, inner.kind, decoded, inner.source_bytes.clone())
         };
         let path = tree.index.path_of(&tree.bytes, node);
         let grid = crate::grid::array::JsonArrayGrid::open(tree, node, cancel)?;
         let doc = Document::new(id, format!("{path} — {}", self.title),
             DocSource::TreeSlice { parent: self.id, generation, node, path },
-            self.base_dir.clone(), DocKind::TreeTable, self.source_bytes.clone(), decoded);
+            self.base_dir.clone(), DocKind::TreeTable, source_bytes, decoded);
         {
             let mut inner = doc.inner.write();
             inner.badge_kind = Some(kind);
@@ -370,8 +415,11 @@ impl Document {
         Ok(doc)
     }
 
-    pub fn set_tree(&self, tree: Arc<TreeDoc>) {
-        self.inner.write().tree = Some(tree);
+    pub fn set_tree(&self, generation: u32, tree: Arc<TreeDoc>) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        inner.tree = Some(tree);
+        Ok(())
     }
 
     pub fn table(&self) -> Option<Arc<TableDoc>> {
@@ -382,28 +430,38 @@ impl Document {
         self.inner.read().database.clone()
     }
 
-    pub fn set_database(&self, database: Arc<crate::sqlite::SqliteDoc>) {
-        self.inner.write().database = Some(database);
+    pub fn set_database(&self, generation: u32, database: Arc<crate::sqlite::SqliteDoc>) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        inner.database = Some(database);
+        Ok(())
     }
 
-    pub fn set_collection(&self, collection: Arc<crate::sqlite::SqliteGrid>) {
+    pub fn set_collection(&self, generation: u32, collection: Arc<crate::sqlite::SqliteGrid>) -> Result<()> {
         let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
         Self::invalidate_order(&mut inner);
         inner.collection = Some(collection);
+        Ok(())
     }
 
     pub fn workbook(&self) -> Option<Arc<crate::xlsx::XlsxDoc>> {
         self.inner.read().workbook.clone()
     }
 
-    pub fn set_workbook(&self, workbook: Arc<crate::xlsx::XlsxDoc>) {
-        self.inner.write().workbook = Some(workbook);
+    pub fn set_workbook(&self, generation: u32, workbook: Arc<crate::xlsx::XlsxDoc>) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        inner.workbook = Some(workbook);
+        Ok(())
     }
 
-    pub fn set_sheet(&self, sheet: Arc<crate::xlsx::XlsxGrid>) {
+    pub fn set_sheet(&self, generation: u32, sheet: Arc<crate::xlsx::XlsxGrid>) -> Result<()> {
         let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
         Self::invalidate_order(&mut inner);
         inner.sheet = Some(sheet);
+        Ok(())
     }
 
     pub fn sheet(&self) -> Option<Arc<crate::xlsx::XlsxGrid>> {
@@ -414,16 +472,22 @@ impl Document {
         self.inner.read().archive.clone()
     }
 
-    pub fn set_archive(&self, archive: Arc<crate::archive::ArchiveDoc>) {
-        self.inner.write().archive = Some(archive);
+    pub fn set_archive(&self, generation: u32, archive: Arc<crate::archive::ArchiveDoc>) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        inner.archive = Some(archive);
+        Ok(())
     }
 
     pub fn columnar(&self) -> Option<Arc<crate::parquet::ParquetDoc>> {
         self.inner.read().columnar.clone()
     }
 
-    pub fn set_columnar(&self, columnar: Arc<crate::parquet::ParquetDoc>) {
-        self.inner.write().columnar = Some(columnar);
+    pub fn set_columnar(&self, generation: u32, columnar: Arc<crate::parquet::ParquetDoc>) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        inner.columnar = Some(columnar);
+        Ok(())
     }
 
     /// The rows and columns on screen, whichever kind of document made them.
@@ -450,10 +514,12 @@ impl Document {
             .map(|columnar| columnar as Arc<dyn crate::grid::Grid>)
     }
 
-    pub fn set_table(&self, table: Arc<TableDoc>) {
+    pub fn set_table(&self, generation: u32, table: Arc<TableDoc>) -> Result<()> {
         let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
         Self::invalidate_order(&mut inner);
         inner.table = Some(table);
+        Ok(())
     }
 
     fn invalidate_order(inner: &mut DocInner) {
@@ -463,6 +529,13 @@ impl Document {
     }
 
     pub fn clear_order(&self) { Self::invalidate_order(&mut self.inner.write()); }
+
+    pub fn clear_order_at(&self, generation: u32) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        Self::invalidate_order(&mut inner);
+        Ok(())
+    }
     pub fn change_table(&self, change: impl FnOnce(&TableDoc)) -> Result<Arc<TableDoc>> {
         let mut inner = self.inner.write();
         let table = inner.table.clone().ok_or(Error::NotReady { subject: crate::error::Subject::Table })?;
@@ -497,7 +570,7 @@ impl Document {
             badge_kind: inner.badge_kind,
             view: inner.kind.view(),
             source: self.source.clone(),
-            byte_len: self.source_bytes.len(),
+            byte_len: inner.source_bytes.len(),
             encoding: EncodingInfo {
                 name: inner.encoding.name().to_owned(),
                 label: encoding::label(inner.encoding),
@@ -579,6 +652,7 @@ mod startup_tests {
 
 #[derive(Default)]
 pub struct AppState {
+    pub(crate) watcher: parking_lot::Mutex<Option<crate::filewatch::FileWatch>>,
     next_id: AtomicU32,
     docs: RwLock<HashMap<DocId, Arc<Document>>>,
     jobs: RwLock<Jobs>,
@@ -758,7 +832,14 @@ impl AppState {
     pub fn remove(&self, id: DocId) {
         self.owners.write().by_doc.remove(&id);
         self.docs.write().remove(&id);
+        self.unwatch(id);
     }
+
+    pub fn unwatch(&self, id: DocId) {
+        if let Some(watcher) = self.watcher.lock().as_mut() { watcher.remove(id); }
+    }
+
+    pub fn stop_watching(&self) { self.watcher.lock().take(); }
 
     /// Every document opened by `window`, so a destroyed window can take its
     /// own with it.
@@ -1115,7 +1196,7 @@ mod tests {
         let bytes = Arc::new(crate::bytes::DocBytes::from(b"[1,2]".to_vec()));
         let tree = Arc::new(TreeDoc::build(bytes, crate::tree::index::Syntax::Json,
             &crate::tree::scanner::ScanLimits::default(), |_| {}, &|| false).unwrap());
-        parent.set_tree(tree.clone());
+        parent.set_tree(parent.generation(), tree.clone()).unwrap();
         let slice = parent.as_tree_table(8, 0, &AtomicBool::new(false)).unwrap();
         let again = parent.as_tree_table(9, 0, &AtomicBool::new(false)).unwrap();
         assert_eq!(serde_json::to_value(&slice.source).unwrap(), serde_json::to_value(&again.source).unwrap());
@@ -1123,7 +1204,7 @@ mod tests {
         assert_eq!(slice.meta().badge_kind, Some(DocKind::Json));
         assert!(!slice.kind().reads_bytes());
         parent.set_kind(DocKind::Jsonc);
-        parent.set_tree(tree);
+        parent.set_tree(parent.generation(), tree).unwrap();
         let newer = parent.as_tree_table(10, 0, &AtomicBool::new(false)).unwrap();
         assert_ne!(serde_json::to_value(&slice.source).unwrap(), serde_json::to_value(&newer.source).unwrap());
         drop(parent);
@@ -1139,7 +1220,7 @@ mod tests {
         assert!(matches!(doc.finish_order(old, None), Err(Error::Cancelled)));
         assert!(doc.finish_order(new, None).is_ok());
         let bytes = Arc::new(crate::bytes::DocBytes::from(b"name\nx\ny".to_vec()));
-        doc.set_table(Arc::new(TableDoc::build(bytes, crate::table::Records::Lines, |_|{}, &||false).unwrap()));
+        doc.set_table(doc.generation(), Arc::new(TableDoc::build(bytes, crate::table::Records::Lines, |_|{}, &||false).unwrap())).unwrap();
         let grid = doc.grid().unwrap();
         let (generation, cancel) = doc.start_order();
         let order = crate::grid::order::Order::build(grid.as_ref(), None, "x", None, &cancel, &mut |_,_|{}).unwrap();

@@ -33,6 +33,8 @@ two-face 크레이트는 MIT 또는 Apache-2.0 중 [MIT 라이선스](licenses/t
 
 CSV·TSV는 크레이트를 쓰지 않습니다. 필요한 것이 레코드의 **바이트 위치**인데 그건 파서가 내주는 값이 아니고, 따옴표를 다루는 상태 기계는 JSON 스캐너와 같은 방식으로 60줄이면 끝납니다.
 
+파일 변경 감지는 `notify` 8.2.0의 OS별 Watcher를 사용합니다. 부모 디렉터리 감시로 원자적 저장을 잡고 파일별 300ms 디바운스는 자체 처리합니다. `notify-debouncer-mini`는 이벤트 종류를 Any로 합치므로 삭제·rename-out을 제외해야 하는 계약에 맞지 않아 추가하지 않았습니다. 프런트 fs 권한은 추가하지 않습니다.
+
 업데이트는 기존 `ureq`·`semver`·`base64`·`tempfile`을 직접 사용한다. 추가 런타임 의존은 `minisign-verify`(Tauri의 Base64 봉투를 푼 스트리밍 서명 검증)와 Windows의 `self-replace`다. `windows-sys`는 NSIS 실행에 필요한 ShellExecuteW를 호출한다. 공식 업데이터는 파일 전체를 모아 검증하므로 디스크 스트리밍 조건에 맞지 않았다. 서명 시험의 `minisign`은 dev-dependency라 배포 바이너리에 포함되지 않는다. 실제 Tauri CLI의 서명 산출물도 별도 호환 시험으로 검증한다.
 
 취약점 점검:
