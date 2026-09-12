@@ -161,6 +161,7 @@ pub fn run() {
             // The window from tauri.conf.json is called "main"; it collects
             // this the moment its frontend mounts.
             app.state::<AppState>().queue("main", launch.request.clone());
+            if launch.new_window { app.state::<AppState>().skip_restore("main"); }
             update::install::cleanup_installers();
             Ok(())
         })

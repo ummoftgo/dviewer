@@ -62,6 +62,11 @@
 
   <div class="body">
     <section>
+      <label><input type="checkbox" checked={settings.restoreSession}
+        onchange={(event) => { settings.restoreSession = event.currentTarget.checked; settings.save(); }} />
+        {t("settings.restoreSession")}</label>
+    </section>
+    <section>
       <h3>{t("settings.markdownTables")}</h3>
       {#each ["fill", "scroll"] as mode (mode)}
         <label class="table-mode">

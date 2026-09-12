@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { session } from './lib/state/session.svelte';
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import { updates } from "./lib/state/updates.svelte";
   import SubTabBar from "./lib/components/SubTabBar.svelte";
@@ -59,27 +60,20 @@
    */
   let smoking = $state(false);
 
-  onMount(() => {
-    void settings.load();
-    void recents.load();
-    void ipc
-      .smokeStatus()
-      .then((status) => {
-        smoking = status.active;
-        if (!status.active) {
-          return ipc
-            .startupRequest()
-            .then((request) => workspace.openLaunch(request));
-        }
-        // A window that is not `main` was built to answer a `--new`, and its
-        // existence is the thing being checked. It reports and the process ends.
-        if (status.window !== "main") {
-          return ipc.startupRequest().then((request) => reportNewWindow(status.window, request));
-        }
-        return runSmoke();
-      })
-      .catch((err) => console.warn("[dviewer] could not handle the startup arguments:", err));
-  });
+  async function initialize() {
+    const status = await ipc.smokeStatus();
+    smoking = status.active;
+    const request = await ipc.startupRequest();
+    await Promise.all([settings.load(), recents.load()]);
+    if (status.active) {
+      if (status.window !== 'main') return reportNewWindow(status.window, request);
+      return runSmoke();
+    }
+    const save = status.window === 'main' && !request.skipRestore;
+    await session.start(request, save && settings.restoreSession, save);
+  }
+
+  $effect(() => { session.save(); });
 
   // --- backend events -----------------------------------------------------
   //
@@ -148,9 +142,12 @@
         // process can say the hand-off worked, because the other one has
         // already exited.
         if (smoking) void reportDelivery(request);
-        else void workspace.openLaunch(request);
+        else void session.receive(request);
       }),
     ];
+
+    void Promise.all(subscriptions).then(initialize)
+      .catch(err => console.warn('[dviewer] could not initialize:', err));
 
     return () => {
       for (const subscription of subscriptions) {

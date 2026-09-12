@@ -6,7 +6,6 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager, State, Window};
 
 use crate::bytes::DocBytes;
-use crate::cli::LaunchRequest;
 use crate::encoding;
 use crate::error::{Error, Result};
 use crate::source;
@@ -237,6 +236,6 @@ pub fn encoding_choices() -> Vec<(String, String)> {
 /// Answers once per window: the request is taken, not copied, so a reload does
 /// not open the same file twice.
 #[tauri::command]
-pub fn startup_request(window: tauri::Window, state: State<'_, AppState>) -> LaunchRequest {
-    state.take_pending(window.label())
+pub fn startup_request(window: tauri::Window, state: State<'_, AppState>) -> crate::cli::StartupRequest {
+    state.take_startup(window.label())
 }

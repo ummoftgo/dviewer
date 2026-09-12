@@ -75,6 +75,19 @@ vi.mock("../ipc", async (importOriginal) => {
 const { DocTab, workspace } = await import("./docs.svelte");
 const ipc = await import("../ipc");
 
+test('launch requests open in sequence and leave the last requested document active', async () => {
+  const url = vi.spyOn(ipc, 'openUrl').mockImplementation(async value => meta({ type: 'url', url: value }));
+  await workspace.openLaunch({ files: ['C:/first.md', 'C:/last.md'], urls: ['https://example.com/doc'] });
+  expect(workspace.tabs.map(tab => tab.meta.source)).toEqual([
+    { type: 'file', path: 'C:/first.md' }, { type: 'file', path: 'C:/last.md' }, { type: 'url', url: 'https://example.com/doc' },
+  ]);
+  expect(workspace.activeId).toBe(workspace.tabs[2].id);
+  await workspace.openLaunch({ files: ['C:/first.md'], urls: [] });
+  expect(workspace.activeId).toBe(workspace.tabs[0].id);
+  expect(workspace.tabs).toHaveLength(3);
+  url.mockRestore();
+});
+
 test("a new document waits for settings and keeps its own default afterwards", async () => {
   let resolve!: () => void;
   const load = vi.spyOn(settings, "load").mockImplementationOnce(() => new Promise((done) => { resolve = done; }));

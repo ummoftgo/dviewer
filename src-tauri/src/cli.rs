@@ -37,6 +37,14 @@ impl LaunchRequest {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupRequest {
+    #[serde(flatten)]
+    pub request: LaunchRequest,
+    pub skip_restore: bool,
+}
+
 /// What a self-check run is being asked to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SmokeMode {

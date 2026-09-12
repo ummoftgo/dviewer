@@ -6,6 +6,8 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
+  "settings.restoreSession": "시작할 때 이전 문서 열기",
+  "session.failed": "이전 문서 {count}개를 열지 못했습니다",
   "subtab.stale": "형식/인코딩이 바뀌기 전의 표입니다.",
   "subtab.self.tree": "트리",
   "subtab.self.prose": "글",

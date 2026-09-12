@@ -448,7 +448,7 @@ export const smokeCloseSelf = () => invoke<void>("smoke_close_self");
 
 export const setDocEncoding = (docId: number, encodingName: string) =>
   invoke<DocMeta>("set_doc_encoding", { docId, encodingName });
-export const startupRequest = () => invoke<LaunchRequest>("startup_request");
+export const startupRequest = () => invoke<LaunchRequest & { skipRestore: boolean }>("startup_request");
 
 /** What a detached key/value window is looking at. */
 export interface PanelInfo {

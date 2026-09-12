@@ -6,6 +6,18 @@ import { getValue, setValue } from "../persist";
 vi.mock("../persist", () => ({ getValue: vi.fn(), setValue: vi.fn() }));
 beforeEach(() => vi.clearAllMocks());
 
+test('session restoration defaults on and round-trips the disabled choice', async () => {
+  const settings = new Settings();
+  expect(settings.restoreSession).toBe(true);
+  vi.mocked(getValue).mockResolvedValueOnce({ restoreSession: false });
+  await settings.load();
+  expect(settings.restoreSession).toBe(false);
+  settings.save();
+  expect(setValue).toHaveBeenLastCalledWith('settings', expect.objectContaining({ restoreSession: false }));
+  settings.reset();
+  expect(settings.restoreSession).toBe(true);
+});
+
 test('styled HTML choice loads, saves and resets to off', async () => {
   vi.mocked(getValue).mockResolvedValueOnce({ markdownCopyStyled: true });
   const settings = new Settings();

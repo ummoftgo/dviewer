@@ -543,6 +543,41 @@ struct Ownership {
 }
 
 #[derive(Default)]
+struct PendingLaunch {
+    request: LaunchRequest,
+    ready: bool,
+    skip_restore: bool,
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    fn request(file: &str) -> LaunchRequest {
+        LaunchRequest { files: vec![file.into()], urls: vec![] }
+    }
+    #[test]
+    fn startup_accumulates_until_the_listener_is_ready() {
+        let state = AppState::default();
+        state.queue("main", request("first"));
+        state.queue("main", LaunchRequest::default());
+        assert!(state.deliver_or_queue("main", request("second")).is_none());
+        let start = state.take_startup("main");
+        assert_eq!(start.request.files, ["first", "second"]);
+        assert!(!start.skip_restore);
+        assert_eq!(state.deliver_or_queue("main", request("third")).unwrap().files, ["third"]);
+        assert!(state.take_pending("main").is_empty());
+    }
+    #[test]
+    fn new_window_skips_restore_even_with_no_initial_file() {
+        let state = AppState::default();
+        state.skip_restore("main");
+        let start = state.take_startup("main");
+        assert!(start.skip_restore && start.request.is_empty());
+        assert!(state.take_startup("doc-1").skip_restore);
+    }
+}
+
+#[derive(Default)]
 pub struct AppState {
     next_id: AtomicU32,
     docs: RwLock<HashMap<DocId, Arc<Document>>>,
@@ -572,7 +607,7 @@ pub struct AppState {
     /// window created for a second `dviewer` invocation does not exist yet when
     /// the arguments arrive. So the request waits here and the window collects
     /// it — see `commands::startup_request`.
-    pending: RwLock<HashMap<String, LaunchRequest>>,
+    pending: RwLock<HashMap<String, PendingLaunch>>,
 }
 
 impl AppState {
@@ -618,12 +653,39 @@ impl AppState {
         if request.is_empty() {
             return;
         }
-        self.pending.write().insert(window.to_owned(), request);
+        let mut pending = self.pending.write();
+        let entry = pending.entry(window.to_owned()).or_default();
+        entry.request.files.extend(request.files);
+        entry.request.urls.extend(request.urls);
     }
 
     /// Take whatever was left for `window`. Empty on every call but the first.
     pub fn take_pending(&self, window: &str) -> LaunchRequest {
-        self.pending.write().remove(window).unwrap_or_default()
+        self.take_startup(window).request
+    }
+
+    pub fn skip_restore(&self, window: &str) {
+        self.pending.write().entry(window.to_owned()).or_default().skip_restore = true;
+    }
+
+    pub fn take_startup(&self, window: &str) -> crate::cli::StartupRequest {
+        let mut pending = self.pending.write();
+        let entry = pending.entry(window.to_owned()).or_default();
+        entry.ready = true;
+        crate::cli::StartupRequest {
+            request: std::mem::take(&mut entry.request),
+            skip_restore: entry.skip_restore || window != "main",
+        }
+    }
+
+    /// The readiness check and enqueue share a lock with the startup drain.
+    pub fn deliver_or_queue(&self, window: &str, request: LaunchRequest) -> Option<LaunchRequest> {
+        let mut pending = self.pending.write();
+        let entry = pending.entry(window.to_owned()).or_default();
+        if entry.ready { return Some(request); }
+        entry.request.files.extend(request.files);
+        entry.request.urls.extend(request.urls);
+        None
     }
 
     pub fn next_id(&self) -> DocId {

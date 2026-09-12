@@ -25,6 +25,7 @@ const DEFAULTS = {
   markdownTableMode: "fill" as TableMode,
   markdownPageWidth: 52,
   markdownCopyStyled: false,
+  restoreSession: true,
 };
 
 type Persisted = typeof DEFAULTS;
@@ -38,6 +39,7 @@ export class Settings {
   /** Maximum rendered page width in rem; zero removes the maximum. */
   markdownPageWidth = $state(DEFAULTS.markdownPageWidth);
   markdownCopyStyled = $state(DEFAULTS.markdownCopyStyled);
+  restoreSession = $state(DEFAULTS.restoreSession);
   /**
    * Kept in `i18n` rather than here, because `t()` has to read it and the
    * settings store imports too much to be reachable from there. This pair of
@@ -97,6 +99,7 @@ export class Settings {
     const saved = await getValue<Partial<Persisted>>(STORE_KEY);
     if (!saved) return;
     if (typeof saved.markdownCopyStyled === 'boolean') this.markdownCopyStyled = saved.markdownCopyStyled;
+    if (typeof saved.restoreSession === 'boolean') this.restoreSession = saved.restoreSession;
 
     if (saved.markdownTableMode === "scroll" || saved.markdownTableMode === "fill") {
       this.markdownTableMode = saved.markdownTableMode;
@@ -142,6 +145,7 @@ export class Settings {
       markdownTableMode: this.markdownTableMode,
       markdownPageWidth: this.markdownPageWidth,
       markdownCopyStyled: this.markdownCopyStyled,
+      restoreSession: this.restoreSession,
     } satisfies Persisted);
   }
 

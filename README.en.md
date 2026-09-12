@@ -35,6 +35,8 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 - **Open arrays and maps as grid subtabs.** Right-click a nonempty array or object in the tree to open it below its parent main tab. The same location selects its existing subtab. Closing the parent closes its subtabs; closing a subtab selects the parent. A format or encoding change keeps old tables with a muted label and explanatory tooltip, while opening again creates a new generation. Array row numbers start at zero, matching `[n]` paths.
 - **Every grid supports row filtering.** Apply a case-insensitive substring across all columns or one selected column. The header context menu offers original, ascending and descending order; single-click cycling remains (Parquet supports filtering only). The column chip describes the input scope; the status describes the successfully applied scope. The chip’s × restores all columns, while Clear filter and `Esc` clear only the filter. Cancelling restores original order. Copied values and row numbers stay original, and search operates on visible rows. Fit column width and double-clicking its edge fit only that column using sampled cells and its actual header.
 
+Session restoration is enabled by default. The main window reopens local files and URLs in tab order, preserving the active document and source/rendered mode, then opens startup requests. Archive entries collapse to their local root file. Pasted text, derived tabs, other windows, scroll positions, and selections are not restored; `--new` and smoke runs neither restore nor save the session.
+
 ## Requirements
 
 - Node.js 20 or later (developed on 24), npm

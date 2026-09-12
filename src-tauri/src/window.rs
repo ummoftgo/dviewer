@@ -38,7 +38,9 @@ pub fn deliver(app: &AppHandle, request: LaunchRequest) {
     };
     let _ = window.set_focus();
     let _ = window.unminimize();
-    let _ = app.emit_to(window.label(), OPEN_REQUEST, request);
+    if let Some(request) = app.state::<AppState>().deliver_or_queue(window.label(), request) {
+        let _ = app.emit_to(window.label(), OPEN_REQUEST, request);
+    }
 }
 
 /// Open a window of its own for `request`.

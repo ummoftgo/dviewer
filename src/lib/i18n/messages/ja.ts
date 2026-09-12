@@ -1,6 +1,8 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
+  "settings.restoreSession": "起動時に前回のドキュメントを開く",
+  "session.failed": "前回のドキュメントを{count}件開けませんでした",
   "subtab.stale": "形式・文字コードを変更する前の表です。",
   "subtab.self.tree": "ツリー",
   "subtab.self.prose": "テキスト",
