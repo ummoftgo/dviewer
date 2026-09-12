@@ -142,12 +142,7 @@ jobs:
       - run: npm ci
       - name: Warm release build
         run: npm run tauri build -- --no-bundle ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
-      - name: Warm the Parquet example
-        working-directory: src-tauri
-        run: cargo build --release ${{ runner.os == 'macOS' && '--target aarch64-apple-darwin' || '' }} --example parquet
-        env:
-          # Diagnostic: why does this recompile right after the warm build?
-          CARGO_LOG: cargo::core::compiler::fingerprint=info
+      # Rebuilding uncached workspace crates costs more than warming the example's extra dev dependencies saves.
 
       # Exercise WebKit before a tag, using the release binary built above.
       - name: Generate fixtures
@@ -158,8 +153,6 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: src-tauri
         run: cargo run --release --example parquet -- write ../fixtures
-        env:
-          CARGO_LOG: cargo::core::compiler::fingerprint=info
 
       - name: Install xvfb
         if: runner.os == 'Linux'
