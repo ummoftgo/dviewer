@@ -224,7 +224,7 @@
           }
           return;
         case "e":
-          if (active?.view === "prose") {
+          if (active && supportsRaw(active.view, active.kind)) {
             event.preventDefault();
             active.mode = active.mode === "rendered" ? "raw" : "rendered";
           }
