@@ -2,13 +2,16 @@
 
 ← [README](../README.md)
 
-`.github/workflows/build.yml` 하나가 두 가지 일을 합니다.
+`.github/workflows/build.yml`이 테스트·캐시 예열·번들·초안 릴리스를 맡습니다.
 
 | 계기 | 하는 일 |
 | --- | --- |
-| main 푸시 · PR | 테스트만. 세 러너에서 픽스처를 만든 뒤 `cargo test`(부재를 실패로 치는 `DVIEWER_FIXTURES=required` 로), 타입 체크와 프런트엔드 빌드는 Linux에서 한 번 |
-| `v*` 태그 | 테스트 후 세 OS 번들을 만들고 **초안 릴리스**에 붙임 |
+| main 푸시 | 세 OS 테스트와 `warm`을 병렬 실행. warm은 번들 없이 release 앱·Parquet 예제를 빌드해 캐시를 예열하고, Linux에서 release 스모크도 실행 |
+| PR | 테스트만. 세 러너에서 픽스처를 만든 뒤 `cargo test`(부재를 실패로 치는 `DVIEWER_FIXTURES=required` 로), 타입 체크와 프런트엔드 빌드는 Linux에서 한 번 |
+| `v*` 태그 | 테스트와 세 OS 번들을 병렬 실행하고, 둘 다 성공하면 산출물을 **초안 릴리스**에 붙임 |
 | 수동 실행 | 기본은 테스트만. `bundle` 입력을 켜면 릴리스 없이 번들만 만들어 아티팩트로 남김 |
+
+잡 그래프는 main에서 `test ∥ warm`, 태그에서 `test ∥ bundle → release`입니다. warm을 기다리는 잡은 없습니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행해 WebKit 검사를 태그 전에 확인하는 자리입니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
 
 main에서 번들을 만들지 않는 대신 테스트는 세 OS 모두에서 돌립니다. Linux에서만 돌리면 Windows나 macOS에서만 깨지는 변경을 태그를 밀 때까지 모릅니다. 픽스처를 거기서 만드는 이유는 [검증](verification.md) 의 CI 절에 있습니다 — 그것 없이는 열한 개가 무언가를 단언하지 않은 채 초록이었습니다.
 

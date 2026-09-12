@@ -146,6 +146,24 @@ jobs:
         working-directory: src-tauri
         run: cargo build --release ${{ runner.os == 'macOS' && '--target aarch64-apple-darwin' || '' }} --example parquet
 
+      # Exercise WebKit before a tag, using the release binary built above.
+      - name: Generate fixtures
+        if: runner.os == 'Linux'
+        run: node scripts/gen-fixtures.mjs
+
+      - name: Generate the Parquet fixture
+        if: runner.os == 'Linux'
+        working-directory: src-tauri
+        run: cargo run --release --example parquet -- write ../fixtures
+
+      - name: Install xvfb
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y xvfb dbus
+
+      - name: Smoke (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a dbus-run-session -- npm run smoke -- --release
+
   # Tags only. Manual runs can opt in with the `bundle` input to rehearse a
   # release without cutting one.
   bundle:
