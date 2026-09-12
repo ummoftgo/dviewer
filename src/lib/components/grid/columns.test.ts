@@ -7,7 +7,7 @@
  * each, and a table of them came out with columns twice the width they needed.
  */
 import { describe, expect, test } from "vitest";
-import { MAX_AUTO_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength } from "./columns";
+import { MAX_AUTO_COLUMN, MAX_FIT_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength, layoutColumns, resizeColumn } from "./columns";
 import type { DocTab } from "../../state/docs.svelte";
 import type { TableRow } from "../../ipc";
 
@@ -81,5 +81,56 @@ describe("guessing a width from one page", () => {
     const tab = tabWith(["a", "b", "c"]);
     expect(() => measureColumns(tab, [row("1")], 3, 13, (column) => tab.header[column] ?? "")).not.toThrow();
     expect(tab.columnWidths).toHaveLength(3);
+  });
+});
+
+describe('table width layout', () => {
+  test('one column fills the viewport after the gutter and proportional columns shrink from their baseline', () => {
+    expect(layoutColumns([100], null, 944, 44, 'fill')).toEqual({ widths: [900], mode: 'fill' });
+    const base = [100, 200];
+    expect(layoutColumns(base, null, 944, 44, 'fill').widths).toEqual([300, 600]);
+    expect(layoutColumns(base, null, 644, 44, 'fill').widths).toEqual([200, 400]);
+    expect(base).toEqual([100, 200]);
+  });
+  test('overflow and explicit scroll retain their baseline, including the gutter', () => {
+    expect(layoutColumns([100, 200], null, 343, 44, 'fill')).toEqual({ widths: [100, 200], mode: 'scroll' });
+    expect(layoutColumns([100, 200], [1, 1], 944, 44, 'scroll')).toEqual({ widths: [100, 200], mode: 'scroll' });
+    expect(layoutColumns([], null, 944, 44, 'fill').widths).toEqual([]);
+  });
+  test('a fill drag stores ratios without turning the viewport into a minimum width', () => {
+    const tab = { columnWidths: [100, 200], tableFillRatios: null } as unknown as DocTab;
+    resizeColumn(tab, [300, 600], 0, 100, 'fill');
+    expect(tab.columnWidths).toEqual([100, 200]);
+    const narrow = layoutColumns(tab.columnWidths, tab.tableFillRatios, 644, 44, 'fill');
+    expect(narrow.widths[0]).toBeCloseTo(600 * 4 / 9);
+    expect(narrow.widths[1]).toBeCloseTo(600 * 5 / 9);
+    expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 244, 44, 'fill').mode).toBe('scroll');
+  });
+  test('fill compensation respects the neighbor minimum and a single column cannot shrink', () => {
+    const tab = { columnWidths: [100, 200], tableFillRatios: null } as unknown as DocTab;
+    resizeColumn(tab, [300, 600], 0, 1000, 'fill');
+    expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill').widths[1]).toBeCloseTo(MIN_COLUMN);
+    resizeColumn(tab, [100, 200], 0, -200, 'scroll');
+    expect(tab.columnWidths).toEqual([MIN_COLUMN, 200]);
+    expect(tab.tableFillRatios).toBeNull();
+    resizeColumn(tab, [900], 0, -800, 'fill');
+    expect(tab.tableFillRatios).toEqual([100]);
+  });
+  test('explicit fit lifts the automatic ceiling only when its caller opts in', () => {
+    const tab = { columnWidths: [95, 190, 285], tableFillRatios: null } as unknown as DocTab;
+    fitColumn(tab, [], 1, 15, 'x'.repeat(1000), MAX_FIT_COLUMN);
+    expect(tab.columnWidths).toEqual([95, 4000, 285]);
+    fitColumn(tab, [], 1, 15, 'x'.repeat(1000));
+    expect(tab.columnWidths).toEqual([95, 420, 285]);
+  });
+  test('recommendation resamples all columns and reset returns to the automatic ceiling', () => {
+    const tab = { columnWidths: [95, 190], tableFillRatios: [40, 60], tableWidthMode: 'fill' } as unknown as DocTab;
+    const names = ['', 'x'.repeat(1000)];
+    measureColumns(tab, [], 2, 15, column => names[column], MAX_FIT_COLUMN);
+    expect(tab.columnWidths).toEqual([MIN_COLUMN, 4000]);
+    expect(tab.tableFillRatios).toBeNull();
+    measureColumns(tab, [], 2, 15, column => names[column]);
+    expect(tab.columnWidths).toEqual([MIN_COLUMN, 420]);
+    expect(tab.tableWidthMode).toBe('fill');
   });
 });

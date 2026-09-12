@@ -203,6 +203,8 @@ export class DocTab {
   /** DOM controls own their updates; keeping this non-reactive avoids rebuilding HTML mid-drag. */
   readonly tables = new Map<number, TableState>();
   markdownTableMode = settings.markdownTableMode;
+  tableWidthMode = $state(settings.tableWidthMode);
+  tableFillRatios = $state<number[] | null>(null);
   html = $state<string | null>(null);
   toc = $state<TocEntry[]>([]);
   raw = $state<string | null>(null);
@@ -335,6 +337,7 @@ export class DocTab {
     this.tableStats = null;
     this.header = [];
     this.columnWidths = [];
+    this.tableFillRatios = null;
     this.selectedCell = null;
     this.pendingCell = null;
     this.tableSearch.reset();
@@ -495,7 +498,7 @@ class Workspace {
     try {
       const [loaded, tableMode] = await Promise.all([
         load(),
-        settings.load().then(() => settings.markdownTableMode),
+        settings.load().then(() => ({ markdown: settings.markdownTableMode, table: settings.tableWidthMode })),
       ]);
       // The reader can close a tab while it is still opening — a 500MB file
       // spends seconds here. The tab goes at once, but the document it was
@@ -505,7 +508,8 @@ class Workspace {
         void ipc.closeDoc(loaded.id).catch(() => {});
         return null;
       }
-      tab.markdownTableMode = tableMode;
+      tab.markdownTableMode = tableMode.markdown;
+      tab.tableWidthMode = tableMode.table;
       tab.meta = loaded;
       tab.status = "ready";
       if (tab.meta.source.type === 'file') {

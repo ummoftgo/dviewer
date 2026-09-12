@@ -274,6 +274,7 @@
     {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
     <DataGrid
       bind:this={grid}
+      widthMode={tab.tableWidthMode}
       {tab}
       {rowCount}
       {columnCount}

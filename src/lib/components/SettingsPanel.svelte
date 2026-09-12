@@ -82,6 +82,15 @@
           {t(mode === "fill" ? "markdown.table.fill" : "markdown.table.scroll")}
         </label>
       {/each}
+      <h3>{t('settings.tableWidths')}</h3>
+      {#each ['fill', 'scroll'] as mode (mode)}
+        <label class="table-mode">
+          <input type="radio" name="table-width-mode" value={mode}
+            checked={settings.tableWidthMode === mode}
+            onchange={() => { settings.tableWidthMode = mode as 'fill' | 'scroll'; settings.save(); }} />
+          {t(mode === 'fill' ? 'settings.tableWidth.fill' : 'settings.tableWidth.scroll')}
+        </label>
+      {/each}
       <p class="hint">{t("settings.markdownTablesHint")}</p>
     </section>
     <section>

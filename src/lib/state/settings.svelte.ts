@@ -23,6 +23,7 @@ const DEFAULTS = {
   inspectorWidth: 320,
   inspectorKeyRatio: 0.4,
   markdownTableMode: "fill" as TableMode,
+  tableWidthMode: "fill" as TableMode,
   markdownPageWidth: 52,
   markdownCopyStyled: false,
   restoreSession: true,
@@ -37,6 +38,7 @@ const STORE_KEY = "settings";
 export class Settings {
   private loading?: Promise<void>;
   markdownTableMode = $state<TableMode>(DEFAULTS.markdownTableMode);
+  tableWidthMode = $state<TableMode>(DEFAULTS.tableWidthMode);
   /** Maximum rendered page width in rem; zero removes the maximum. */
   markdownPageWidth = $state(DEFAULTS.markdownPageWidth);
   markdownCopyStyled = $state(DEFAULTS.markdownCopyStyled);
@@ -104,6 +106,7 @@ export class Settings {
     if (typeof saved.restoreSession === 'boolean') this.restoreSession = saved.restoreSession;
     if (typeof saved.autoReload === 'boolean') this.autoReload = saved.autoReload;
 
+    if (saved.tableWidthMode === "fill" || saved.tableWidthMode === "scroll") this.tableWidthMode = saved.tableWidthMode;
     if (saved.markdownTableMode === "scroll" || saved.markdownTableMode === "fill") {
       this.markdownTableMode = saved.markdownTableMode;
     }
@@ -146,6 +149,7 @@ export class Settings {
       inspectorWidth: this.inspectorWidth,
       inspectorKeyRatio: this.inspectorKeyRatio,
       markdownTableMode: this.markdownTableMode,
+      tableWidthMode: this.tableWidthMode,
       markdownPageWidth: this.markdownPageWidth,
       markdownCopyStyled: this.markdownCopyStyled,
       restoreSession: this.restoreSession,

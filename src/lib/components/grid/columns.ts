@@ -8,9 +8,11 @@
  */
 import type { TableRow } from "../../ipc";
 import type { DocTab } from "../../state/docs.svelte";
+import { fillWidths, resizeWidths, widthRatios, type TableMode } from "../markdown/tables";
 
 export const MIN_COLUMN = 64;
 export const MAX_AUTO_COLUMN = 420;
+export const MAX_FIT_COLUMN = 4000;
 /** Used until a page has arrived and the real widths can be measured. */
 const FALLBACK_COLUMN = 140;
 
@@ -62,32 +64,35 @@ export function measureColumns(
   columnCount: number,
   fontPx: number,
   columnName: (column: number) => string,
+  maximum = MAX_AUTO_COLUMN,
 ): void {
-  tab.columnWidths = Array.from({ length: columnCount }, (_, column) => measuredWidth(sample, column, fontPx, columnName(column)));
+  tab.tableFillRatios = null;
+  tab.columnWidths = Array.from({ length: columnCount }, (_, column) => measuredWidth(sample, column, fontPx, columnName(column), maximum));
 }
 
-function measuredWidth(sample: TableRow[], column: number, fontPx: number, name: string): number {
+function measuredWidth(sample: TableRow[], column: number, fontPx: number, name: string, maximum: number): number {
   const char = Math.max(6, fontPx * 0.62);
   let widest = visualLength(name);
   for (const row of sample) widest = Math.max(widest, visualLength(row.cells[column]?.text ?? ""));
-  return Math.round(Math.min(MAX_AUTO_COLUMN, Math.max(MIN_COLUMN, widest * char + 26)));
+  return Math.round(Math.min(maximum, Math.max(MIN_COLUMN, widest * char + 26)));
 }
 
-export function fitColumn(tab: DocTab, sample: TableRow[], column: number, fontPx: number, name: string): void {
-  tab.columnWidths[column] = measuredWidth(sample, column, fontPx, name);
+export function fitColumn(tab: DocTab, sample: TableRow[], column: number, fontPx: number, name: string, maximum = MAX_AUTO_COLUMN): void {
+  tab.tableFillRatios = null;
+  tab.columnWidths[column] = measuredWidth(sample, column, fontPx, name, maximum);
 }
 
-export function columnWidth(tab: DocTab, column: number): number {
+export function columnWidth(tab: Pick<DocTab, 'columnWidths'>, column: number): number {
   return tab.columnWidths[column] ?? FALLBACK_COLUMN;
 }
 
 /** Total width of the columns plus the row-number gutter. */
-export function totalWidth(tab: DocTab, numberWidth: number): number {
+export function totalWidth(tab: Pick<DocTab, 'columnWidths'>, numberWidth: number): number {
   return numberWidth + tab.columnWidths.reduce((sum, width) => sum + width, 0);
 }
 
 /** Left edge of a column, in the same coordinates as `scrollLeft`. */
-export function columnLeft(tab: DocTab, column: number, numberWidth: number): number {
+export function columnLeft(tab: Pick<DocTab, 'columnWidths'>, column: number, numberWidth: number): number {
   let left = numberWidth;
   for (let i = 0; i < column; i++) left += columnWidth(tab, i);
   return left;
@@ -100,16 +105,16 @@ export function columnLeft(tab: DocTab, column: number, numberWidth: number): nu
  * captured to it: the drag then survives the pointer leaving the element, and
  * there is nothing to clean up if the component disappears mid-drag.
  */
-export function startResize(event: PointerEvent, tab: DocTab, column: number): void {
+export function startResize(event: PointerEvent, tab: DocTab, column: number, layout?: ColumnLayout): void {
   event.preventDefault();
   event.stopPropagation();
   const handle = event.currentTarget as HTMLElement;
   const startX = event.clientX;
-  const startWidth = columnWidth(tab, column);
+  const widths = [...(layout?.widths ?? tab.columnWidths)];
+  const mode = layout?.mode ?? "scroll";
 
   const move = (moved: PointerEvent) => {
-    const next = Math.max(MIN_COLUMN, Math.round(startWidth + moved.clientX - startX));
-    tab.columnWidths = tab.columnWidths.map((width, i) => (i === column ? next : width));
+    resizeColumn(tab, widths, column, Math.round(moved.clientX - startX), mode);
   };
   const stop = () => {
     handle.removeEventListener("pointermove", move);
@@ -124,4 +129,22 @@ export function startResize(event: PointerEvent, tab: DocTab, column: number): v
   handle.addEventListener("pointermove", move);
   handle.addEventListener("pointerup", stop);
   handle.addEventListener("pointercancel", stop);
+}
+
+export interface ColumnLayout { widths: number[]; mode: TableMode }
+
+/** The viewport never becomes the next layout's baseline. */
+export function layoutColumns(base: readonly number[], ratios: readonly number[] | null, viewport: number, gutter: number, mode: TableMode): ColumnLayout {
+  const available = Math.max(0, viewport - gutter);
+  const sum = base.reduce((total, width) => total + width, 0);
+  if (mode !== 'fill' || !base.length || available < sum) return { widths: [...base], mode: 'scroll' };
+  const weights = ratios && ratios.length === base.length ? ratios : base;
+  const widths = fillWidths(weights, available, MIN_COLUMN);
+  return { widths, mode: 'fill' };
+}
+
+export function resizeColumn(tab: DocTab, widths: readonly number[], column: number, delta: number, mode: TableMode): void {
+  const next = resizeWidths(widths, column, delta, mode, MIN_COLUMN);
+  if (mode === 'fill') tab.tableFillRatios = widthRatios(next);
+  else { tab.columnWidths = next; tab.tableFillRatios = null; }
 }

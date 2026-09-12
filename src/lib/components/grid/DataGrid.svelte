@@ -19,7 +19,8 @@
    * many rows and columns there are, what to call a column, and whether a cell
    * carries a tone.
    */
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
+  import type { TableMode } from '../markdown/tables';
   import { shortcutKey } from "../../keys";
   import { n, t } from "../../i18n";
   import ContextMenu from "../ContextMenu.svelte";
@@ -39,6 +40,9 @@
     fitColumn as fitWidth,
     startResize as beginResize,
     totalWidth as totalOf,
+    layoutColumns,
+    MAX_AUTO_COLUMN,
+    MAX_FIT_COLUMN,
   } from "./columns";
   import { copyText } from "../../clipboard";
   import { toasts } from "../../state/toast.svelte";
@@ -63,9 +67,13 @@
     onsortTo?: (sort: GridSort | null) => void;
     onfilterColumn?: (column: number) => void;
     onfilterClear?: () => void;
+    /** Only TableView opts into the new width controls; collections stay unchanged. */
+    widthMode?: TableMode;
   }
 
-  let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1, onsort, onsortTo, onfilterColumn, onfilterClear, sortAvailable = true }: Props = $props();
+  let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1, onsort, onsortTo, onfilterColumn, onfilterClear, sortAvailable = true, widthMode }: Props = $props();
+  const generation = untrack(() => tab.meta.generation ?? 0);
+  const current = () => (tab.meta.generation ?? 0) === generation;
 
   /** Extra rows fetched above and below the viewport to hide scroll latency. */
   const OVERSCAN = 24;
@@ -75,6 +83,8 @@
    *  outgrows the browser's maximum element height — see lib/virtual.ts. */
   let scrollTop = $state(0);
   let viewportHeight = $state(0);
+  let viewportWidth = $state(0);
+  let fitted = $state(false);
   let rows = $state<TableRow[]>([]);
   let windowStart = $state(0);
   let requestSeq = 0;
@@ -88,7 +98,34 @@
   const numberWidth = $derived(
     Math.max(44, Math.round(String(tab.order.stats?.total ?? rowCount).length * settings.docFontPx * settings.uiScale * 0.65) + 18),
   );
-  const totalWidth = $derived(totalOf(tab, numberWidth));
+  const layout = $derived(layoutColumns(tab.columnWidths, tab.tableFillRatios, viewportWidth, numberWidth, widthMode ?? 'scroll'));
+  const presentation = $derived({ columnWidths: layout.widths });
+  const totalWidth = $derived(totalOf(presentation, numberWidth));
+
+  $effect(() => {
+    const host = viewport;
+    if (!host || widthMode === undefined) return;
+    const measureWidth = () => { viewportWidth = host.clientWidth; };
+    measureWidth();
+    const observer = new ResizeObserver(measureWidth);
+    observer.observe(host);
+    return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    if (current() && widthMode !== undefined && rowCount === 0 && columnCount > 0 && tab.columnWidths.length !== columnCount) {
+      untrack(() => measureColumns([]));
+    }
+  });
+
+  $effect(() => {
+    void layout;
+    fitted = false;
+    if (!current() || !viewport || widthMode === undefined || viewportWidth <= 0 || tab.columnWidths.length !== columnCount) return;
+    let live = true;
+    void tick().then(() => { if (live) fitted = true; });
+    return () => { live = false; };
+  });
 
   /**
    * Put the reader back where they were.
@@ -147,6 +184,7 @@
   }
 
   async function ensureWindow(force = false) {
+    if (!current()) return;
     if (!viewport || rowCount === 0) {
       requestSeq += 1;
       if (rowCount === 0) {
@@ -173,13 +211,13 @@
     try {
       const page = await gridRows(tab.id, start, count);
       // A later scroll has already superseded this request.
-      if (seq !== requestSeq) return;
+      if (!current() || seq !== requestSeq) return;
       windowStart = start;
       rows = page.rows;
       if (tab.selectedCell) selectCell(tab.selectedCell.row, tab.selectedCell.column);
       if (tab.columnWidths.length !== columnCount) measureColumns(page.rows);
     } catch (err) {
-      if (seq === requestSeq) tab.error = errorMessage(err);
+      if (current() && seq === requestSeq) tab.error = errorMessage(err);
     }
   }
 
@@ -212,16 +250,20 @@
   }
 
   function fitColumn(column: number) {
-    fitWidth(tab, rows, column, settings.docFontPx * settings.uiScale, columnName(column));
+    fitWidth(tab, rows, column, settings.docFontPx * settings.uiScale, columnName(column), widthMode === undefined ? MAX_AUTO_COLUMN : MAX_FIT_COLUMN);
+  }
+
+  function resetWidths(recommend: boolean) {
+    autoWidths(tab, rows, columnCount, settings.docFontPx * settings.uiScale, columnName, recommend ? MAX_FIT_COLUMN : MAX_AUTO_COLUMN);
   }
 
   function columnWidth(column: number) {
-    return widthOf(tab, column);
+    return widthOf(presentation, column);
   }
 
   function scrollColumnIntoView(column: number) {
     if (!viewport) return;
-    const left = columnLeft(tab, column, numberWidth);
+    const left = columnLeft(presentation, column, numberWidth);
     const right = left + columnWidth(column);
     if (left - numberWidth < viewport.scrollLeft) viewport.scrollLeft = left - numberWidth;
     else if (right > viewport.scrollLeft + viewport.clientWidth) {
@@ -230,7 +272,7 @@
   }
 
   function startResize(event: PointerEvent, column: number) {
-    beginResize(event, tab, column);
+    beginResize(event, tab, column, widthMode === undefined ? undefined : layout);
   }
 
   // --- copying ------------------------------------------------------------
@@ -285,6 +327,10 @@
       { label: t("grid.filterColumn"), icon: "filter", action: () => onfilterColumn?.(column) },
       { label: t("grid.filterClear"), icon: "filter-off", disabled: !tab.order.filter, action: () => onfilterClear?.() },
       { label: t("grid.fitColumn"), icon: "fit-width", action: () => fitColumn(column) },
+      ...(widthMode === undefined ? [] : [
+        { label: t('grid.recommendWidths'), icon: 'fit-width' as const, action: () => resetWidths(true) },
+        { label: t('grid.resetWidths'), icon: 'auto' as const, action: () => resetWidths(false) },
+      ]),
     ];
     return [
       { label: t("table.copyValue"), icon: "copy", action: () => void copyCell(row, column), hint: "Ctrl C" },
@@ -389,6 +435,8 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 <div
   class="grid"
+  data-width-mode={widthMode}
+  data-fitted={widthMode === undefined ? undefined : String(fitted)}
   class:ordering={tab.order.running}
   class:empty={rowCount === 0 && tab.order.stats !== null}
   bind:this={viewport}

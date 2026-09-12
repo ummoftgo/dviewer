@@ -153,3 +153,14 @@ test("a saved scroll default survives the new fill default", async () => {
   await settings.load();
   expect(settings.markdownTableMode).toBe("scroll");
 });
+
+test('table widths default to fill, reject invalid settings, and round-trip scroll', async () => {
+  const invalid = new Settings();
+  vi.mocked(getValue).mockResolvedValueOnce({ tableWidthMode: 'invalid' });
+  await invalid.load(); expect(invalid.tableWidthMode).toBe('fill');
+  const saved = new Settings();
+  vi.mocked(getValue).mockResolvedValueOnce({ tableWidthMode: 'scroll' });
+  await saved.load(); expect(saved.tableWidthMode).toBe('scroll');
+  saved.save(); expect(setValue).toHaveBeenLastCalledWith('settings', expect.objectContaining({ tableWidthMode: 'scroll' }));
+  saved.reset(); expect(saved.tableWidthMode).toBe('fill');
+});

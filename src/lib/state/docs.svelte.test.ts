@@ -611,3 +611,20 @@ test('Markdown search keeps its query across views but clears it on reinterpreta
   tab.invalidate();
   expect([search.open, search.query, search.hits]).toEqual([false, '', 0]);
 });
+
+test('table width defaults wait for settings and remain per tab after opening', async () => {
+  const original = settings.tableWidthMode;
+  let release!: () => void;
+  const load = vi.spyOn(settings, 'load').mockImplementationOnce(() => new Promise<void>(done => { release = done; }));
+  try {
+    settings.tableWidthMode = 'scroll';
+    const pending = workspace.openPath('C:/reading.txt');
+    await Promise.resolve(); settings.tableWidthMode = 'fill'; release();
+    const first = (await pending)!;
+    settings.tableWidthMode = 'scroll';
+    const second = (await workspace.openPath('C:/next.txt'))!;
+    expect(first.tableWidthMode).toBe('fill'); expect(second.tableWidthMode).toBe('scroll');
+    first.tableFillRatios = [40, 60]; first.invalidate();
+    expect(first.tableFillRatios).toBeNull(); expect(first.tableWidthMode).toBe('fill');
+  } finally { load.mockRestore(); settings.tableWidthMode = original; }
+});
