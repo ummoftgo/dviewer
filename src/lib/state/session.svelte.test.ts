@@ -74,7 +74,7 @@ test('failed entries are counted once without shifting the saved active document
   const notify = vi.spyOn(toasts, 'show').mockImplementation(() => 0);
   await new Session(workspace).start({ files: [], urls: [] }, true, true);
   expect(activate).toHaveBeenCalledWith(last.id);
-  expect(notify).toHaveBeenCalledExactlyOnceWith('이전 문서 1개를 열지 못했습니다', 'info');
+  expect(notify).toHaveBeenCalledExactlyOnceWith('이전 문서 1개를 열지 못했습니다', 'info', 6000);
 });
 
 test('non-main and new-window sessions do not load or save previous documents', async () => {

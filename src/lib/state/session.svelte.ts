@@ -4,6 +4,9 @@ import { t } from '../i18n';
 import { toasts } from './toast.svelte';
 import { workspace, type DocTab } from './docs.svelte';
 
+// The default toast expired at startup before the reader could notice it.
+const RESTORE_FAILURE_MS = 6000;
+
 type Source = Extract<DocSource, { type: 'file' | 'url' }>;
 type Item = { source: Source; mode: 'rendered' | 'raw' };
 export type SessionSnapshot = { tabs: Item[]; active: Source | null };
@@ -97,7 +100,7 @@ export class Session {
         const id = opened.get(key(saved.active));
         if (id !== undefined) this.target.activate(id);
       }
-      if (failed) { this.target.notice = null; toasts.show(t('session.failed', { count: failed }), 'info'); }
+      if (failed) { this.target.notice = null; toasts.show(t('session.failed', { count: failed }), 'info', RESTORE_FAILURE_MS); }
     }
     this.requests.unshift(request);
     this.started = true;
