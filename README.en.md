@@ -41,6 +41,8 @@ Installers register supported Markdown, JSON, YAML, TOML, CSV/TSV, Parquet, and 
 
 Open local files reload automatically after a detected save. Continuous writes do not postpone updates until writing stops. Turn this off in settings to receive a change notification instead. Reload closes derived table tabs and node panels; open them again from the new document. URLs, gzip files, and archive entries are not watched.
 
+Text and logs also offer **Table / Source** in the toolbar. Source view includes line numbers and search, up to a 16 MiB decoded buffer. A source loading error stays in that view so you can return to the table. Tables retain their 4 GiB minus one byte and 50 million record limits.
+
 ## Requirements
 
 - Node.js 20 or later (developed on 24), npm

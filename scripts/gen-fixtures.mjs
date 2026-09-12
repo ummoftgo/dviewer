@@ -140,6 +140,9 @@ if (wantHuge) {
 }
 
 
+await writeFile(path.join(OUT, "reading.txt"), "First line\n\nA long line: " + "reading ".repeat(80) + "\r\nLast line\n");
+console.log("  reading.txt");
+
 // --- 텍스트와 로그 -----------------------------------------------------------
 
 await writeFile(
@@ -1247,6 +1250,7 @@ const SMOKE = [
   { file: "sample.xml", expect: "tree" },
   { file: "sample.csv", expect: "table", then: "toggleHeader" },
   { file: "semicolon.csv", expect: "table" },
+  { file: "reading.txt", expect: "table", then: "textReading" },
   { file: "sample.log", expect: "table" },
   { file: "edge.log", expect: "table" },
   { file: "sample.tsv", expect: "table" },

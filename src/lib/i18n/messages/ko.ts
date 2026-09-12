@@ -115,6 +115,7 @@ export const ko = {
   "tab.listLabel": "탭 목록 보기",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
+  "toolbar.mode.table": "표",
   "toolbar.mode.rendered": "렌더링",
   "toolbar.mode.raw": "원문",
   "toolbar.mode.group": "보기 방식",

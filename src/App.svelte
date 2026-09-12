@@ -25,6 +25,7 @@
   import { pickFiles } from "./lib/open";
   import { workspace } from "./lib/state/docs.svelte";
   import { shortcutKey } from "./lib/keys";
+  import { supportsRaw } from './lib/viewMode';
   import { recents } from "./lib/state/recents.svelte";
   import { applySettings, settings, watchSystemTheme } from "./lib/state/settings.svelte";
 
@@ -292,6 +293,8 @@
             <div class="spinner" aria-hidden="true"></div>
             <p>{t("app.opening", { title: active.meta.title })}</p>
           </div>
+        {:else if active.mode === "raw" && supportsRaw(active.view, active.kind)}
+          <RawView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "collection"}
@@ -300,8 +303,6 @@
           <TableView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "archive"}
           <ArchiveView tab={active} bind:focusSearch={searchBarFocus} />
-        {:else if active.mode === "raw"}
-          <RawView tab={active} bind:focusSearch={searchBarFocus} />
         {:else}
           <MarkdownView tab={active} {showToc} bind:focusSearch={searchBarFocus} />
         {/if}

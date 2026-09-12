@@ -13,18 +13,20 @@
   let { tab, focusSearch = $bindable(null) }: Props = $props();
   let scroller = $state<HTMLElement>();
   let source = $state<HTMLElement>();
+  let error = $state<string | null>(null);
 
   $effect(() => {
     const target = tab;
     if (target.raw !== null) return;
     const revision = target.markdownRevision;
+    error = null;
     target.busy = true;
     target.loadRaw()
       .then((text) => {
         if (target.markdownRevision === revision) target.raw = text;
       })
       .catch((err) => {
-        if (target.markdownRevision === revision) target.error = errorMessage(err);
+        if (target.markdownRevision === revision) error = errorMessage(err);
       })
       .finally(() => {
         if (target.markdownRevision === revision) target.busy = false;
@@ -59,7 +61,9 @@
   bind:this={scroller}
   onscroll={(e) => (tab.rawScrollTop = e.currentTarget.scrollTop)}
 >
-  {#if tab.raw === null}
+  {#if error}
+    <p class="status error" role="alert">{error}</p>
+  {:else if tab.raw === null}
     <p class="status">{tab.busy ? t("markdown.rawLoading") : t("markdown.rawUnavailable")}</p>
   {:else}
     <div class="raw-view">
@@ -82,4 +86,5 @@
   .status {
     color: var(--text-muted);
   }
+  .status.error { color: var(--danger); }
 </style>

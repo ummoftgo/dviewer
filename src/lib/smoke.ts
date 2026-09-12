@@ -13,6 +13,7 @@
  * harness targets are the event loop failing to turn.
  */
 import * as ipc from "./ipc";
+import { checkTextReading } from "./components/table/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
 import { checkMarkdownCopy, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
@@ -98,6 +99,10 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === "textReading") {
+    await checkTextReading(tab);
+    return { ok: true, stage: what };
+  }
   if (what === "treeAsTable") {
     const children = await ipc.treeChildren(tab.id, 0, 0, 100);
     const array = children?.rows.find((row) => row.key === "items");

@@ -31,6 +31,13 @@ test('only ready restorable sources are saved, with root archives deduplicated a
   expect(captureSession([first, child], child.id).active).toEqual(first.meta.source);
 });
 
+test('text files retain raw mode in the session snapshot', () => {
+  const text = tab(file('/reading.txt')); text.meta.kind = 'text'; text.meta.view = 'table'; text.mode = 'raw';
+  expect(readSession(captureSession([text], text.id))).toEqual({
+    tabs: [{ source: file('/reading.txt'), mode: 'raw' }], active: file('/reading.txt'),
+  });
+});
+
 test('saved data rejects ephemeral and malformed sources and maps active through filtered entries', () => {
   expect(readSession({ tabs: [{ source: { type: 'text' } }, { source: file('/last'), mode: 'raw' },
     { source: file('/last'), mode: 'rendered' }, null], active: file('/last') })).toEqual({

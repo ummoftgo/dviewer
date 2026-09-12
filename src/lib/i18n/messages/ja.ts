@@ -110,6 +110,7 @@ export const ja: Messages = {
   "tab.listLabel": "タブ一覧を表示",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
+  "toolbar.mode.table": "表",
   "toolbar.mode.rendered": "プレビュー",
   "toolbar.mode.raw": "原文",
   "toolbar.mode.group": "表示方法",

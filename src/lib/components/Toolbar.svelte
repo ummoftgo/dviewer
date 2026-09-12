@@ -8,6 +8,7 @@
   import type { MenuItem } from "./menu";
   import { DOC_KINDS, encodingChoices, readsBytes, warningMessage, type DocKind } from "../ipc";
   import { t } from "../i18n";
+  import { supportsRaw } from '../viewMode';
   import { workspace, type DocTab } from "../state/docs.svelte";
   import { pageWidthLabel, pageWidthOptions, settings } from "../state/settings.svelte";
 
@@ -81,16 +82,18 @@
   </div>
 
   <div class="controls">
-    {#if tab.view === "prose"}
+    {#if supportsRaw(tab.view, tab.kind)}
       <div class="segmented" role="group" aria-label={t("toolbar.mode.group")}>
-        <button aria-pressed={tab.mode === "rendered"} onclick={() => (tab.mode = "rendered")}>
-          {t("toolbar.mode.rendered")}
+        <button data-action="view-rendered" aria-pressed={tab.mode === "rendered"} onclick={() => (tab.mode = "rendered")}>
+          {t(tab.kind === 'text' ? 'toolbar.mode.table' : 'toolbar.mode.rendered')}
         </button>
-        <button aria-pressed={tab.mode === "raw"} onclick={() => (tab.mode = "raw")}>
+        <button data-action="view-raw" aria-pressed={tab.mode === "raw"} onclick={() => (tab.mode = "raw")}>
           {t("toolbar.mode.raw")}
         </button>
       </div>
+    {/if}
 
+    {#if tab.view === "prose"}
       <button class="icon-btn" data-action="copy-markdown" bind:this={copyButton}
         title={t('markdown.copy.all')} aria-label={t('markdown.copy.all')}
         disabled={tab.mode === 'rendered' && tab.html === null}

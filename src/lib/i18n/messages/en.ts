@@ -110,6 +110,7 @@ export const en: Messages = {
   "tab.listLabel": "Show all tabs",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
+  "toolbar.mode.table": "Table",
   "toolbar.mode.rendered": "Rendered",
   "toolbar.mode.raw": "Source",
   "toolbar.mode.group": "View mode",

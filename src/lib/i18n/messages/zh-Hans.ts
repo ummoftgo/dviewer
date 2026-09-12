@@ -110,6 +110,7 @@ export const zhHans: Messages = {
   "tab.listLabel": "显示标签页列表",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
+  "toolbar.mode.table": "表",
   "toolbar.mode.rendered": "渲染",
   "toolbar.mode.raw": "源码",
   "toolbar.mode.group": "查看方式",
