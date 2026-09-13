@@ -1,7 +1,7 @@
 {
   "name": "dviewer",
   "version": "0.20.0",
-  "description": "Markdown / JSON document viewer",
+  "description": "A desktop viewer for Markdown, JSON, JSONC, JSONL, YAML, TOML, XML, CSV, TSV, plain text or logs, SQLite, Excel, Parquet, and ZIP.",
   "type": "module",
   "scripts": {
     "dev": "vite",
