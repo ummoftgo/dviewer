@@ -19,6 +19,7 @@ pub type DocId = u32;
 #[serde(rename_all = "camelCase")]
 pub enum DocKind {
     Markdown,
+    Html,
     Json,
     /// One JSON object per line, read as a table. A kind of its own rather
     /// than a view of `Json`, because it is a different reading of the bytes:
@@ -63,6 +64,7 @@ pub enum DocKind {
 pub enum DocView {
     /// Rendered or raw text.
     Prose,
+    Frame,
     /// The collapsible node tree.
     Tree,
     /// The row-and-column grid, read out of the document's own bytes.
@@ -105,6 +107,7 @@ impl DocKind {
     pub fn view(self) -> DocView {
         match self {
             DocKind::Markdown => DocView::Prose,
+            DocKind::Html => DocView::Frame,
             DocKind::Json | DocKind::Jsonc | DocKind::Yaml | DocKind::Toml | DocKind::Xml => {
                 DocView::Tree
             }
@@ -426,7 +429,7 @@ impl Document {
         let (bytes, cancel) = {
             let inner = self.inner.read();
             if inner.generation != generation { return Err(Error::Cancelled); }
-            if inner.kind != DocKind::Text { return Err(Error::WrongView { subject: crate::error::Subject::Source }); }
+            if !matches!(inner.kind, DocKind::Text | DocKind::Html) { return Err(Error::WrongView { subject: crate::error::Subject::Source }); }
             if let Some(lines) = &inner.lines { return Ok(lines.clone()); }
             (inner.bytes.clone(), inner.line_cancel.clone())
         };
@@ -702,6 +705,7 @@ mod startup_tests {
 
 #[derive(Default)]
 pub struct AppState {
+    pub(crate) doc_server: Mutex<Option<crate::docserve::DocServer>>,
     pub(crate) watcher: parking_lot::Mutex<Option<crate::filewatch::FileWatch>>,
     next_id: AtomicU32,
     docs: RwLock<HashMap<DocId, Arc<Document>>>,
@@ -882,6 +886,7 @@ impl AppState {
     pub fn remove(&self, id: DocId) {
         self.owners.write().by_doc.remove(&id);
         self.docs.write().remove(&id);
+        if let Some(server) = self.doc_server.lock().as_ref() { server.revoke(id); }
         self.unwatch(id);
     }
 

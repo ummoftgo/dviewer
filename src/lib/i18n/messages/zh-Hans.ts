@@ -50,6 +50,12 @@ export const zhHans: Messages = {
   "state.hide": "隐藏",
 
   // --- 형식 / formats ------------------------------------------------------
+  "error.frameServer": "无法启动 HTML 服务器。",
+  "frame.isolationBroken": "文档隔离失败，已停止 HTML 显示。",
+  "frame.failed": "无法显示 HTML 文档。",
+  "frame.blocked": "已阻止 {n} 个外部资源",
+  "subtab.self.frame": "HTML",
+  "format.html": "HTML",
   "format.markdown": "Markdown",
   "format.json": "JSON",
   "format.jsonc": "JSONC",

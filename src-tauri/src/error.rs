@@ -72,6 +72,7 @@ pub enum Error {
     /// A background task died. Nothing the reader can act on, but silence
     /// would be worse.
     Internal { detail: String },
+    FrameServer,
     NoSuchDoc { id: u32 },
     Cancelled,
     SortTooLarge,
@@ -194,6 +195,7 @@ impl Error {
         match self {
             Error::Io { .. } => "io",
             Error::Internal { .. } => "internal",
+            Error::FrameServer => "frameServer",
             Error::NoSuchDoc { .. } => "noSuchDoc",
             Error::Cancelled => "cancelled",
             Error::SortTooLarge => "sortTooLarge",

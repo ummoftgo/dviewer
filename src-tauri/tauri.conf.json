@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost https: data: blob:; connect-src 'self' ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost https: data: blob:; connect-src 'self' ipc: http://ipc.localhost; frame-src http://127.0.0.1:*",
       "assetProtocol": {
         "enable": true,
         "scope": []
@@ -36,6 +36,7 @@
   "bundle": {
     "active": true,
     "fileAssociations": [
+      { "ext": ["html", "htm"], "name": "HTML document", "description": "HTML document", "role": "Viewer", "mimeType": "text/html" },
       { "ext": ["md", "markdown", "mdown", "mkd", "mdx"], "name": "Markdown document", "description": "Markdown document", "role": "Viewer", "mimeType": "text/markdown" },
       { "ext": ["json", "geojson", "har", "jsonc", "jsonl", "ndjson"], "name": "JSON document", "description": "JSON document", "role": "Viewer", "mimeType": "application/json" },
       { "ext": ["yaml", "yml"], "name": "YAML document", "description": "YAML document", "role": "Viewer", "mimeType": "application/yaml" },

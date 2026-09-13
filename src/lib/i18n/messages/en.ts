@@ -50,6 +50,12 @@ export const en: Messages = {
   "state.hide": "Hide",
 
   // --- 형식 / formats ------------------------------------------------------
+  "error.frameServer": "The HTML server could not start.",
+  "frame.isolationBroken": "HTML viewing stopped because document isolation failed.",
+  "frame.failed": "The HTML document could not be displayed.",
+  "frame.blocked": "{n} external resources blocked",
+  "subtab.self.frame": "HTML",
+  "format.html": "HTML",
   "format.markdown": "Markdown",
   "format.json": "JSON",
   "format.jsonc": "JSONC",

@@ -55,6 +55,12 @@ export const ko = {
   "state.hide": "숨기기",
 
   // --- 형식 / formats ------------------------------------------------------
+  "error.frameServer": "HTML 서버를 시작하지 못했습니다.",
+  "frame.isolationBroken": "문서 격리 오류로 HTML 보기를 중단했습니다.",
+  "frame.failed": "HTML 문서를 표시하지 못했습니다.",
+  "frame.blocked": "외부 자원 {n}건 차단됨",
+  "subtab.self.frame": "HTML",
+  "format.html": "HTML",
   "format.markdown": "마크다운",
   "format.json": "JSON",
   "format.jsonc": "JSONC",

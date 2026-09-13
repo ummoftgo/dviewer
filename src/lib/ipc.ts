@@ -11,6 +11,7 @@ import { n, t, type MessageKey } from "./i18n";
 
 export type DocKind =
   | "markdown"
+  | "html"
   | "json"
   | "jsonc"
   | "jsonl"
@@ -30,7 +31,7 @@ export type DocKind =
  * How a document is read. Fourteen formats, five views — routing on the view is
  * what keeps the app from growing a branch per format.
  */
-export type DocView = "prose" | "tree" | "table" | "collection" | "archive";
+export type DocView = "prose" | "tree" | "table" | "collection" | "archive" | "frame";
 
 /**
  * Menu order for the format switcher. `label` is a message key, not text.
@@ -42,6 +43,7 @@ export type DocView = "prose" | "tree" | "table" | "collection" | "archive";
  */
 export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
   { kind: "markdown", label: "format.markdown" },
+  { kind: "html", label: "format.html" },
   { kind: "json", label: "format.json" },
   { kind: "jsonc", label: "format.jsonc" },
   { kind: "jsonl", label: "format.jsonl" },
@@ -66,6 +68,8 @@ export function readsBytes(kind: DocKind): boolean {
 
 export function viewOf(kind: DocKind): DocView {
   switch (kind) {
+    case "html":
+      return "frame";
     case "markdown":
       return "prose";
     case "csv":
@@ -101,6 +105,7 @@ export function kindLabel(kind: DocKind): string {
  */
 const BADGES: Record<DocKind, string> = {
   markdown: "M↓",
+  html: "HTML",
   json: "{ }",
   jsonc: "{/}",
   jsonl: "{↵}",
@@ -796,3 +801,5 @@ export function errorMessage(err: unknown): string {
 export function warningMessage(warning: DecodeWarning): string {
   return t(`warning.${warning.code}` as MessageKey, readable(warning.params));
 }
+
+export const frameUrl = (docId: number) => invoke<string>("frame_url", { docId });

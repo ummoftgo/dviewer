@@ -24,6 +24,7 @@ pub mod update;
 
 mod commands;
 mod filewatch;
+mod docserve;
 #[cfg(test)]
 mod testing;
 mod window;
@@ -143,6 +144,9 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            if let Ok(server) = docserve::DocServer::start(app.handle().clone()) {
+                *app.state::<AppState>().doc_server.lock() = Some(server);
+            }
             app.manage(update::service::Updater::start(app.handle(), smoke.is_some()));
             if let Some(smoke) = &smoke {
                 // A harness that cannot write its results has nothing to say,
@@ -168,6 +172,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            docserve::frame_url,
             update::service::update_status,
             update::service::update_check,
             update::service::update_set_check,
@@ -251,6 +256,7 @@ pub fn run() {
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<AppState>().stop_watching();
+                app.state::<AppState>().doc_server.lock().take();
                 if let Some(updater) = app.try_state::<std::sync::Arc<update::service::Updater>>() {
                     updater.stop();
                 }

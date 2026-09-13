@@ -75,6 +75,7 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Jsonl, JSONL_EXTS),
     (DocKind::Jsonc, JSONC_EXTS),
     (DocKind::Markdown, MARKDOWN_EXTS),
+    (DocKind::Html, &["html", "htm", "xhtml"]),
     (DocKind::Yaml, YAML_EXTS),
     (DocKind::Toml, TOML_EXTS),
     (DocKind::Xml, XML_EXTS),
@@ -347,6 +348,7 @@ pub fn kind_from_response(title: &str, content_type: Option<&str>, bytes: &[u8])
         "application/json" | "application/ld+json" | "text/json" | "application/x-ndjson"
         | "application/geo+json" => DocKind::Json,
         "text/markdown" | "text/x-markdown" => DocKind::Markdown,
+        "text/html" | "application/xhtml+xml" => DocKind::Html,
         "application/yaml" | "text/yaml" | "application/x-yaml" | "text/x-yaml" => DocKind::Yaml,
         "application/toml" | "text/x-toml" => DocKind::Toml,
         "text/csv" | "application/csv" => DocKind::Csv,

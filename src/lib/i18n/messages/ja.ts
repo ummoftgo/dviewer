@@ -50,6 +50,12 @@ export const ja: Messages = {
   "state.hide": "非表示",
 
   // --- 형식 / formats ------------------------------------------------------
+  "error.frameServer": "HTML サーバーを開始できませんでした。",
+  "frame.isolationBroken": "文書の分離に失敗したため HTML 表示を停止しました。",
+  "frame.failed": "HTML 文書を表示できませんでした。",
+  "frame.blocked": "外部リソース {n} 件をブロック",
+  "subtab.self.frame": "HTML",
+  "format.html": "HTML",
   "format.markdown": "Markdown",
   "format.json": "JSON",
   "format.jsonc": "JSONC",
