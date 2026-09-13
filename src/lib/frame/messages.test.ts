@@ -36,8 +36,11 @@ test('probe timeout remains a failure candidate and execution is a separate mess
   expect(parseFrameMessage({type:'probe',invoke:'executed'})).toBeNull();
   expect(parseFrameMessage({type:'isolationBroken'})).toEqual({type:'isolationBroken'});
 });
-test('only document search and source shortcuts can cross the frame boundary', () => {
+test('only the documented search, source and focus shortcuts cross the frame boundary', () => {
   expect(parseFrameMessage({type:'shortcut',key:'find'})).toEqual({type:'shortcut',key:'find'});
   expect(parseFrameMessage({type:'shortcut',key:'raw'})).toEqual({type:'shortcut',key:'raw'});
+  expect(parseFrameMessage({type:'shortcut',key:'escape'})).toEqual({type:'shortcut',key:'escape'});
+  expect(parseFrameMessage({type:'shortcut',key:'focus'})).toEqual({type:'shortcut',key:'focus'});
+  expect(parseFrameMessage({type:'shortcut',key:'Tab'})).toBeNull();
   expect(parseFrameMessage({type:'shortcut',key:'delete'})).toBeNull();
 });

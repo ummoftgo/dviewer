@@ -86,7 +86,7 @@
     placeholder={t("table.search.placeholder")}
     aria-label={t("table.search.placeholder")}
     onkeydown={(e) => {
-      if (e.key === "Escape") clearSearch();
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); clearSearch(); }
     }}
   />
   <!-- Beside the case toggle, because the two answer the same question in

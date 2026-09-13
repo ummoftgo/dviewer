@@ -43,14 +43,15 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && menu?.getClientRects().length) {
+      event.preventDefault();
       event.stopPropagation();
       onClose();
     }
   }
 </script>
 
-<svelte:window onresize={onClose} onkeydown={onKeydown} />
+<svelte:window onresize={onClose} onkeydowncapture={onKeydown} />
 
 <!-- A full-window catcher so the next click anywhere dismisses the menu,
      including a right-click that opens a different one. -->

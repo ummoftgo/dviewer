@@ -500,6 +500,7 @@ export const ko = {
   "grid.hiddenColumns": "숨긴 열 {n}",
   "grid.visibleCopy": "보이는 열 기준",
   "grid.revealedColumn": "검색 결과의 {column} 열을 다시 표시했습니다.",
+  "focus.exitHint": "Esc로 집중 모드를 나갑니다.",
 } as const;
 
 export type MessageKey = keyof typeof ko;

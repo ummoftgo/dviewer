@@ -228,6 +228,7 @@ export async function runSmoke(): Promise<void> {
           await checkDiagramCopy();
           await checkMathCopy(tab);
           await checkStyledCopy(tab);
+          await checkFocusMode(tab);
         } catch (error) {
           outcome = { ok: false, stage: "markdownTables", error: ipc.errorMessage(error) };
         }
@@ -272,6 +273,54 @@ export async function runSmoke(): Promise<void> {
   }
 
   await ipc.smokeDone();
+}
+
+async function checkFocusMode(tab: DocTab): Promise<void> {
+  const focused = () => document.body.hasAttribute('data-focus');
+  const key = (target: EventTarget, key: string, ctrlKey = false) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey, bubbles: true, cancelable: true }));
+  // Start at the focused element so window capture precedes App's bubbling handler.
+  const press = (name: string, ctrlKey = false) => key(document.activeElement ?? document.body, name, ctrlKey);
+  const waitFor = async (condition: () => boolean) => {
+    const deadline = Date.now() + STEP_TIMEOUT_MS;
+    while (!condition()) {
+      if (Date.now() >= deadline) throw new Error('focus mode search did not settle');
+      await sleep(POLL_MS);
+    }
+  };
+  const saved = { focus: focused(), search: tab.markdownSearch.open, element: document.activeElement };
+  const article = document.querySelector('main article');
+  const toolbar = document.querySelector<HTMLButtonElement>('[data-focus-chrome] .toolbar button')!;
+  try {
+    if (focused()) press('F11');
+    toolbar.focus();
+    press('F11');
+    if (!focused() || document.activeElement?.closest('[data-focus-chrome]')) throw new Error('focus entry or focus transfer failed');
+    press('f', true);
+    await waitFor(() => !!document.querySelector('.markdown-searchbar input'));
+    const input = document.querySelector<HTMLInputElement>('.markdown-searchbar input')!;
+    key(input, 'Escape');
+    if (!focused() || tab.markdownSearch.open) throw new Error('search Escape also exited focus mode');
+    press('Escape');
+    if (focused() || document.querySelector('main article') !== article || document.activeElement !== toolbar) {
+      throw new Error('focus exit remounted the document or failed to restore focus');
+    }
+    document.querySelector<HTMLButtonElement>('[data-action="page-width"]')!.click();
+    await waitFor(() => !!document.querySelector('[data-focus-chrome] .menu button'));
+    const option = document.querySelector<HTMLButtonElement>('[data-focus-chrome] .menu button')!;
+    option.focus();
+    press('F11');
+    if (!focused() || document.activeElement?.closest('[data-focus-chrome]')) throw new Error('hidden toolbar menu retained focus');
+    press('Escape');
+    if (focused()) throw new Error('hidden menu consumed the app Escape');
+    if (document.activeElement !== option) throw new Error('focus exit did not restore the menu option');
+    key(option, 'Escape');
+    await waitFor(() => !document.querySelector('[data-focus-chrome] .menu'));
+  } finally {
+    if (focused() !== saved.focus) press('F11');
+    tab.markdownSearch.open = saved.search;
+    if (saved.element instanceof HTMLElement && saved.element.isConnected) saved.element.focus({ preventScroll: true });
+  }
 }
 
 async function checkRelativeLinks(from: DocTab): Promise<Outcome> {

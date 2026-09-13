@@ -495,4 +495,5 @@ export const en: Messages = {
   "grid.hiddenColumns": "Hidden columns: {n}",
   "grid.visibleCopy": "Visible columns only",
   "grid.revealedColumn": "Revealed column {column} for the search result.",
+  "focus.exitHint": "Press Esc to leave focus mode.",
 };

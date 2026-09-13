@@ -27,6 +27,8 @@
   import { pickFiles } from "./lib/open";
   import { workspace } from "./lib/state/docs.svelte";
   import { shortcutKey } from "./lib/keys";
+  import { nextFocusMode } from './lib/focusMode';
+  import { toasts } from './lib/state/toast.svelte';
   import { supportsRaw } from './lib/viewMode';
   import { recents } from "./lib/state/recents.svelte";
   import { applySettings, settings, watchSystemTheme } from "./lib/state/settings.svelte";
@@ -35,6 +37,9 @@
   let showToc = $state(true);
   let dropActive = $state(false);
   let searchBarFocus = $state<(() => void) | null>(null);
+  let focusMode = $state(false);
+  let main = $state<HTMLElement>();
+  let returnFocus: { element: HTMLElement; tab: number | null } | null = null;
 
   const active = $derived(workspace.active);
 
@@ -43,6 +48,7 @@
   onMount(() => watchSystemTheme());
   onMount(() => updates.watch());
   onMount(() => detectSystemLocale());
+  onMount(() => () => document.body.removeAttribute('data-focus'));
 
   $effect(() => {
     // Reading these here is what subscribes the effect to them.
@@ -189,6 +195,29 @@
 
   // --- keyboard -----------------------------------------------------------
 
+  function changeFocus(key: 'F11' | 'Escape', handled = false) {
+    const next = nextFocusMode(focusMode, key, handled);
+    if (next === focusMode) return;
+    const focused = document.activeElement;
+    if (next) returnFocus = focused instanceof HTMLElement && focused.closest('[data-focus-chrome]')
+      ? { element: focused, tab: workspace.activeId } : null;
+    focusMode = next;
+    document.body.toggleAttribute('data-focus', next);
+    if (next) {
+      toasts.show(t('focus.exitHint'), 'info', 3000);
+      if (returnFocus) {
+        const target = [...(main?.querySelectorAll<HTMLElement>('iframe, [role="grid"], [role="tree"], .text-raw-view, .scroller') ?? [])]
+          .find(element => element.getClientRects().length > 0);
+        (target ?? main)?.focus({ preventScroll: true });
+      }
+    } else {
+      if (returnFocus?.element.isConnected && returnFocus.tab === workspace.activeId) {
+        returnFocus.element.focus({ preventScroll: true });
+      }
+      returnFocus = null;
+    }
+  }
+
   function onFamilyKey(event: KeyboardEvent) {
     if (!(event.ctrlKey || event.metaKey) || !["PageDown", "PageUp"].includes(event.key)) return;
     if (!family(workspace.tabs, workspace.activeId)?.children.length) return;
@@ -199,6 +228,12 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
+    if (event.key === 'F11' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      if (!event.repeat) changeFocus('F11');
+      return;
+    }
     const inField =
       event.target instanceof HTMLElement &&
       ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName);
@@ -255,8 +290,15 @@
       }
     }
 
-    if (event.key === "Escape" && settingsOpen && !inField) {
-      settingsOpen = false;
+    if (event.key === 'Escape') {
+      if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
+      if (settingsOpen) {
+        if (!inField && !event.defaultPrevented) settingsOpen = false;
+        return;
+      }
+      const before = focusMode;
+      changeFocus('Escape', event.defaultPrevented);
+      if (focusMode !== before) event.preventDefault();
     }
   }
 </script>
@@ -266,6 +308,7 @@
 <ThemeStyles />
 
 <div class="app" class:dropping={dropActive}>
+  <div class="focus-chrome" data-focus-chrome>
   {#if workspace.tabs.length > 0}
     <TabBar onNew={() => workspace.newTab()} />
     <SubTabBar />
@@ -281,7 +324,8 @@
     />
   {/if}
 
-  <main>
+  </div>
+  <main bind:this={main} tabindex="-1">
     {#if !active || active.status === "blank"}
       <StartPane onOpenSettings={() => (settingsOpen = true)} />
     {:else}
@@ -304,7 +348,8 @@
             <RawView tab={active} bind:focusSearch={searchBarFocus} />
           {/if}
         {:else if active.view === "frame"}
-          <FrameView tab={active} {showToc} probe={smoking} bind:focusSearch={searchBarFocus} />
+          <FrameView tab={active} {showToc} probe={smoking} bind:focusSearch={searchBarFocus}
+            onShortcut={key => changeFocus(key === 'focus' ? 'F11' : 'Escape')} />
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "collection"}
@@ -338,6 +383,9 @@
 {#if updates.dialogOpen && updates.status?.available}<UpdateDialog />{/if}
 
 <style>
+  :global(body[data-focus] [data-focus-chrome]) { display: none !important; }
+  :global(body[data-focus] [data-focus-toc]) { grid-template-columns: minmax(0, 1fr) !important; }
+  .focus-chrome { display: contents; }
   .app {
     position: relative;
     display: flex;

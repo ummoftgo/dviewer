@@ -52,12 +52,10 @@
   }
 </script>
 
-<svelte:window onkeydown={(event) => {
-  if (event.target instanceof Element && event.target.closest('.markdown-searchbar')) keydown(event);
-}} />
-
 {#if search.open}
-  <form class="markdown-searchbar" role="search" onsubmit={(event) => event.preventDefault()}>
+  <!-- Delegate keys from the controls before they reach the app shortcuts. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <form class="markdown-searchbar" role="search" onkeydown={keydown} onsubmit={(event) => event.preventDefault()}>
     <Icon name="search" size={13} />
     <input type="search" bind:this={input} bind:value={search.query}
       placeholder={t('markdown.search.placeholder')} aria-label={t('markdown.search.placeholder')} />

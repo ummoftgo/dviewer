@@ -104,6 +104,8 @@ Both the manifest and update file are authenticated with the embedded public key
 | `Ctrl Tab` / `Ctrl Shift Tab` | Cycle main tabs |
 | `Ctrl PageDown` / `Ctrl PageUp` | Cycle the active document’s subtabs |
 | `Ctrl E` | Toggle Markdown/HTML/text source and document view |
+| `F11` | Toggle focus mode — hide only tabs, subtabs, the top toolbar and TOC |
+| `Esc` | The view handles Escape first; an unhandled Escape exits focus mode |
 | `Enter` / `Shift Enter` | Next / previous search hit |
 | `Ctrl F` | Tree search (all / keys / values / paths), table search, HTML search, rendered/source Markdown search |
 | `Esc` in Markdown search | Close search and clear highlights |
@@ -173,6 +175,7 @@ The technical documentation lives in `doc/` (Korean).
 - Password-protected entries are marked with a lock and not opened. This viewer neither asks for passwords nor unlocks them.
 - Markdown inside an archive does not show its relative images. They live inside the archive, which is not somewhere the webview can reach.
 - Grid column layouts last only for the current tab and reset on reindexing, collection changes or table shape changes. Projected TSV row copy reads full cells sequentially, caps the combined UTF-8 output at 8MiB and announces truncation. Single-cell selection/copy is unchanged; multi-cell range selection is not supported.
+- Focus mode does not resize the window or persist its state. It retains internal toolbars, filters, search, status, errors and loading indicators without remounting the view or HTML frame. Inside HTML iframes, only find, source, focus mode and Escape are forwarded; Ctrl+Tab forwarding is not supported. Native F11 interception by the OS or webview must be checked with real keyboard input.
 - Markdown document links support relative paths only (`file:`, drive, UNC and root-absolute links are excluded). Queries are discarded; relative links in URL documents resolve against that URL. Archive links require the immediate parent archive tab to be open and the target entry to be listed. Pasted documents have no base path.
 - Archives nest three deep (a document inside `a.zip → b.zip → c.zip`). Each level stays in memory whole for as long as the one below it is open.
 - An archive that holds the same name twice shows only the last of them. The table of contents is keyed by name, so the shadowed entry cannot be reached by any number — and drawing two rows that open the same bytes would misrepresent what is there.

@@ -16,7 +16,7 @@
     <input bind:this={input} type="search" value={tab.frameSearch.query} aria-label={t('toolbar.search')}
       oninput={(event) => { tab.frameSearch.query = event.currentTarget.value; onFind(1); }} onkeydown={(event) => {
         if (event.key === 'Enter') { event.preventDefault(); onFind(event.shiftKey ? -1 : 1); }
-        if (event.key === 'Escape') tab.frameSearch.open = false;
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); tab.frameSearch.open = false; }
       }} />
     <span aria-live="polite">{tab.frameSearch.index}/{tab.frameSearch.n}</span>
     <button class="icon-btn" disabled={!ready} onclick={() => onFind(-1)} aria-label={t('search.prev')} title={t('search.prev')}><Icon name="chevron-up" /></button>

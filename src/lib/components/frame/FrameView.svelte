@@ -10,8 +10,8 @@
   import { parentCspViolation } from '../../frame/diagnostics';
   import Toc from '../markdown/Toc.svelte';
   import FrameSearchBar from './FrameSearchBar.svelte';
-  interface Props { tab: DocTab; showToc: boolean; probe?: boolean; focusSearch?: (() => void) | null }
-  let {tab, showToc, probe = false, focusSearch = $bindable(null)}: Props = $props();
+  interface Props { tab: DocTab; showToc: boolean; probe?: boolean; focusSearch?: (() => void) | null; onShortcut?: (key: 'escape' | 'focus') => void }
+  let {tab, showToc, probe = false, focusSearch = $bindable(null), onShortcut}: Props = $props();
   let iframe = $state<HTMLIFrameElement>();
   let src = $state<string>();
   let activeId = $state('');
@@ -80,7 +80,10 @@
         if (message.request === tab.frameSearch.request) { tab.frameSearch.n = message.n; tab.frameSearch.index = message.index; }
         break;
       case 'shortcut':
-        if (message.key === 'raw') tab.mode = 'raw'; else focusSearch?.();
+        if (message.key === 'raw') tab.mode = 'raw';
+        else if (message.key === 'find') focusSearch?.();
+        else if (message.key === 'escape' && tab.frameSearch.open) tab.frameSearch.open = false;
+        else onShortcut?.(message.key);
         break;
       case 'link':
         if (message.kind === 'relative') void workspace.openLink(tab,message.href);
@@ -91,11 +94,11 @@
 <svelte:window onmessage={receive} />
 <div class="frame-layout" data-ready={tab.frameReady ? 'true' : undefined} data-probe={tab.frameProbe ?? undefined}>
   <FrameSearchBar {tab} ready={tab.frameReady} onFind={find} bind:focusSearch />
-  <div class="content" class:with-toc={showToc && tab.frameToc.length > 1}>
+  <div class="content" data-focus-toc class:with-toc={showToc && tab.frameToc.length > 1}>
     {#if tab.frameError}<p class="error" role="alert">{tab.frameError}</p>
     {:else if src}<iframe bind:this={iframe} {src} sandbox="allow-scripts" title={tab.meta.title}
       onload={() => { tab.frameLoaded = true; }}></iframe>{/if}
-    {#if showToc && tab.frameToc.length > 1}<aside><Toc entries={tab.frameToc} {activeId} onSelect={id => {activeId=id;post({type:'goto',id});}} /></aside>{/if}
+    {#if showToc && tab.frameToc.length > 1}<aside data-focus-chrome><Toc entries={tab.frameToc} {activeId} onSelect={id => {activeId=id;post({type:'goto',id});}} /></aside>{/if}
   </div>
   {#if tab.frameBlocked}<div class="status" role="status">{t('frame.blocked',{n:tab.frameBlocked})}</div>{/if}
 </div>

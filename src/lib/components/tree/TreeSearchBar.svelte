@@ -113,7 +113,7 @@
       if (tab.search.hits.length > 0) void jump(event.shiftKey ? -1 : 1);
       else void run();
     }
-    if (event.key === "Escape") void clear();
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); void clear(); }
   }
 
   /**

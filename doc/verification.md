@@ -2,6 +2,27 @@
 
 ← [README](../README.md)
 
+## M46 — 집중 모드
+
+| 최초 구현 검증 | 결과 |
+|---|---|
+| Rust fixtures required | 538통과·실패0·건너뜀0 |
+| vitest | 343통과·31파일(기존338 + 신규5) |
+| check | 오류0·경고0·4로케일×449키 |
+| 프런트·debug·release 빌드 | 통과 |
+| Esc 우선순위 반전 | 1실패·3통과, 원본 바이트 복원 후 전체 통과 |
+| 실제 스모크 | debug·release 각각 46개·왕복2 통과 |
+
+main `9166082`의 프레임 진단 변경을 rebase하면서 FrameView의 진단 상태와 집중 모드 표식을 모두 보존했다. 이후 vitest 345개, check 오류0·경고0·4로케일×449키, 프런트·debug·release 빌드가 통과했다. 이 시점의 Rust 소스는 최초 검증과 동일했다.
+
+Windows 실제 스모크의 앱 sweep은 debug 18,312ms·release 17,423ms다. 최초 debug와 진단 재현에서는 sample.md의 메뉴 복원 단언 1개가 실패했다. window 자체에 합성 Esc를 보내면 모드 종료 뒤 복원된 메뉴까지 닫혔으므로 실제 초점 요소에서 키를 발생시키도록 스모크를 고쳤다. 새 debug 빌드의 재검증과 release 빌드의 첫 스모크가 모두 통과했다.
+
+스모크 뒤 main `09992c2`를 충돌 없이 rebase했다. 새 agentStart 진단 메시지를 단축키 횟수에 포함했던 테스트 1개를 시작/키 입력 구간으로 분리한 뒤 vitest 346개·32파일과 check 오류0·경고0·4로케일×449키가 통과했다. FrameView의 Svelte 분석도 issues 없음이다. 최종 rebase 후 cargo·스모크는 재실행하지 않았으므로 위 Rust·스모크 수치는 마지막 진단 커밋 반영 전 결과다. M46 자체의 Rust 변경은 없다. dev incremental 제거와 `cargo clean -p dviewer --profile dev`를 완료했고 release 산출물은 보존했다.
+
+순수 상태 전이는 보기에서 소비한 Esc와 다음 미처리 Esc를 구분한다. 메시지 파서는 focus·escape만 추가 허용하며, 실제 agent.js를 VM에서 실행해 두 키 전송·반복 입력·소비된 키·기존 find/raw·Ctrl+Tab 미전달을 검사한다. 새 안내 문장은 전체 문자열 단언과 cat -A 바이트 확인을 거쳤다.
+
+기존 sample.md 스모크에 body[data-focus] 진입·검색창의 첫 Esc 우선·다음 Esc 종료·본문 DOM 보존·초점 복원을 추가했다. 상단 메뉴를 연 채 진입했을 때 숨긴 메뉴가 Esc를 가로채지 않는지도 확인한다. 고정 프레임 수 대신 동기 속성과 검색 DOM을 사용하고 원래 창 상태를 복원한다. 이 검사는 합성 KeyboardEvent이므로 네이티브 F11 선점과 실제 사용자 키 입력을 입증하지 않는다. 그 확인은 사용자 화면 조건으로 남긴다. 추가 픽스처 없이 기존46검사를 유지한다.
+
 ## M47 — 표 열 숨김·순서·고정
 
 | 첫 단계 검증 | 결과 |

@@ -31,7 +31,7 @@
   const base = $derived(Math.min(...entries.map((e) => e.level)));
 </script>
 
-<nav aria-label={t("markdown.toc")} bind:this={nav}
+<nav data-focus-chrome aria-label={t("markdown.toc")} bind:this={nav}
   onmouseenter={() => { hovering = true; }} onmouseleave={() => { hovering = false; }}
   onfocusin={() => { focused = true; }}
   onfocusout={(event) => { focused = event.relatedTarget instanceof Node && !!nav?.contains(event.relatedTarget); }}>

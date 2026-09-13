@@ -204,7 +204,7 @@
   }
 </script>
 
-<div class="layout" class:with-toc={showToc && tab.toc.length > 1} class:with-search={tab.markdownSearch.open}>
+<div class="layout" data-focus-toc class:with-toc={showToc && tab.toc.length > 1} class:with-search={tab.markdownSearch.open}>
   <MarkdownSearchBar {tab} root={article} {scroller} ready={tab.html !== null && !enhancing} bind:focusSearch />
   <div
     class="scroller"

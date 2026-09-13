@@ -73,6 +73,12 @@
       && (value.dir === 1 || value.dir === -1) && Number.isSafeInteger(value.request)) void find(value.q, value.dir, value.request);
   });
   addEventListener('keydown', event => {
+    if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && ['Escape','F11'].includes(event.key)) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      if (!event.repeat) send({type:'shortcut',key:event.key === 'F11' ? 'focus' : 'escape'});
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && !event.altKey && ['f','e'].includes(event.key.toLowerCase())) {
       event.preventDefault();
       send({type:'shortcut',key:event.key.toLowerCase() === 'f' ? 'find' : 'raw'});

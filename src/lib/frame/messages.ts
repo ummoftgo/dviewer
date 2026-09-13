@@ -9,7 +9,7 @@ export type FrameMessage =
   | { type: 'link'; href: string; kind: 'external' | 'relative' }
   | { type: 'probe'; invoke: string }
   | { type: 'isolationBroken' }
-  | { type: 'shortcut'; key: 'find' | 'raw' };
+  | { type: 'shortcut'; key: 'find' | 'raw' | 'escape' | 'focus' };
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max;
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
@@ -42,7 +42,7 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
       ? {type:'link',href:v.href,kind:v.kind as 'external' | 'relative'} : null;
     case 'probe': return text(v.invoke,4200) && (v.invoke === 'absent' || v.invoke === 'timeout' || v.invoke.startsWith('rejected:'))
       ? {type:'probe',invoke:v.invoke} : null;
-    case 'shortcut': return v.key === 'find' || v.key === 'raw' ? {type:'shortcut',key:v.key} : null;
+    case 'shortcut': return v.key === 'find' || v.key === 'raw' || v.key === 'escape' || v.key === 'focus' ? {type:'shortcut',key:v.key} : null;
     case 'isolationBroken': return {type:'isolationBroken'};
     default: return null;
   }
