@@ -242,6 +242,9 @@ export class DocTab {
   header = $state<string[]>([]);
   /** Pixel width per column, resizable by dragging a header edge. */
   columnWidths = $state<number[]>([]);
+  columnOrder = $state<number[]>([]);
+  hiddenColumns = $state<number[]>([]);
+  revealedColumn = $state<number | null>(null);
   selectedCell = $state<CellSelection | null>(null);
   tableScrollTop = $state(0);
   /** Cell the grid should jump to; cleared by the view once honoured. */
@@ -320,6 +323,13 @@ export class DocTab {
     }
   }
 
+  resetColumnView() {
+    this.columnOrder = [];
+    this.hiddenColumns = [];
+    this.revealedColumn = null;
+    this.tableFillRatios = null;
+  }
+
   /** Drop derived state so the tab reloads from scratch on the next view. */
   invalidate() {
     this.order.reset();
@@ -354,6 +364,7 @@ export class DocTab {
     this.header = [];
     this.columnWidths = [];
     this.tableFillRatios = null;
+    this.resetColumnView();
     this.selectedCell = null;
     this.pendingCell = null;
     this.tableSearch.reset();

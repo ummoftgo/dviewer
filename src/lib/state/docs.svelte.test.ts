@@ -586,6 +586,9 @@ describe("invalidate drops everything derived from the old reading", () => {
     tab.tableStats = { rowCount: 9 } as never;
     tab.header = ["a"];
     tab.columnWidths = [100];
+    tab.columnOrder = [2, 0, 1];
+    tab.hiddenColumns = [1];
+    tab.revealedColumn = 2;
     tab.selectedCell = { row: 1, column: 1 };
     tab.pendingCell = { row: 1, column: 1 };
     tab.history.visit(42);
@@ -605,6 +608,9 @@ describe("invalidate drops everything derived from the old reading", () => {
     expect(tab.tableStats).toBeNull();
     expect(tab.header).toEqual([]);
     expect(tab.columnWidths).toEqual([]);
+    expect(tab.columnOrder).toEqual([]);
+    expect(tab.hiddenColumns).toEqual([]);
+    expect(tab.revealedColumn).toBeNull();
     expect(tab.selectedCell).toBeNull();
     expect(tab.pendingCell).toBeNull();
     expect(tab.history.current).toBeNull();
@@ -669,6 +675,15 @@ describe("results that arrive for a query the reader has replaced", () => {
 });
 
 describe("the blank tab", () => {
+  test('column defaults restore only the view configuration, preserving widths and table mode', () => {
+    const tab = new DocTab(meta({ type: 'file', path: 'a.csv' }, 'csv'));
+    expect([tab.columnOrder, tab.hiddenColumns, tab.revealedColumn]).toEqual([[], [], null]);
+    tab.columnOrder = [1, 0]; tab.hiddenColumns = [0]; tab.revealedColumn = 1;
+    tab.columnWidths = [100, 200]; tab.tableWidthMode = 'scroll';
+    tab.resetColumnView();
+    expect([tab.columnOrder, tab.hiddenColumns, tab.revealedColumn]).toEqual([[], [], null]);
+    expect(tab.columnWidths).toEqual([100, 200]); expect(tab.tableWidthMode).toBe('scroll');
+  });
   test("a second one is not made — an existing blank is raised", () => {
     const first = workspace.newTab();
     const second = workspace.newTab();

@@ -10,6 +10,43 @@ import { describe, expect, test } from "vitest";
 import { MAX_AUTO_COLUMN, MAX_FIT_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength, layoutColumns, resizeColumn, resetColumns, automaticColumnLimit, resizeColumnKey } from "./columns";
 import type { DocTab } from "../../state/docs.svelte";
 import type { TableRow } from "../../ipc";
+import { visibleColumns, hideColumn, revealColumn, moveColumn, projectLayout } from './columns';
+
+function columnTab(): DocTab {
+  return { columnOrder: [], hiddenColumns: [], columnWidths: [100, 200, 300], tableFillRatios: null,
+    selectedCell: null, pendingCell: null, revealedColumn: null } as unknown as DocTab;
+}
+
+test('hide/move/reveal preserves source identity and protects the last column', () => {
+  const tab = columnTab(); tab.selectedCell = { row: 4, column: 1 };
+  expect(hideColumn(tab, 1, 3)).toBe(true); expect(tab.selectedCell).toBeNull();
+  moveColumn(tab, 2, -1, 3);
+  expect(visibleColumns(tab, 3)).toEqual([2, 0]);
+  expect(hideColumn(tab, 0, 3)).toBe(true); expect(hideColumn(tab, 2, 3)).toBe(false);
+  revealColumn(tab, 1, true);
+  expect(visibleColumns(tab, 3)).toEqual([2, 1]); expect(tab.revealedColumn).toBe(1);
+  expect(tab.columnWidths).toEqual([100, 200, 300]);
+});
+
+test('projected fill compensates displayed neighbors and writes to source numbers', () => {
+  const tab = columnTab(); tab.columnOrder = [2, 1, 0]; tab.hiddenColumns = [1];
+  let layout = projectLayout(tab, visibleColumns(tab, 3), 844, 44, 'fill');
+  expect(layout.widths).toEqual([600, 200]);
+  resizeColumnKey(tab, layout, 2, 'ArrowRight');
+  layout = projectLayout(tab, visibleColumns(tab, 3), 844, 44, 'fill');
+  expect(layout.widths).toEqual([expect.closeTo(608), expect.closeTo(192)]);
+  fitColumn(tab, [row('', '', 'x'.repeat(150))], 2, 10, '', MAX_FIT_COLUMN, layout);
+  expect(tab.columnWidths).toEqual([expect.closeTo(192), 200, 956]);
+  expect(projectLayout(tab, visibleColumns(tab, 3), 844, 44, 'fill').mode).toBe('scroll');
+});
+
+test('width reset preserves configuration and recommendation skips hidden columns', () => {
+  const tab = columnTab(); tab.columnOrder = [2, 1, 0]; tab.hiddenColumns = [1];
+  measureColumns(tab, [row('short', 'hidden'.repeat(100), 'wide'.repeat(15))], 3, 10, () => '', MAX_FIT_COLUMN, [2, 0]);
+  expect(tab.columnWidths[1]).toBe(200);
+  resetColumns(tab);
+  expect(tab.columnOrder).toEqual([2, 1, 0]); expect(tab.hiddenColumns).toEqual([1]);
+});
 
 const row = (...cells: string[]): TableRow =>
   ({ cells: cells.map((text) => ({ text, truncated: false })) }) as unknown as TableRow;

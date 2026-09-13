@@ -12,6 +12,7 @@
   import Icon from "../Icon.svelte";
   import { n, t, type MessageKey } from "../../i18n";
   import DataGrid from "../grid/DataGrid.svelte";
+  import { resetColumns } from '../grid/columns';
   import { previewBadge, cellTitle } from "../grid/preview";
   import SearchBar from "../grid/SearchBar.svelte";
   import GridControls from "../grid/GridControls.svelte";
@@ -100,7 +101,8 @@
     tab.header = shape.header;
     tab.selectedCell = null;
     tab.pendingCell = null;
-    tab.columnWidths = [];
+    resetColumns(tab);
+    tab.resetColumnView();
     tab.tableSearch.reset();
     await grid?.refresh(toTop);
   }
@@ -289,6 +291,8 @@
     />
 
     <div class="status">
+      {#if tab.hiddenColumns.length}<span>{t('grid.visibleCopy')}</span>{/if}
+      {#if tab.revealedColumn !== null}<span role="status">{t('grid.revealedColumn', { column: columnName(tab.revealedColumn) })}</span>{/if}
       <span>
         {t("table.status.size", {
           rows: n(tab.tableStats.rowCount),

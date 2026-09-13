@@ -485,4 +485,12 @@ export const en: Messages = {
   "markdown.code.all": "All languages…",
   "markdown.code.search": "Search languages",
   "markdown.code.failed": "Could not change syntax highlighting.",
+  "grid.hideColumn": "Hide this column",
+  "grid.moveLeft": "Move left",
+  "grid.moveRight": "Move right",
+  "grid.resetColumnView": "Reset column layout",
+  "grid.columnMenu": "Column menu for {column}",
+  "grid.hiddenColumns": "Hidden columns: {n}",
+  "grid.visibleCopy": "Visible columns only",
+  "grid.revealedColumn": "Revealed column {column} for the search result.",
 };

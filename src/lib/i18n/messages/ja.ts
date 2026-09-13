@@ -485,4 +485,12 @@ export const ja: Messages = {
   "markdown.code.all": "すべての言語…",
   "markdown.code.search": "言語を検索",
   "markdown.code.failed": "構文強調を変更できませんでした。",
+  "grid.hideColumn": "この列を非表示",
+  "grid.moveLeft": "左へ移動",
+  "grid.moveRight": "右へ移動",
+  "grid.resetColumnView": "列の構成をリセット",
+  "grid.columnMenu": "{column} の列メニュー",
+  "grid.hiddenColumns": "非表示の列: {n}",
+  "grid.visibleCopy": "表示中の列のみ",
+  "grid.revealedColumn": "検索結果の列 {column} を再表示しました。",
 };

@@ -16,6 +16,61 @@ export function resetColumns(tab: Pick<DocTab, "columnWidths" | "tableFillRatios
   tab.tableFillRatios = null;
 }
 
+type ColumnView = Pick<DocTab, 'columnOrder' | 'hiddenColumns'>;
+export function visibleColumns(tab: ColumnView, count: number): number[] {
+  const hidden = new Set(tab.hiddenColumns);
+  const order = tab.columnOrder.length === count ? tab.columnOrder : Array.from({ length: count }, (_, i) => i);
+  return order.filter(column => !hidden.has(column));
+}
+
+export function hideColumn(tab: DocTab, column: number, count: number): boolean {
+  const visible = visibleColumns(tab, count);
+  if (visible.length <= 1 || !visible.includes(column)) return false;
+  tab.hiddenColumns = [...tab.hiddenColumns, column];
+  tab.tableFillRatios = null;
+  tab.revealedColumn = null;
+  if (tab.selectedCell?.column === column) tab.selectedCell = null;
+  if (tab.pendingCell?.column === column) tab.pendingCell = null;
+  return true;
+}
+
+export function revealColumn(tab: DocTab, column: number, searched = false): void {
+  if (!tab.hiddenColumns.includes(column)) return;
+  tab.hiddenColumns = tab.hiddenColumns.filter(hidden => hidden !== column);
+  tab.tableFillRatios = null;
+  tab.revealedColumn = searched ? column : null;
+}
+
+export function moveColumn(tab: DocTab, column: number, delta: -1 | 1, count: number): void {
+  const visible = visibleColumns(tab, count);
+  const at = visible.indexOf(column);
+  const neighbor = visible[at + delta];
+  if (at < 0 || neighbor === undefined) return;
+  const order = tab.columnOrder.length === count ? [...tab.columnOrder] : Array.from({ length: count }, (_, i) => i);
+  const left = order.indexOf(column), right = order.indexOf(neighbor);
+  [order[left], order[right]] = [order[right], order[left]];
+  tab.columnOrder = order;
+  tab.revealedColumn = null;
+}
+
+/** Widths/ratios stay indexed by source column even when the display is projected. */
+export function projectLayout(tab: DocTab, columns: readonly number[], viewport: number, gutter: number, mode: TableMode): ColumnLayout {
+  return { ...layoutColumns(columns.map(column => columnWidth(tab, column)),
+    tab.tableFillRatios && columns.map(column => tab.tableFillRatios![column] ?? columnWidth(tab, column)), viewport, gutter, mode), columns };
+}
+
+function storeWidths(tab: DocTab, values: readonly number[], columns?: readonly number[], ratios = false) {
+  if (!columns) {
+    if (ratios) tab.tableFillRatios = [...values];
+    else tab.columnWidths = [...values];
+    return;
+  }
+  const next = [...(ratios ? tab.tableFillRatios ?? tab.columnWidths : tab.columnWidths)];
+  values.forEach((value, at) => { next[columns?.[at] ?? at] = value; });
+  if (ratios) tab.tableFillRatios = next;
+  else tab.columnWidths = next;
+}
+
 export const MIN_COLUMN = 64;
 export const MAX_AUTO_COLUMN = 420;
 export const MAX_FIT_COLUMN = 8000;
@@ -72,9 +127,12 @@ export function measureColumns(
   fontPx: number,
   columnName: (column: number) => string,
   maximum = MAX_AUTO_COLUMN,
+  columns = Array.from({ length: columnCount }, (_, column) => column),
 ): void {
   tab.tableFillRatios = null;
-  tab.columnWidths = Array.from({ length: columnCount }, (_, column) => measuredWidth(sample, column, fontPx, columnName(column), maximum));
+  const widths = Array.from({ length: columnCount }, (_, column) => columnWidth(tab, column));
+  for (const column of columns) widths[column] = measuredWidth(sample, column, fontPx, columnName(column), maximum);
+  tab.columnWidths = widths;
 }
 
 function measuredWidth(sample: TableRow[], column: number, fontPx: number, name: string, maximum: number): number {
@@ -85,11 +143,13 @@ function measuredWidth(sample: TableRow[], column: number, fontPx: number, name:
 }
 
 export function fitColumn(tab: DocTab, sample: TableRow[], column: number, fontPx: number, name: string, maximum = MAX_AUTO_COLUMN, layout?: ColumnLayout): void {
+  const at = layout?.columns ? layout.columns.indexOf(column) : column;
+  if (at < 0) return;
   const content = measuredWidth(sample, column, fontPx, name, maximum);
   if (layout?.mode === 'fill' && content <= layout.widths.reduce((sum, width) => sum + width, 0)) {
-    resizeColumn(tab, layout.widths, column, content - layout.widths[column], 'fill');
+    resizeColumn(tab, layout.widths, at, content - layout.widths[at], 'fill', layout.columns);
   } else {
-    if (layout) tab.columnWidths = [...layout.widths];
+    if (layout) storeWidths(tab, layout.widths, layout.columns);
     tab.tableFillRatios = null;
     tab.columnWidths[column] = content;
   }
@@ -125,9 +185,10 @@ export function startResize(event: PointerEvent, tab: DocTab, column: number, la
   const startX = event.clientX;
   const widths = [...(layout?.widths ?? tab.columnWidths)];
   const mode = layout?.mode ?? "scroll";
+  const at = layout?.columns ? layout.columns.indexOf(column) : column;
 
   const move = (moved: PointerEvent) => {
-    resizeColumn(tab, widths, column, Math.round(moved.clientX - startX), mode);
+    resizeColumn(tab, widths, at, Math.round(moved.clientX - startX), mode, layout?.columns);
   };
   const stop = () => {
     handle.removeEventListener("pointermove", move);
@@ -144,7 +205,7 @@ export function startResize(event: PointerEvent, tab: DocTab, column: number, la
   handle.addEventListener("pointercancel", stop);
 }
 
-export interface ColumnLayout { widths: number[]; mode: TableMode }
+export interface ColumnLayout { widths: number[]; mode: TableMode; columns?: readonly number[] }
 
 /** The viewport never becomes the next layout's baseline. */
 export function layoutColumns(base: readonly number[], ratios: readonly number[] | null, viewport: number, gutter: number, mode: TableMode): ColumnLayout {
@@ -156,16 +217,18 @@ export function layoutColumns(base: readonly number[], ratios: readonly number[]
   return { widths, mode: 'fill' };
 }
 
-export function resizeColumn(tab: DocTab, widths: readonly number[], column: number, delta: number, mode: TableMode): void {
+export function resizeColumn(tab: DocTab, widths: readonly number[], column: number, delta: number, mode: TableMode, columns?: readonly number[]): void {
   const next = resizeWidths(widths, column, delta, mode, MIN_COLUMN);
-  if (mode === 'fill') tab.tableFillRatios = widthRatios(next);
-  else { tab.columnWidths = next; tab.tableFillRatios = null; }
+  if (mode === 'fill') storeWidths(tab, widthRatios(next), columns, true);
+  else { storeWidths(tab, next, columns); tab.tableFillRatios = null; }
 }
 
 
 export function resizeColumnKey(tab: DocTab, layout: ColumnLayout, column: number, key: string, shift = false): boolean {
   if (key !== 'ArrowLeft' && key !== 'ArrowRight') return false;
   const step = shift ? 24 : 8;
-  resizeColumn(tab, layout.widths, column, key === 'ArrowLeft' ? -step : step, layout.mode);
+  const at = layout.columns ? layout.columns.indexOf(column) : column;
+  if (at < 0) return false;
+  resizeColumn(tab, layout.widths, at, key === 'ArrowLeft' ? -step : step, layout.mode, layout.columns);
   return true;
 }

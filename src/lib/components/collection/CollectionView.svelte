@@ -128,6 +128,7 @@
     tab.selectedCell = null;
     tab.pendingCell = null;
     resetColumns(tab);
+    tab.resetColumnView();
     tab.tableScrollTop = 0;
     tab.tableSearch.reset();
     loading = true;
@@ -266,6 +267,8 @@
     />
 
     <div class="status">
+      {#if tab.hiddenColumns.length}<span>{t('grid.visibleCopy')}</span>{/if}
+      {#if tab.revealedColumn !== null}<span role="status">{t('grid.revealedColumn', { column: columnName(tab.revealedColumn) })}</span>{/if}
       <span>
         {t("table.status.size", { rows: n(rowCount), columns: n(columnCount) })}
       </span>

@@ -546,6 +546,12 @@ await writeFile(
 );
 console.log("  sample.csv");
 
+await writeFile(path.join(OUT, 'columns.csv'), [
+  'id,구분,긴 이름과 공백이 있는 열,중복,중복,메모,마지막',
+  ...Array.from({ length: 160 }, (_, i) => `${i},group${i % 3},${'wide-column-'.repeat(12)},A${i},B${i},"tab\tquote ""${i}""",tail${i}`),
+].join('\n'));
+console.log('  columns.csv (hide, reorder, frozen columns)');
+
 // Encodings a spreadsheet actually produces. Written as bytes rather than
 // strings because the point is what lands on disk, not what Node holds.
 await writeFile(

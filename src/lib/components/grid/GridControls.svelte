@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { errorMessage, gridOrderCancel, on, type GridSort } from "../../ipc";
   import { nextSort } from "../../grid-order";
   import { n, t } from "../../i18n";
   import { formatBytes } from "../../format";
   import type { DocTab } from "../../state/docs.svelte";
+  import ContextMenu from '../ContextMenu.svelte';
+  import { revealColumn } from './columns';
 
   let { tab, columnName, disabled = false }: {
     tab: DocTab; columnName: (column: number) => string;
@@ -12,6 +15,8 @@
   let draft = $derived.by(() => { void tab.order.revision; return tab.order.filter; });
   let draftColumn = $derived.by(() => { void tab.order.revision; return tab.order.filterColumn; });
   let input = $state<HTMLInputElement>();
+  let hiddenButton = $state<HTMLButtonElement>();
+  let hiddenMenu = $state<{ x: number; y: number } | null>(null);
   $effect(() => {
     const target = tab;
     let disposed = false;
@@ -55,6 +60,12 @@
 </script>
 
 <form class="grid-controls" onsubmit={(event) => { event.preventDefault(); void apply(tab.order.sort, draft); }}>
+  {#if tab.hiddenColumns.length}
+    <button class="btn btn-ghost" type="button" {disabled} bind:this={hiddenButton} aria-haspopup="menu"
+      onclick={() => { const box = hiddenButton!.getBoundingClientRect(); hiddenMenu = { x: box.left, y: box.bottom }; }}>
+      {t('grid.hiddenColumns', { n: tab.hiddenColumns.length })}
+    </button>
+  {/if}
   {#if draftColumn !== null}
     <button class="btn btn-ghost scope" type="button" title={t("grid.filterAll")} aria-label={t("grid.filterAll")}
       {disabled} onclick={() => { draftColumn = null; input?.focus(); }}>{columnName(draftColumn)} ×</button>
@@ -76,6 +87,12 @@
   {#if tab.order.sort}<span>{t("grid.sorted", { column: columnName(tab.order.sort.column) })}</span>{/if}
   {#if tab.order.error}<span class="error" role="alert">{tab.order.error}</span>{/if}
 </form>
+
+{#if hiddenMenu}
+  <ContextMenu x={hiddenMenu.x} y={hiddenMenu.y}
+    items={tab.hiddenColumns.map(column => ({ key: String(column), label: columnName(column), action: () => revealColumn(tab, column) }))}
+    onClose={() => { hiddenMenu = null; void tick().then(() => (hiddenButton ?? input)?.focus()); }} />
+{/if}
 
 <style>
   .grid-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding: .3rem .6rem; border-bottom: 1px solid var(--border); font-size: .85em; }

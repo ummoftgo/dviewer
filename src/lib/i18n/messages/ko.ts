@@ -490,6 +490,14 @@ export const ko = {
   "markdown.code.all": "모든 언어…",
   "markdown.code.search": "언어 검색",
   "markdown.code.failed": "코드 강조를 변경하지 못했습니다.",
+  "grid.hideColumn": "이 열 숨기기",
+  "grid.moveLeft": "왼쪽으로 이동",
+  "grid.moveRight": "오른쪽으로 이동",
+  "grid.resetColumnView": "열 구성 기본으로",
+  "grid.columnMenu": "{column} 열 메뉴",
+  "grid.hiddenColumns": "숨긴 열 {n}",
+  "grid.visibleCopy": "보이는 열 기준",
+  "grid.revealedColumn": "검색 결과의 {column} 열을 다시 표시했습니다.",
 } as const;
 
 export type MessageKey = keyof typeof ko;

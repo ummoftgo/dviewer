@@ -485,4 +485,12 @@ export const zhHans: Messages = {
   "markdown.code.all": "所有语言…",
   "markdown.code.search": "搜索语言",
   "markdown.code.failed": "无法更改语法高亮。",
+  "grid.hideColumn": "隐藏此列",
+  "grid.moveLeft": "向左移动",
+  "grid.moveRight": "向右移动",
+  "grid.resetColumnView": "重置列布局",
+  "grid.columnMenu": "{column} 列菜单",
+  "grid.hiddenColumns": "已隐藏的列：{n}",
+  "grid.visibleCopy": "仅可见列",
+  "grid.revealedColumn": "已重新显示搜索结果所在的 {column} 列。",
 };

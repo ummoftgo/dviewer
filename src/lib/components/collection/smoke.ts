@@ -21,7 +21,8 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
     && (tab.gridStats.rowCount === 0 || !!grid()?.querySelector('.body .row'));
   await waitFor(() => !!picker() && settled(), 'collection did not finish its first page');
   const saved = { widthMode: settings.tableWidthMode, font: settings.docFontPx, scale: settings.uiScale,
-    tabWidthMode: tab.tableWidthMode, collection: tab.collection, widths: [...tab.columnWidths], ratios: tab.tableFillRatios };
+    tabWidthMode: tab.tableWidthMode, collection: tab.collection, widths: [...tab.columnWidths], ratios: tab.tableFillRatios,
+    columnOrder: [...tab.columnOrder], hiddenColumns: [...tab.hiddenColumns], revealedColumn: tab.revealedColumn };
   const select = async (name: string) => {
     const control = picker();
     if (!control || control.disabled) throw new Error('collection picker is not ready');
@@ -60,6 +61,7 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
     await tick();
   };
   try {
+    tab.resetColumnView();
     settings.tableWidthMode = 'fill'; settings.docFontPx = 12; settings.uiScale = 1;
     tab.tableWidthMode = 'fill';
     await tick();
@@ -117,6 +119,27 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
       await tick(); await waitFor(settled, 'double-click fit did not settle');
       if (Math.abs(cells[0].getBoundingClientRect().width - fitted) > 1) throw new Error('Enter and double-click fit differ');
     }
+
+    const count = tab.gridStats!.columnCount;
+    const menuAction = async (key: Parameters<typeof t>[0]) => {
+      await tick();
+      const action = [...document.querySelectorAll<HTMLButtonElement>('.menu button')]
+        .find(button => button.querySelector('.label')?.textContent === t(key));
+      if (!action || action.disabled) throw new Error('column action unavailable: ' + key);
+      action.click(); await tick();
+    };
+    grid()!.querySelector<HTMLButtonElement>('.head [data-column="0"] .column-menu')!.click();
+    await menuAction('grid.hideColumn');
+    await waitFor(() => grid()?.dataset.visibleColumns === String(count - 1) && grid()?.dataset.fitted === 'true', 'hidden column did not settle');
+    if (grid()!.querySelector('.head [data-column="0"]')) throw new Error('hidden column remains in DOM');
+    const header = grid()!.querySelector<HTMLElement>('.head [data-column]')!;
+    header.focus();
+    header.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+    await menuAction('grid.resetColumnView');
+    await waitFor(() => grid()?.dataset.visibleColumns === String(count) && grid()?.dataset.fitted === 'true', 'reset columns did not settle');
+    if (!grid()!.querySelector('.head [data-column="0"]') || !document.activeElement?.closest('[role="columnheader"]')) {
+      throw new Error('reset did not restore columns and header focus');
+    }
   } finally {
     try {
       settings.tableWidthMode = saved.widthMode; settings.docFontPx = saved.font; settings.uiScale = saved.scale;
@@ -125,6 +148,7 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
       if (saved.collection && saved.collection !== tab.collection && !tab.error) await select(saved.collection);
     } finally {
       tab.columnWidths = saved.widths; tab.tableFillRatios = saved.ratios;
+      tab.columnOrder = saved.columnOrder; tab.hiddenColumns = saved.hiddenColumns; tab.revealedColumn = saved.revealedColumn;
       if (saveDescriptor) Object.defineProperty(settings, 'save', saveDescriptor);
       else Reflect.deleteProperty(settings, 'save');
       await tick();

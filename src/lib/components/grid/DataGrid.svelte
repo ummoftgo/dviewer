@@ -28,7 +28,6 @@
   import {
     errorMessage,
     gridCellText,
-    gridRowText,
     gridRows,
     type TableRow,
     type GridSort,
@@ -40,7 +39,11 @@
     fitColumn as fitWidth,
     startResize as beginResize,
     totalWidth as totalOf,
-    layoutColumns,
+    projectLayout,
+    visibleColumns,
+    hideColumn,
+    revealColumn,
+    moveColumn,
     MAX_AUTO_COLUMN,
     MAX_FIT_COLUMN,
     automaticColumnLimit,
@@ -49,6 +52,7 @@
     MIN_COLUMN,
   } from "./columns";
   import { copyText } from "../../clipboard";
+  import { rowText } from './copy';
   import { cellTitle, selectedCell } from "./preview";
   import { toasts } from "../../state/toast.svelte";
   import type { MenuItem } from "../menu";
@@ -103,7 +107,9 @@
   const numberWidth = $derived(
     Math.max(44, Math.round(String(tab.order.stats?.total ?? rowCount).length * settings.docFontPx * settings.uiScale * 0.65) + 18),
   );
-  const layout = $derived(layoutColumns(tab.columnWidths, tab.tableFillRatios, viewportWidth, numberWidth, widthMode ?? 'scroll'));
+  const columns = $derived(visibleColumns(tab, columnCount));
+  const positions = $derived(new Map(columns.map((column, at) => [column, at])));
+  const layout = $derived(projectLayout(tab, columns, viewportWidth, numberWidth, widthMode ?? 'scroll'));
   const presentation = $derived({ columnWidths: layout.widths });
   const totalWidth = $derived(totalOf(presentation, numberWidth));
   let measuredMode = untrack(() => widthMode);
@@ -177,6 +183,8 @@
     const cell = tab.pendingCell;
     if (!cell || !viewport || rowCount === 0) return;
     tab.pendingCell = null;
+    if (cell.column < 0 || cell.column >= columnCount) return;
+    revealColumn(tab, cell.column, true);
     selectCell(cell.row, cell.column);
     // Park the target a third of the way down rather than at the very top.
     measure();
@@ -184,7 +192,7 @@
       metrics,
       Math.max(0, cell.row - Math.floor(visibleCount() / 3)),
     );
-    scrollColumnIntoView(cell.column);
+    void tick().then(() => { if (current()) scrollColumnIntoView(cell.column); });
     void ensureWindow(true);
   });
 
@@ -262,7 +270,7 @@
   // --- columns ------------------------------------------------------------
 
   function measureColumns(sample: TableRow[]) {
-    autoWidths(tab, sample, columnCount, settings.docFontPx * settings.uiScale, columnName, automaticColumnLimit(widthMode));
+    autoWidths(tab, sample, columnCount, settings.docFontPx * settings.uiScale, columnName, automaticColumnLimit(widthMode), columns);
   }
 
   function fitColumn(column: number) {
@@ -270,16 +278,18 @@
   }
 
   function resetWidths(recommend: boolean) {
-    autoWidths(tab, rows, columnCount, settings.docFontPx * settings.uiScale, columnName, recommend ? MAX_FIT_COLUMN : automaticColumnLimit(widthMode));
+    autoWidths(tab, rows, columnCount, settings.docFontPx * settings.uiScale, columnName, recommend ? MAX_FIT_COLUMN : automaticColumnLimit(widthMode), columns);
   }
 
   function columnWidth(column: number) {
-    return widthOf(presentation, column);
+    return widthOf(presentation, positions.get(column) ?? -1);
   }
 
   function scrollColumnIntoView(column: number) {
     if (!viewport) return;
-    const left = columnLeft(presentation, column, numberWidth);
+    const at = positions.get(column);
+    if (at === undefined) return;
+    const left = columnLeft(presentation, at, numberWidth);
     const right = left + columnWidth(column);
     if (left - numberWidth < viewport.scrollLeft) viewport.scrollLeft = left - numberWidth;
     else if (right > viewport.scrollLeft + viewport.clientWidth) {
@@ -316,9 +326,9 @@
 
   export async function copyRow(row: number) {
     try {
-      const line = await gridRowText(tab.id, await sourceRow(row));
+      const line = await rowText(tab, sourceRow(row), columnCount);
       await copyText(line.text);
-      toasts.show(t("toast.rowCopied"));
+      toasts.show(t(line.truncated ? 'toast.valueTruncated' : 'toast.rowCopied'));
     } catch (err) {
       toasts.show(errorMessage(err), "error");
     }
@@ -339,10 +349,37 @@
     menu = { x: event.clientX, y: event.clientY, row, column };
   }
 
+  function headerMenu(event: MouseEvent | KeyboardEvent, column: number) {
+    event.preventDefault(); event.stopPropagation();
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    menu = { x: box.left, y: box.bottom, row: -1, column };
+  }
+
+  function headerKey(event: KeyboardEvent, column: number) {
+    if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') headerMenu(event, column);
+  }
+
+  function closeMenu() {
+    const closed = menu;
+    menu = null;
+    void tick().then(() => {
+      if (!viewport?.isConnected || !closed) return;
+      if (closed.row === -1) {
+        const header = viewport.querySelector<HTMLButtonElement>(`.head [data-column="${closed.column}"] .name`)
+          ?? viewport.querySelector<HTMLButtonElement>('.head .name');
+        header?.focus();
+      } else viewport.focus();
+    });
+  }
+
   const menuItems = $derived.by((): MenuItem[] => {
     if (!menu) return [];
     const { row, column } = menu;
     if (row === -1) return [
+      { key: 'hide-column', label: t('grid.hideColumn'), disabled: columns.length <= 1, action: () => { hideColumn(tab, column, columnCount); } },
+      { key: 'move-left', label: t('grid.moveLeft'), disabled: positions.get(column) === 0, action: () => moveColumn(tab, column, -1, columnCount) },
+      { key: 'move-right', label: t('grid.moveRight'), disabled: positions.get(column) === columns.length - 1, action: () => moveColumn(tab, column, 1, columnCount) },
+      { key: 'reset-columns', label: t('grid.resetColumnView'), action: () => tab.resetColumnView() },
       ...([null, false, true] as const).map((descending) => ({
         icon: descending === null ? "sort-none" as const : descending ? "sort-desc" as const : "sort-asc" as const,
         label: t(descending === null ? "grid.sortDefault" : descending ? "grid.sortDesc" : "grid.sortAsc"),
@@ -376,9 +413,11 @@
   // --- keyboard -----------------------------------------------------------
 
   function move(rowDelta: number, columnDelta: number) {
-    const cell = tab.selectedCell ?? { row: -1, column: 0 };
+    if (!columns.length) return;
+    const cell = tab.selectedCell ?? { row: -1, column: columns[0] };
     const row = Math.min(rowCount - 1, Math.max(0, cell.row + rowDelta));
-    const column = Math.min(columnCount - 1, Math.max(0, cell.column + columnDelta));
+    const at = positions.get(cell.column) ?? 0;
+    const column = columns[Math.min(columns.length - 1, Math.max(0, at + columnDelta))];
     selectCell(row, column);
     scrollRowIntoView(row);
     scrollColumnIntoView(column);
@@ -412,6 +451,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
+    if ((event.target as HTMLElement)?.closest('[role="columnheader"]')) return;
     if (tab.order.running || rowCount === 0) return;
     if (event.ctrlKey || event.metaKey) {
       if (shortcutKey(event) === "c" && tab.selectedCell) {
@@ -464,6 +504,7 @@
   class="grid"
   data-width-mode={widthMode}
   data-fitted={widthMode === undefined ? undefined : String(fitted)}
+  data-visible-columns={columns.length}
   class:ordering={tab.order.running}
   class:empty={rowCount === 0 && tab.order.stats !== null}
   bind:this={viewport}
@@ -472,29 +513,32 @@
   tabindex="0"
   role="grid"
   aria-rowcount={rowCount}
-  aria-colcount={columnCount}
+  aria-colcount={columns.length}
   aria-label={label}
   aria-busy={tab.order.running}
   style="--row-height: {rowHeight}px; --number-width: {numberWidth}px"
 >
   <div class="head" style="width: {totalWidth}px" role="row">
     <div class="cell num" role="columnheader"></div>
-    {#each { length: columnCount } as _, column (column)}
+    {#each columns as column, at (column)}
       <div class="cell" style="width: {columnWidth(column)}px" role="columnheader" tabindex="-1"
+        data-column={column} onkeydown={(event) => headerKey(event, column)}
         oncontextmenu={(event) => openMenu(event, -1, column)}
         aria-sort={tab.order.sort?.column === column ? (tab.order.sort.descending ? "descending" : "ascending") : "none"}>
         <button type="button" class="name" aria-disabled={!sortAvailable || tab.order.running}
           onclick={() => { if (sortAvailable && !tab.order.running) onsort?.(column); }} title={sortAvailable ? columnName(column) : t("grid.sortUnavailable")}>
           {columnName(column)}{tab.order.sort?.column === column ? (tab.order.sort.descending ? " ▼" : " ▲") : ""}
         </button>
+        <button type="button" class="column-menu" aria-label={t('grid.columnMenu', { column: columnName(column) })}
+          aria-haspopup="menu" onclick={(event) => headerMenu(event, column)}>⋮</button>
         <!-- A focusable value-bearing separator, as in Splitter.svelte. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
         <span
           class="grip" role="separator" tabindex="0" aria-orientation="vertical"
           aria-label={t('markdown.table.resize', { column: column + 1 })}
           aria-valuemin={MIN_COLUMN} aria-valuenow={Math.round(columnWidth(column))}
-          aria-valuemax={layout.mode === 'fill' ? Math.round(columnCount === 1 ? columnWidth(column)
-            : columnWidth(column) + columnWidth(column === columnCount - 1 ? column - 1 : column + 1) - MIN_COLUMN) : undefined}
+          aria-valuemax={layout.mode === 'fill' ? Math.round(columns.length === 1 ? columnWidth(column)
+            : columnWidth(column) + columnWidth(columns[at === columns.length - 1 ? at - 1 : at + 1]) - MIN_COLUMN) : undefined}
           onkeydown={(event) => onResizeKey(event, column)}
           onpointerdown={(e) => startResize(e, column)}
           ondblclick={() => fitColumn(column)}
@@ -509,7 +553,7 @@
       {@const displayRow = windowStart + at}
       <div class="row" style="top: {rowTop(metrics, scrollTop, displayRow)}px" role="row">
         <div class="cell num" role="rowheader">{n(row.index + firstRowNumber)}</div>
-        {#each { length: columnCount } as _, column (column)}
+        {#each columns as column (column)}
           {@const cell = row.cells[column]}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div
@@ -521,6 +565,7 @@
             data-level={cellTone?.(column, cell?.text)}
             style="width: {columnWidth(column)}px"
             role="gridcell"
+            data-column={column}
             tabindex="-1"
             data-truncated={cell?.truncated ? "true" : undefined}
             title={cellTitle(cell, tab.kind)}
@@ -546,7 +591,7 @@
 </div>
 
 {#if menu}
-  <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => (menu = null)} />
+  <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
 {/if}
 
 <style>
@@ -606,6 +651,8 @@
   }
 
   .head .cell {
+    display: flex;
+    align-items: center;
     position: relative;
     color: var(--text-muted);
     font-family: var(--font-ui);
@@ -617,6 +664,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .column-menu { flex: none; align-self: stretch; padding: 0 .25rem; border: 0; background: transparent; color: inherit; cursor: pointer; }
+  .column-menu:hover, .column-menu:focus-visible { background: var(--bg-hover); }
 
   .cell.num {
     position: sticky;
