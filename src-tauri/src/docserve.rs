@@ -37,6 +37,7 @@ impl DocServer {
     pub fn start(app: tauri::AppHandle) -> Result<Self> {
         let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(Error::internal)?;
         let host = listener.local_addr().map_err(Error::internal)?.to_string();
+        let policy = document_policy(&host);
         let server = tiny_http::Server::from_listener(listener, None).map_err(Error::internal)?;
         let tokens = Arc::new(Mutex::new(HashMap::new()));
         let stop = Arc::new(AtomicBool::new(false));
@@ -52,7 +53,7 @@ impl DocServer {
                 let hosts: Vec<_> = headers.iter().filter(|h| h.field.equiv("Host")).collect();
                 let host_ok = valid_host(&hosts.iter().map(|h| h.value.as_str()).collect::<Vec<_>>(), &expected_host);
                 let response = if host_ok && request.method() == &tiny_http::Method::Get {
-                    serve(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some())
+                    serve(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some(), &policy)
                 } else { None };
                 let _ = request.respond(response.unwrap_or_else(not_found));
             }
@@ -106,13 +107,17 @@ fn check_size(len: usize) -> Result<()> {
     Ok(())
 }
 
-fn reply(body: Box<dyn Read + Send>, len: usize, mime: &'static str, html: bool, probe: bool) -> Response {
+fn document_policy(host: &str) -> String {
+    POLICY.replace("'self'", &format!("http://{host}"))
+}
+
+fn reply(body: Box<dyn Read + Send>, len: usize, mime: &'static str, policy: Option<&str>, probe: bool) -> Response {
     let mut response = tiny_http::Response::new(tiny_http::StatusCode(200), vec![], body, Some(len), None);
     for (name, value) in [("Content-Type", mime), ("Referrer-Policy", "no-referrer"), ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"), ("Access-Control-Allow-Origin", "null")] {
         response.add_header(tiny_http::Header::from_bytes(name, value).expect("static header"));
     }
-    if html {
-        let policy = if probe { POLICY.replace("connect-src 'none'", "connect-src http://ipc.localhost") } else { POLICY.into() };
+    if let Some(policy) = policy {
+        let policy = if probe { policy.replace("connect-src 'none'", "connect-src http://ipc.localhost") } else { policy.into() };
         response.add_header(tiny_http::Header::from_bytes("Content-Security-Policy", policy).expect("static policy"));
     }
     response
@@ -121,10 +126,10 @@ fn reply(body: Box<dyn Read + Send>, len: usize, mime: &'static str, html: bool,
 fn valid_host(hosts: &[&str], expected: &str) -> bool { hosts == [expected] }
 
 fn not_found() -> Response {
-    reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", false, false).with_status_code(404)
+    reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", None, false).with_status_code(404)
 }
 
-fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool) -> Option<Response> {
+fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str) -> Option<Response> {
     let (path, query) = url.split_once('?').unwrap_or((url, ""));
     let (token, relative) = path.strip_prefix('/')?.split_once('/')?;
     // Compare the secret in constant time; the small registry follows open HTML tabs.
@@ -138,7 +143,7 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
     counter.fetch_add(1, Ordering::Relaxed);
     let probe = smoke && query.split('&').any(|part| part == "probe=1");
     if relative == "_/agent.js" {
-        return Some(reply(Box::new(Cursor::new(AGENT.as_bytes())), AGENT.len(), "text/javascript; charset=utf-8", false, false));
+        return Some(reply(Box::new(Cursor::new(AGENT.as_bytes())), AGENT.len(), "text/javascript; charset=utf-8", None, false));
     }
     if relative.is_empty() {
         check_size(snapshot.bytes.len()).ok()?;
@@ -148,7 +153,7 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
         let mut tail = Cursor::new(SharedBytes::new(snapshot.bytes.clone()));
         tail.set_position(at as u64);
         let len = snapshot.bytes.len() + tag.len();
-        return Some(reply(Box::new(first.chain(Cursor::new(tag.into_bytes())).chain(tail)), len, "text/html; charset=utf-8", true, probe));
+        return Some(reply(Box::new(first.chain(Cursor::new(tag.into_bytes())).chain(tail)), len, "text/html; charset=utf-8", Some(policy), probe));
     }
     // Sibling resources belong only to local file documents, never a URL or archive.
     if !matches!(doc.source, crate::state::DocSource::File { .. }) { return None; }
@@ -157,7 +162,7 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
     let size = file.metadata().ok()?.len();
     if size > MAX_DOCUMENT_BYTES as u64 { return None; }
     let mime = mime(&file_path);
-    Some(reply(Box::new(file.take(size)), size as usize, mime, mime.starts_with("text/html"), false))
+    Some(reply(Box::new(file.take(size)), size as usize, mime, mime.starts_with("text/html").then_some(policy), false))
 }
 
 fn resource_path(base: &Path, encoded: &str) -> Option<PathBuf> {

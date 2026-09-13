@@ -759,6 +759,8 @@ AppState::Jobs는 index·search·lines를 문서별로 보관합니다. doc_line
 
 ### 여섯째 보기: 격리 프레임
 
+WebKitGTK 2.50에서는 opaque sandbox 문서의 CSP `'self'`가 문서 URL이 아닌 보안 출처를 기준으로 해석되어 로컬 에이전트·스타일·글꼴 요청까지 막힐 수 있다. 따라서 서버 시작 시 script/style/img/font/media/worker-src의 `'self'`를 실제 `http://127.0.0.1:<port>` 출처로 치환한 정책을 만들고, HTML 응답과 스모크 프로브 완화는 이 정책을 공통으로 사용한다.
+
 HTML은 정화해 글 보기로 바꾸지 않고 opaque iframe(`allow-scripts`)에서 실행한다. `docserve.rs`의 tiny_http 서버는 127.0.0.1의 임의 포트에만 바인딩한다. 문서별 32바이트 OS 난수 토큰을 frame_url(id)로 전달하고, 문서 닫힘에 맞춰 폐기한다. Host와 토큰을 확인한 뒤 현재 AppState 문서를 다시 조회하므로 이미 닫힌 문서의 URL은 거부된다. 자원 경로는 URL 디코딩·루트 이탈 검사·심볼릭 링크/Windows reparse 검사·canonical 경계 확인을 거친다. 권한 범위는 로컬 문서의 부모 폴더다.
 
 본문은 앱이 선택한 인코딩의 UTF-8 snapshot이다. 64MiB 상한을 검사하고 SharedBytes 리더 앞·에이전트 태그·뒤를 연결하여 전체 본문을 다시 복제하지 않는다. 자원 파일도 크기를 검사한 뒤 스트림으로 보낸다. HTTP charset은 utf-8, CSP는 외부 통신·폼·하위 프레임을 막으며 Referrer-Policy no-referrer와 Cache-Control no-store를 사용한다. 문서별 토큰과 Access-Control-Allow-Origin null은 opaque 문서의 로컬 폰트·모듈 읽기를 허용한다. Range는 아직 구현하지 않는다.
