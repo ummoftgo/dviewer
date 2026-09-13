@@ -190,6 +190,12 @@ export class DocTab {
   // Markdown
   markdownRevision = $state(0);
   pendingAnchor = $state<string | null>(null);
+  frameReady = $state(false);
+  frameToc = $state<ipc.TocEntry[]>([]);
+  frameScroll = $state(0);
+  frameBlocked = $state(0);
+  frameProbe = $state<string | null>(null);
+  frameSearch = $state({open:false, query:"", n:0, index:0, request:0});
   readonly markdownSearch = new MarkdownSearchState();
   codeLanguages: Record<string, ipc.CodeLanguage> = {};
   readonly codeSelections = new Map<number, string>();
@@ -320,6 +326,9 @@ export class DocTab {
     this.tables.clear();
     this.markdownRevision++;
     this.pendingAnchor = null;
+    this.frameReady = false; this.frameToc = []; this.frameScroll = 0;
+    this.frameBlocked = 0; this.frameProbe = null;
+    this.frameSearch = {open:false,query:"",n:0,index:0,request:0};
     this.markdownSearch.open = false;
     this.markdownSearch.query = '';
     this.markdownSearch.reset();
@@ -446,7 +455,7 @@ class Workspace {
       }
       opened = await this.openEntry(parent, entry, true);
     }
-    if (opened?.kind === 'markdown' && link.anchor) {
+    if (opened && (opened.kind === 'markdown' || opened.kind === 'html') && link.anchor) {
       opened.pendingAnchor = link.anchor;
       opened.mode = 'rendered';
     }

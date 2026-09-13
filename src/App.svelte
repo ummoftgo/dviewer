@@ -20,6 +20,7 @@
   import ArchiveView from "./lib/components/archive/ArchiveView.svelte";
   import MarkdownView from "./lib/components/markdown/MarkdownView.svelte";
   import RawView from "./lib/components/markdown/RawView.svelte";
+  import FrameView from "./lib/components/frame/FrameView.svelte";
   import TextRawView from "./lib/components/table/TextRawView.svelte";
   import * as ipc from "./lib/ipc";
   import { detectSystemLocale, t } from "./lib/i18n";
@@ -297,11 +298,13 @@
         {:else if active.status === 'error'}
           <div class="opening"><p class="error" role="alert">{active.error}</p></div>
         {:else if active.mode === "raw" && supportsRaw(active.view, active.kind)}
-          {#if active.kind === 'text'}
+          {#if active.kind === 'text' || active.kind === 'html'}
             <TextRawView tab={active} bind:focusSearch={searchBarFocus} />
           {:else}
             <RawView tab={active} bind:focusSearch={searchBarFocus} />
           {/if}
+        {:else if active.view === "frame"}
+          <FrameView tab={active} {showToc} probe={smoking} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "collection"}

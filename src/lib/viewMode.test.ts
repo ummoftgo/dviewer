@@ -17,3 +17,7 @@ test('a remembered raw mode does not reroute other kinds', () => {
   expect(supportsRaw('collection', 'treeTable')).toBe(false);
   expect(supportsRaw('archive', 'zip')).toBe(false);
 });
+
+test('HTML source uses the raw mode contract without being a prose view', () => {
+  expect(supportsRaw('frame', 'html')).toBe(true);
+});

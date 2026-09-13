@@ -1,0 +1,93 @@
+<script lang="ts">
+  import { untrack } from 'svelte';
+  import { openUrl } from '@tauri-apps/plugin-opener';
+  import { errorMessage, frameUrl } from '../../ipc';
+  import { t } from '../../i18n';
+  import { workspace, type DocTab } from '../../state/docs.svelte';
+  import { settings } from '../../state/settings.svelte';
+  import { toasts } from '../../state/toast.svelte';
+  import { frameMessage } from '../../frame/messages';
+  import Toc from '../markdown/Toc.svelte';
+  import FrameSearchBar from './FrameSearchBar.svelte';
+  interface Props { tab: DocTab; showToc: boolean; probe?: boolean; focusSearch?: (() => void) | null }
+  let {tab, showToc, probe = false, focusSearch = $bindable(null)}: Props = $props();
+  let iframe = $state<HTMLIFrameElement>();
+  let src = $state<string>();
+  let error = $state<string | null>(null);
+  let activeId = $state('');
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let broken = false;
+  const post = (message: unknown) => iframe?.contentWindow?.postMessage(message, '*');
+  $effect(() => {
+    const target = tab, generation = tab.meta.generation;
+    const testing = probe;
+    let live = true;
+    target.frameReady = false; target.frameBlocked = 0; target.frameProbe = null;
+    broken = false; error = null;
+    void frameUrl(target.id).then(url => {
+      if (!live) return;
+      src = `${url}?g=${generation}${testing ? '&probe=1' : ''}`;
+      deadline = setTimeout(() => { if (live && !target.frameReady) error = t('frame.failed'); }, 30000);
+    }).catch(cause => { if (live) error = errorMessage(cause); });
+    return () => { live = false; clearTimeout(deadline); target.frameReady = false; };
+  });
+  $effect(() => {
+    if (!tab.frameReady) return;
+    post({type:'theme',dark:settings.theme === 'dark' || (settings.theme === 'auto' && settings.systemDark)});
+  });
+  $effect(() => {
+    const id = tab.pendingAnchor;
+    if (!id || !tab.frameReady) return;
+    untrack(() => { post({type:'goto',id}); activeId = id; tab.pendingAnchor = null; });
+  });
+  function find(dir: 1 | -1) {
+    if (!tab.frameReady) return;
+    post({type:'find',q:tab.frameSearch.query,dir,request:++tab.frameSearch.request});
+  }
+  function receive(event: MessageEvent) {
+    if (broken) return;
+    const message = frameMessage(event, iframe?.contentWindow ?? null);
+    if (!message) return;
+    switch (message.type) {
+      case 'ready':
+        clearTimeout(deadline); tab.frameToc = message.headings; tab.frameReady = true;
+        if (!tab.pendingAnchor) post({type:'goto',ratio:tab.frameScroll});
+        if (tab.frameSearch.query) find(1);
+        break;
+      case 'scroll': tab.frameScroll = message.ratio; break;
+      case 'blocked': tab.frameBlocked = message.n; break;
+      case 'probe': if (probe) tab.frameProbe = message.invoke; break;
+      case 'isolationBroken':
+        broken = true; src = undefined; tab.frameReady = false; error = t('frame.isolationBroken'); break;
+      case 'found':
+        if (message.request === tab.frameSearch.request) { tab.frameSearch.n = message.n; tab.frameSearch.index = message.index; }
+        break;
+      case 'shortcut':
+        if (message.key === 'raw') tab.mode = 'raw'; else focusSearch?.();
+        break;
+      case 'link':
+        if (message.kind === 'relative') void workspace.openLink(tab,message.href);
+        else void openUrl(message.href).catch(cause => toasts.show(errorMessage(cause),'error'));
+    }
+  }
+</script>
+<svelte:window onmessage={receive} />
+<div class="frame-layout" data-ready={tab.frameReady ? 'true' : undefined} data-probe={tab.frameProbe ?? undefined}>
+  <FrameSearchBar {tab} ready={tab.frameReady} onFind={find} bind:focusSearch />
+  <div class="content" class:with-toc={showToc && tab.frameToc.length > 1}>
+    {#if error}<p class="error" role="alert">{error}</p>
+    {:else if src}<iframe bind:this={iframe} {src} sandbox="allow-scripts" title={tab.meta.title}></iframe>{/if}
+    {#if showToc && tab.frameToc.length > 1}<aside><Toc entries={tab.frameToc} {activeId} onSelect={id => {activeId=id;post({type:'goto',id});}} /></aside>{/if}
+  </div>
+  {#if tab.frameBlocked}<div class="status" role="status">{t('frame.blocked',{n:tab.frameBlocked})}</div>{/if}
+</div>
+<style>
+  .frame-layout { display:flex; flex-direction:column; height:100%; min-height:0; }
+  .content { flex:1; display:grid; min-height:0; grid-template-columns:minmax(0,1fr); }
+  .content.with-toc { grid-template-columns:minmax(0,1fr) 15rem; }
+  iframe { width:100%; height:100%; border:0; background:white; }
+  aside { overflow:auto; min-width:0; }
+  .status { padding:0.3rem 0.7rem; font-size:0.85em; color:var(--text-muted); border-top:1px solid var(--border); }
+  .error { color:var(--danger); padding:1rem; }
+  @media(max-width:800px) { .content.with-toc { grid-template-columns:minmax(0,1fr) 11rem; } }
+</style>

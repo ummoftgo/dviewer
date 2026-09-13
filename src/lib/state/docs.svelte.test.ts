@@ -765,3 +765,24 @@ test.each(['sqlite', 'xlsx', 'parquet', 'treeTable'] as const)('%s receives the 
     expect(tab.tableWidthMode).toBe('scroll');
   } finally { load.mockRestore(); settings.tableWidthMode = original; }
 });
+
+test('HTML frame metadata resets on reload while its search stays local to the view', () => {
+  const tab = new DocTab(meta({type:'file',path:'C:/report.html'},'html'));
+  tab.frameReady = true; tab.frameToc = [{id:'a',level:1,text:'A'}]; tab.frameScroll = 0.6;
+  tab.frameBlocked = 3; tab.frameProbe = 'absent';
+  tab.frameSearch = {open:true,query:'find',n:3,index:2,request:7};
+  tab.mode = 'raw';
+  expect(tab.frameScroll).toBe(0.6);
+  tab.invalidate();
+  expect([tab.frameReady,tab.frameToc,tab.frameScroll,tab.frameBlocked,tab.frameProbe]).toEqual([false,[],0,0,null]);
+  expect(tab.frameSearch).toEqual({open:false,query:'',n:0,index:0,request:0});
+});
+
+test('relative HTML targets retain their anchor for FrameView to consume', async () => {
+  const from = new DocTab({...meta({type:'file',path:'C:/docs/start.html'},'html'),baseDir:'C:/docs'});
+  const loaded = {...meta({type:'file',path:'C:/docs/other.html'},'html'),view:'frame' as const};
+  vi.mocked(ipc.openPath).mockResolvedValueOnce(loaded);
+  const target = await workspace.openLink(from,'other.html#part');
+  expect(target?.pendingAnchor).toBe('part');
+  expect(target?.mode).toBe('rendered');
+});

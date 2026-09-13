@@ -126,6 +126,13 @@
       {/if}
     {/if}
 
+    {#if tab.view === "frame"}
+      <button class="icon-btn" data-action="search-frame" onclick={onSearch} aria-pressed={tab.frameSearch.open} title={t("toolbar.search")} aria-label={t("toolbar.search")}><Icon name="search" /></button>
+      {#if tab.mode === "rendered" && tab.frameToc.length > 1}
+        <button class="icon-btn" onclick={onToggleToc} aria-pressed={showToc} title={t("toolbar.toc")} aria-label={t("toolbar.toc.show")}><Icon name="list" /></button>
+      {/if}
+    {/if}
+
     {#if tab.mode === "rendered" && (tab.view === "prose" || gridWidth)}
       <button class="icon-btn page-width" bind:this={widthButton} data-action={gridWidth ? 'table-width' : 'page-width'}
         title={widthTitle} aria-label={widthTitle} aria-haspopup="menu" aria-expanded={widthAt !== null}

@@ -14,7 +14,7 @@ function filters() {
     {
       name: t("files.documents"),
     extensions: [
-      "md", "markdown", "mdx", "txt",
+      "md", "markdown", "mdx", "txt", "html", "htm",
       "json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb",
       "yaml", "yml", "toml",
       "xml", "xhtml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml",
@@ -22,7 +22,8 @@ function filters() {
     ],
   },
   { name: t("files.markdown"), extensions: ["md", "markdown", "mdown", "mkd", "mdx", "txt"] },
-  { name: t("files.tree"), extensions: ["json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb", "yaml", "yml", "toml", "xml", "xhtml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml"] },
+  { name: t("format.html"), extensions: ["html", "htm", "xhtml"] },
+  { name: t("files.tree"), extensions: ["json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb", "yaml", "yml", "toml", "xml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml"] },
   { name: t("files.table"), extensions: ["csv", "tsv", "tab"] },
   { name: t("files.all"), extensions: ["*"] },
   ];
