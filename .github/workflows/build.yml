@@ -57,8 +57,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - if: runner.os == 'Linux'
-        run: npm ci
+      - run: npm ci
       - if: runner.os == 'Linux'
         run: npm run check
       - if: runner.os == 'Linux'
