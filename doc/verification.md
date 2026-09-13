@@ -1011,3 +1011,14 @@ cargo run --release --example order -- ../fixtures/huge.csv
 백만 원소 배열의 추가 표 색인은 2.50ms, 4,000,000B였다(기존 트리 색인은 제외). 앞·중간·끝 원본 페이지는 같은 상수 시간 경로를 쓴다. Parquet은 310.5MiB·48개 행 그룹에서 앞·중간 100행이 530.1~548.3ms로 500ms를 넘었다. 최초 결정 측정에서도 556~580ms였으므로 머리글 정렬을 끄고 필터를 남겼다.
 
 페이지 표는 앞·중간·끝의 두 번째·세 번째 조회 범위다. 원본 전·후가 대조군이며 첫 조회의 행 그룹 해제 비용은 별도 로그에 남긴다. 프로세스 실측은 열기·두 정렬·필터·페이지 조회 전체를 포함한 별도 실행이다. Working Set은 mmap과 캐시를 포함하고 Private는 100ms 간격 표본 최댓값이다. 아레나 256MiB는 전체 프로세스 메모리 상한이 아니다. Parquet 실험의 정렬 경로는 실제 UI에서 비활성화했다.
+
+
+## M40 — HTML 격리 프레임
+
+Rust 전체 538개(fixtures required)가 통과했다. 서버의 토큰/문서 수명·Host·경로 이탈·MIME·UTF-8 응답·삽입 위치·프로브 CSP·크기 상한을 검사하며, 404 정책 헤더 보완 뒤 관련 7개를 다시 통과했다. 경로 URL 정규화(퍼센트 디코딩)를 제거한 변형은 1개 실패·537개 필터 제외였고 원본 바이트로 복원했다.
+
+vitest는 324개·28파일, check는 오류0·경고0·4로케일×438키다. 에이전트/FrameView/FrameSearchBar와 App/Toolbar를 연결했다. HTML 원문은 줄 색인으로, pendingAnchor는 ready 뒤 소비한다. 생성기의 report.html은 제목3·인라인 표식·로컬 모듈·웹폰트·차단 fetch·상대/외부 링크를 포함한다. htmlFrame 스모크는 ready/probe, 폰트/모듈, 찾기와 원문 전환을 검사한다. 추가 후 매니페스트는 46개다.
+
+새 debug·release 바이너리로 각각 스모크 1회가 통과했다(46개 + 단일 인스턴스 전달·새 창 왕복2). 앱 sweep 시간은 debug 18,511ms, release 17,316ms였다. 두 빌드의 report.html 관측값은 동일하다: 제목3, 찾기2, 원문19줄, inline script/module/font=true, probe=`rejected:Origin header is not a valid URL`. 단순 timeout을 거부로 세지 않는다.
+
+에이전트 삽입 제거 변형은 새 debug 빌드에서 report.html ready timeout 1개 실패·나머지45개 통과, 왕복2 통과였다. 원본을 바이트 단위로 복원하고 정상 debug·release를 다시 빌드했다. Windows 실제 실행에 한정하며 WebKit은 CI 확인이 남아 있다. clippy는 이번 단계에서 실행하지 않았다.

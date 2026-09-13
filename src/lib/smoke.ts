@@ -13,6 +13,7 @@
  * harness targets are the event loop failing to turn.
  */
 import * as ipc from "./ipc";
+import { checkHtmlFrame } from "./components/frame/smoke";
 import { checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
 import { checkCollectionWidths } from "./components/collection/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
@@ -42,6 +43,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** The view a tab has actually finished loading, or null while it is working. */
 function readyView(tab: DocTab): string | null {
   switch (tab.view) {
+    case "frame":
+      return tab.frameReady ? "frame" : null;
     case "prose":
       return tab.html !== null ? "prose" : null;
     case "tree":
@@ -60,6 +63,7 @@ function readyView(tab: DocTab): string | null {
 }
 
 interface Outcome {
+  metrics?: unknown;
   ok: boolean;
   stage: string;
   view?: string;
@@ -100,6 +104,7 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === "htmlFrame") { return {ok:true,stage:what,metrics:await checkHtmlFrame(tab)}; }
   if (what === 'relativeLinks') return checkRelativeLinks(tab);
   if (what === "collectionWidths") {
     await checkCollectionWidths(tab);
@@ -254,7 +259,7 @@ export async function runSmoke(): Promise<void> {
     await ipc.smokeReport(
       {
         file: step.file,
-        metrics,
+        metrics: metrics ?? outcome.metrics,
         expect: step.expect,
         stage: outcome.stage,
         view: outcome.view,

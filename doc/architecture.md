@@ -87,9 +87,9 @@ DocBytes::map_file은 로컬 파일 길이가 64 MiB 이하이면 std::fs::read�
 
 인덱싱과 검색은 백그라운드 스레드에서 돌고 진행률·결과를 이벤트로 흘려보냅니다. 탭을 닫으면 취소됩니다.
 
-### 열네 형식, 다섯 개의 읽는 방식
+### 열다섯 형식, 여섯 개의 읽는 방식
 
-형식마다 뷰를 만들면 열네 벌이 되고 열세 벌은 늘 뒤처집니다. 그래서 형식은 **어떻게 읽히는가**로 묶습니다. 프론트엔드는 `DocKind` 가 아니라 `DocView`(`prose` / `tree` / `table` / `collection` / `archive`)로 분기합니다.
+형식은 **어떻게 읽히는가**로 묶습니다. 프론트엔드는 `DocKind` 가 아니라 `DocView`(`prose` / `tree` / `table` / `collection` / `archive` / `frame`)로 분기합니다.
 
 다섯 번째는 앞의 넷과 종류가 다릅니다. 넷은 **이 문서를 어떻게 볼 것인가**이고, `archive` 는 **다른 문서에 어떻게 닿을 것인가**입니다. 목록에서 다른 문서로 이어지는 보기입니다.
 
@@ -745,3 +745,14 @@ TableCell의 선택적 previewBytes는 바이너리의 기존16바이트 한도�
 AppState::Jobs는 index·search·lines를 문서별로 보관합니다. doc_lines_find는 start_lines_job으로 원문 찾기 전용 슬롯을 잡고, 표·트리 검색은 기존 search 슬롯을 사용합니다. 같은 종류의 새 요청만 이전 요청을 취소하며 tree_search_cancel도 원문 찾기에는 영향을 주지 않습니다. cancel_jobs는 세 슬롯을 모두 제거하고 취소하므로 닫기·재열기·형식/인코딩 전환의 정리 경로도 원문 찾기를 놓치지 않습니다. Document.line_cancel은 줄 색인 구축과 조회용 토큰으로 유지합니다.
 
 실제 경합 대상은 같은 Text 문서에서 진행 중인 표 검색과 원문 찾기입니다. 분리 패널은 검색 없는 KeyValueTable이므로 그 패널의 표 검색이라는 설명은 해당하지 않습니다.
+
+
+### 여섯째 보기: 격리 프레임
+
+HTML은 정화해 글 보기로 바꾸지 않고 opaque iframe(`allow-scripts`)에서 실행한다. `docserve.rs`의 tiny_http 서버는 127.0.0.1의 임의 포트에만 바인딩한다. 문서별 32바이트 OS 난수 토큰을 frame_url(id)로 전달하고, 문서 닫힘에 맞춰 폐기한다. Host와 토큰을 확인한 뒤 현재 AppState 문서를 다시 조회하므로 이미 닫힌 문서의 URL은 거부된다. 자원 경로는 URL 디코딩·루트 이탈 검사·심볼릭 링크/Windows reparse 검사·canonical 경계 확인을 거친다. 권한 범위는 로컬 문서의 부모 폴더다.
+
+본문은 앱이 선택한 인코딩의 UTF-8 snapshot이다. 64MiB 상한을 검사하고 SharedBytes 리더 앞·에이전트 태그·뒤를 연결하여 전체 본문을 다시 복제하지 않는다. 자원 파일도 크기를 검사한 뒤 스트림으로 보낸다. HTTP charset은 utf-8, CSP는 외부 통신·폼·하위 프레임을 막으며 Referrer-Policy no-referrer와 Cache-Control no-store를 사용한다. 문서별 토큰과 Access-Control-Allow-Origin null은 opaque 문서의 로컬 폰트·모듈 읽기를 허용한다. Range는 아직 구현하지 않는다.
+
+에이전트는 DOMContentLoaded 뒤 목차를 보내고, 부모와 자식은 event.source의 WindowProxy를 대조한다. 부모는 메시지 필드·범위와 중복 제목 id를 검사한다. 제목은 최대 10,000개, 찾기는 텍스트 노드별 최대 100,000개 일치다. 긴 노드 목록은 4,096개마다 실행을 양보하고 새 찾기는 이전 세대를 버린다. iframe 안의 Ctrl+F·Ctrl+E는 부모의 찾기/원문으로 전달한다. HTML 원문은 TextRawView와 기존 lines/lines 작업 슬롯을 재사용한다. 탭 전환은 스크롤 비율을 보존하고 파일 세대 변경은 프레임을 새로 만든다.
+
+등록된 커스텀 스킴은 Tauri에서 Local로 취급돼 M39의 same-origin 대조군에서 명령이 실행됐다. HTTP 출처는 opaque일 때 Origin 파서에서, same-origin일 때 Remote ACL에서 거부됐다. 제품 응답은 엄격한 CSP를 유지하고 ready를 IPC 프로브에 묶지 않는다. SmokeRun이 있는 실행에서만 probe=1 응답의 connect-src에 IPC 전송을 허용하며, 그 응답의 에이전트만 프로브를 수행한다. timeout/실행은 회귀 검사 실패이고, 실행 응답은 프레임을 비워 격리 오류로 표시한다. 다른 OS의 거부 경로는 CI 스모크가 확인한다.

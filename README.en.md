@@ -2,17 +2,18 @@
 
 [한국어](README.md) | [English](README.en.md)
 
-A desktop viewer for Markdown, JSON, JSONC, JSONL, YAML, TOML, XML, CSV, TSV, plain text or logs, SQLite, Excel, Parquet, and ZIP. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
+A desktop viewer for HTML, Markdown, JSON, JSONC, JSONL, YAML, TOML, XML, CSV, TSV, plain text or logs, SQLite, Excel, Parquet, and ZIP. Tauri v2 + Rust backend + Svelte 5 frontend. The interface is available in Korean, English, Japanese and Simplified Chinese.
 
-Fourteen formats, but only **five** ways of reading. Build a screen per format and you maintain fourteen of them — thirteen of which are always behind.
+Fifteen formats, grouped into **six** ways of reading.
 
 | View | Formats | What it does |
 | --- | --- | --- |
 | Prose | Markdown | GitHub-grade rendering (tables, checkboxes, footnotes, alert blocks), syntax highlighting with 193 languages (including TypeScript, TSX, TOML and Dockerfile), Mermaid, KaTeX. Whole-document and block copy as source or HTML, with optional inline styles; Mermaid SVG/PNG and display-math TeX/MathML/PNG copy. Raw/rendered toggle; current-heading indication for scrolling and TOC clicks, with automatic TOC scrolling; rendered/source search (toolbar button or Ctrl+F); a page-width dropdown and settings slider; automatic column-width recommendations with fill-width tables by default, column resizing, content fitting, scrolling/fill-width modes, and sticky headers |
+| Frame | HTML (.html/.htm/.xhtml) | Scripts, local modules and web fonts in an isolated origin; TOC, Ctrl+F search, Ctrl+E line-indexed source, relative document links and blocked-resource status |
 | Tree | JSON · JSONC · YAML · TOML · XML | Fold/unfold, key·value·path search, per-depth guide lines, key/value table, path popover, right-click copy. Open arrays and maps in grid subtabs (except XML) |
 | Table | CSV · TSV · text/logs · JSONL/NDJSON | Pinned header and row numbers, drag-to-resize columns, per-cell search and copy, header context menu for sorting, filtering one column and fitting its width (filtering only for Parquet). **Logs are read into columns** — time, level, source, message, and `key=value` pairs on request |
 | Collection | SQLite · Excel (xlsx) · Parquet | Pick one of the several things a file holds and read it in the same grid. SQLite brings a read-only connection and the statement that created it; xlsx brings its sheets and the formulas behind the values; Parquet brings its schema |
-| Archive | ZIP | What the archive holds, as a list. Pick one and it opens in a tab of its own, **as whichever of the four above it is** |
+| Archive | ZIP | What the archive holds, as a list. Pick one and it opens in a tab of its own, **in its corresponding view** |
 
 - Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
@@ -26,9 +27,9 @@ Fourteen formats, but only **five** ways of reading. Build a screen per format a
 - **Search by regular expression.** Turn on `.*` in the search box and the query is read as a pattern — matched inside one key or value in the tree, one cell in a grid, so `^\d+$` does what it says. Turn it off and the search is the literal one it has always been.
 - **Opening a Parquet file does not follow its size.** Only the index at the end is read, and only the row groups the screen reaches are decoded: 0.19ms at 52MB, 0.61ms at 311MB — what grows is the number of row groups, not the bytes. That is why it has none of the ceilings the other formats carry.
 - **Excel workbooks open.** Pick a sheet and read it as a table. Columns are named `A`, `B`, `AA` and row 1 is row 1, so the coordinates match the spreadsheet you are checking against. Dates are ISO 8601, and a toggle shows the formulas instead of the values. It is converted rather than mapped, so there is a 64MB ceiling.
-- **All fourteen formats open inside an archive and from a URL.** Excel, Parquet and SQLite included: every reader here takes bytes, so none of them has to be a file. A database out of an archive is read as an **image of itself, in place** rather than by querying a file — no copy is made, so the 512MB an entry may unpack to is the only ceiling. The workbook's 64MB is unchanged too.
+- **All fifteen formats open inside an archive and from a URL.** Excel, Parquet and SQLite included: every reader here takes bytes, so none of them has to be a file. A database out of an archive is read as an **image of itself, in place** rather than by querying a file — no copy is made, so the 512MB an entry may unpack to is the only ceiling. The workbook's 64MB is unchanged too.
 - **SQLite is read by querying.** The first format that is not a run of bytes. The file is opened read-only, its tables and views are listed, and the chosen one is drawn in the **same grid** the CSVs use. A position is written down every 1,024 rows, so the three-millionth row is one seek away.
-- **Archives open as a list to pick from.** Opening a `.zip` shows what is inside it; picking one opens it in a new tab under its own format — less a fourteenth format than a multiplier over the other thirteen. Opening costs only the table of contents at the end of the file, so a gigabyte takes a tenth of a second, and nothing is unpacked but the entry you pick. An archive holding a single document skips the list and opens it. **Names that are not UTF-8 are read too** — every undeclared name in the archive is weighed together to guess the encoding, and the status bar says when that is what happened.
+- **Archives open as a list to pick from.** Opening a `.zip` shows what is inside it; picking one opens it in a new tab under its own format — a list leading to the other formats. Opening costs only the table of contents at the end of the file, so a gigabyte takes a tenth of a second, and nothing is unpacked but the entry you pick. An archive holding a single document skips the list and opens it. **Names that are not UTF-8 are read too** — every undeclared name in the archive is weighed together to guess the encoding, and the status bar says when that is what happened.
 - **gzip files just open.** `access.log.gz` is decompressed and read under its inner name (`access.log`). The raw view shows the decompressed content.
 - **A tab keeps the end of its name.** A long name is shortened in the **middle**, not at the end: `2026-09-report-final.json` reads as `2026-09-report-f…inal.json`, so two files that differ only after the part that fits can still be told apart. **Tabs that share a name carry their folder** dimmed beside it (`config.json · alpha`), reaching one level further up when the folder matches too. When there are more tabs than the window holds, the strip scrolls sideways — its ends fade — and a **tab list button** appears.
 - Dark/light (auto by default), interface scale, separate interface and content font sizes, and content/code fonts picked from the fonts installed on the system.
@@ -100,9 +101,9 @@ Both the manifest and update file are authenticated with the embedded public key
 | `Ctrl W` | Close tab |
 | `Ctrl Tab` / `Ctrl Shift Tab` | Cycle main tabs |
 | `Ctrl PageDown` / `Ctrl PageUp` | Cycle the active document’s subtabs |
-| `Ctrl E` | Toggle Markdown raw/rendered |
+| `Ctrl E` | Toggle Markdown/HTML/text source and document view |
 | `Enter` / `Shift Enter` | Next / previous search hit |
-| `Ctrl F` | Tree search (all / keys / values / paths), table search, rendered/source Markdown search |
+| `Ctrl F` | Tree search (all / keys / values / paths), table search, HTML search, rendered/source Markdown search |
 | `Esc` in Markdown search | Close search and clear highlights |
 | `Ctrl +` `Ctrl -` `Ctrl 0` | Interface scale |
 | `←` `→` `Enter` in the tree | Fold / unfold |
@@ -127,6 +128,10 @@ The technical documentation lives in `doc/` (Korean).
 | [Dependencies](doc/dependencies.md) | Why each package was chosen, and vulnerability checks |
 
 ## Known limits
+
+- HTML documents and individual local resources are limited to 64MiB. HTML source uses the line index rather than a separate whole-source 16MiB conversion. The app detects or applies the chosen encoding and serves UTF-8; the response charset takes precedence over HTML meta declarations.
+- HTML runs in an opaque sandbox. localStorage, form submission, popups and external network resources are unavailable. Local web fonts and modules use resource URLs with a token unique to the document. Sibling resources must stay inside the local file’s parent directory; symbolic links and path escapes are rejected. Siblings of URL/archive documents are deferred to M42.
+- HTML TOCs contain at most 10,000 headings and search collects at most 100,000 matches. Search runs per text node; strings split across multiple inline elements are not combined into one match.
 
 - Text/log source search queries are limited to 8MiB of UTF-8. Queries exceeding the search engine's compilation limit also report an error.
 - A source range refused by the size limit is not requested again until the requested range key changes.

@@ -1248,6 +1248,29 @@ await writeFile(
 );
 console.log("  zip64.zip");
 
+
+// --- HTML: opaque frame, local module/font and source view ---------------------
+await writeFile(path.join(OUT, 'report-font.woff2'), await readFile(new URL('../node_modules/katex/dist/fonts/KaTeX_Main-Regular.woff2', import.meta.url)));
+await writeFile(path.join(OUT, 'report.mjs'), "document.body.dataset.moduleRan = 'yes';\n");
+await writeFile(path.join(OUT, 'report.html'), `<!doctype html>
+<html><head><meta charset="utf-8"><title>HTML frame fixture</title>
+<style>@font-face{font-family:FixtureFont;src:url('report-font.woff2')}body{font-family:FixtureFont,serif;line-height:1.6;padding:2rem}section{min-height:25rem}</style>
+<script type="module" src="report.mjs"></script>
+</head><body><h1>HTML reading</h1><p>needle: scripts, fonts and navigation.</p>
+<section><h2 id="details">Details</h2><p>needle in the second section.</p>
+<a href="sample.md">Open Markdown</a> · <a href="sample.json">Open JSON</a> · <a href="https://example.com/">External link</a> · <a href="#end">End</a></section>
+<section><h2 id="end">End</h2><p>Source mode preserves the original HTML.</p></section>
+<script>
+document.body.dataset.scriptRan='yes';
+fetch('https://example.com/').catch(()=>{});
+addEventListener('message', async event => {
+ if(event.source !== parent || event.data?.type !== 'fixture-check')return;
+ await document.fonts.load('16px FixtureFont');
+ parent.postMessage({type:'fixture-check',scriptRan:document.body.dataset.scriptRan==='yes',moduleRan:document.body.dataset.moduleRan==='yes',
+ fontLoaded:document.fonts.check('16px FixtureFont') && [...document.fonts].some(font=>font.family==='FixtureFont' && font.status==='loaded')},'*');
+});
+</script></body></html>\n`);
+
 // --- the smoke manifest ------------------------------------------------------
 // What each fixture is *for*, which is knowledge only this file has. The
 // harness opens the list and checks each against `expect`, so a fixture added
@@ -1260,6 +1283,7 @@ console.log("  zip64.zip");
 // holds one that cannot be opened and must fall back to its list (`archive`).
 
 const SMOKE = [
+  { file: "report.html", expect: "frame", then: "htmlFrame" },
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
   { file: 'markdown-links.md', expect: 'prose', then: 'relativeLinks' },

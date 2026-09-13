@@ -47,3 +47,8 @@ cd src-tauri && cargo audit     # cargo install cargo-audit
 작성 시점 기준 양쪽 모두 **취약점 0건**입니다. `cargo audit` 이 남기는 19건은 전부 "미관리(unmaintained)" 또는 unsound 경고이고, 대부분 Tauri의 리눅스 백엔드가 쓰는 GTK3 바인딩이라 Windows 빌드에는 아예 컴파일되지 않습니다. 나머지(`unic-*`, `bincode`, `proc-macro-error`)도 전이 의존성이라 직접 손댈 수 없습니다.
 
 직접 줄인 것은 하나입니다. syntect의 `yaml-load`·`plist-load` 기능을 껐습니다 — 내장 문법·테마 덤프만 쓰고 런타임에 `.sublime-syntax` 를 읽지 않으므로 필요 없고, 그 결과 미관리 크레이트 `yaml-rust` 가 컴파일 대상에서 빠집니다. `cargo audit` 은 Cargo.lock 을 훑기 때문에 경고 수는 그대로지만, 바이너리에는 들어가지 않습니다.
+
+
+### HTML 루프백 서버
+
+`tiny_http 0.12`는 로컬 고정·파일 응답용이다. TCP 위에서 HTTP 파서를 직접 만들지 않기 위해 선택했으며 TLS 서버는 필요하지 않다. 새 크레이트는 tiny_http/ascii/chunked_transfer/httpdate 넷이고, 난수 getrandom·토큰 비교 subtle·URL 디코딩 percent-encoding은 기존 의존성 트리의 크레이트를 직접 참조한다. Host·토큰·경로·크기 정책은 라이브러리에 맡기지 않고 docserve.rs에서 검사한다.
