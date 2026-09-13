@@ -22,7 +22,7 @@ pub async fn doc_lines(state: State<'_, AppState>, doc_id: DocId, start: u32, co
 pub async fn doc_lines_find(state: State<'_, AppState>, doc_id: DocId, query: String, from: u32, backward: bool) -> Result<Option<u32>> {
     let doc = state.get(doc_id)?;
     let generation = doc.generation();
-    let cancel = state.start_search_job(doc_id);
+    let cancel = state.start_lines_job(doc_id);
     tauri::async_runtime::spawn_blocking(move || {
         let lines = doc.line_index(generation, &cancel)?;
         let stop = || cancel.load(Ordering::Relaxed) || doc.generation() != generation;

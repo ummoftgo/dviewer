@@ -632,12 +632,13 @@ impl Document {
 }
 
 /// Cancellation flags for the background jobs a document can have in flight.
-/// Both are per-document and single-slot: starting a new one supersedes the
-/// old, and closing the tab cancels whatever is running.
+/// Each map holds one token per document and job kind. Closing a document
+/// cancels every kind; replacing a search cancels only the same kind.
 #[derive(Default)]
 struct Jobs {
     index: HashMap<DocId, Arc<AtomicBool>>,
     search: HashMap<DocId, Arc<AtomicBool>>,
+    lines: HashMap<DocId, Arc<AtomicBool>>,
 }
 
 #[derive(Debug, Clone)]
@@ -950,6 +951,16 @@ impl AppState {
         flag
     }
 
+    /// Raw-line find must not supersede a table/tree search on the same document.
+    pub fn start_lines_job(&self, id: DocId) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut jobs = self.jobs.write();
+        if let Some(previous) = jobs.lines.insert(id, Arc::clone(&flag)) {
+            previous.store(true, Ordering::Relaxed);
+        }
+        flag
+    }
+
     pub fn cancel_search_job(&self, id: DocId) {
         if let Some(flag) = self.jobs.write().search.remove(&id) {
             flag.store(true, Ordering::Relaxed);
@@ -959,7 +970,7 @@ impl AppState {
     pub fn cancel_jobs(&self, id: DocId) {
         if let Ok(doc) = self.get(id) { doc.clear_order(); doc.cancel_lines(); }
         let mut jobs = self.jobs.write();
-        for flag in [jobs.index.remove(&id), jobs.search.remove(&id)]
+        for flag in [jobs.index.remove(&id), jobs.search.remove(&id), jobs.lines.remove(&id)]
             .into_iter()
             .flatten()
         {
@@ -1305,5 +1316,51 @@ mod tests {
         let queued = doc.line_token();
         doc.cancel_lines();
         assert!(matches!(doc.line_index(doc.generation(), &queued), Err(Error::Cancelled)));
+    }
+
+    #[test]
+    fn line_search_jobs_replace_only_their_own_kind() {
+        let state = AppState::default();
+        let id = state.next_id();
+        let lines = state.start_lines_job(id);
+        let search = state.start_search_job(id);
+        assert!(!lines.load(Ordering::Relaxed));
+        assert!(!search.load(Ordering::Relaxed));
+        let newer_lines = state.start_lines_job(id);
+        assert!(lines.load(Ordering::Relaxed));
+        assert!(!search.load(Ordering::Relaxed));
+        let newer_search = state.start_search_job(id);
+        assert!(search.load(Ordering::Relaxed));
+        assert!(!newer_lines.load(Ordering::Relaxed));
+        state.cancel_search_job(id);
+        assert!(newer_search.load(Ordering::Relaxed));
+        assert!(!newer_lines.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn line_search_jobs_are_cancelled_and_removed_with_the_document() {
+        let state = AppState::default();
+        let id = state.next_id();
+        let doc = state.insert("main", stub(id));
+        doc.set_kind(DocKind::Text);
+        let read = doc.line_token();
+        let index = state.start_index_job(id).unwrap();
+        let search = state.start_search_job(id);
+        let lines = state.start_lines_job(id);
+        let other_id = state.next_id();
+        let other = state.start_lines_job(other_id);
+        state.cancel_jobs(id);
+        for token in [&read, &index, &search, &lines] { assert!(token.load(Ordering::Relaxed)); }
+        assert!(!other.load(Ordering::Relaxed));
+        {
+            let jobs = state.jobs.read();
+            assert!(!jobs.index.contains_key(&id));
+            assert!(!jobs.search.contains_key(&id));
+            assert!(!jobs.lines.contains_key(&id));
+            assert!(jobs.lines.contains_key(&other_id));
+        }
+        assert!(state.start_index_job(id).is_some());
+        assert!(!state.start_lines_job(id).load(Ordering::Relaxed));
+        assert!(!doc.line_token().load(Ordering::Relaxed));
     }
 }
