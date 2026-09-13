@@ -5,8 +5,10 @@ import { expect, test, vi } from 'vitest';
 test('the real frame agent forwards focus/Escape but leaves consumed keys and Ctrl+Tab alone', () => {
   const listeners = new Map<string, (event: unknown) => void>();
   const postMessage = vi.fn();
+  const load = '?g=0&x=1';
   runInNewContext(readFileSync(new URL('./agent.js', import.meta.url), 'utf8'), {
     parent: { postMessage },
+    location: { search: load },
     document: { readyState: 'loading', addEventListener() {}, currentScript: null },
     addEventListener(type: string, listener: (event: unknown) => void) { listeners.set(type, listener); },
   });
@@ -17,9 +19,9 @@ test('the real frame agent forwards focus/Escape but leaves consumed keys and Ct
     return preventDefault;
   };
   expect(press('F11')).toHaveBeenCalledOnce();
-  expect(postMessage).toHaveBeenLastCalledWith({ type: 'shortcut', key: 'focus' }, '*');
+  expect(postMessage).toHaveBeenLastCalledWith({ type: 'shortcut', key: 'focus', load }, '*');
   press('Escape');
-  expect(postMessage).toHaveBeenLastCalledWith({ type: 'shortcut', key: 'escape' }, '*');
+  expect(postMessage).toHaveBeenLastCalledWith({ type: 'shortcut', key: 'escape', load }, '*');
   press('F11', { repeat: true });
   press('Escape', { defaultPrevented: true });
   press('Tab', { ctrlKey: true });

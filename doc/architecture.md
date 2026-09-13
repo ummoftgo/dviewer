@@ -773,8 +773,12 @@ WebKitGTK 2.50에서는 opaque sandbox 문서의 CSP `'self'`가 문서 URL이 �
 
 HTML은 정화해 글 보기로 바꾸지 않고 opaque iframe(`allow-scripts`)에서 실행한다. `docserve.rs`의 tiny_http 서버는 127.0.0.1의 임의 포트에만 바인딩한다. 문서별 32바이트 OS 난수 토큰을 frame_url(id)로 전달하고, 문서 닫힘에 맞춰 폐기한다. Host와 토큰을 확인한 뒤 현재 AppState 문서를 다시 조회하므로 이미 닫힌 문서의 URL은 거부된다. 자원 경로는 URL 디코딩·루트 이탈 검사·심볼릭 링크/Windows reparse 검사·canonical 경계 확인을 거친다. 권한 범위는 로컬 문서의 부모 폴더다.
 
-본문은 앱이 선택한 인코딩의 UTF-8 snapshot이다. 64MiB 상한을 검사하고 SharedBytes 리더 앞·에이전트 태그·뒤를 연결하여 전체 본문을 다시 복제하지 않는다. 자원 파일도 크기를 검사한 뒤 스트림으로 보낸다. HTTP charset은 utf-8, CSP는 외부 통신·폼·하위 프레임을 막으며 Referrer-Policy no-referrer와 Cache-Control no-store를 사용한다. 문서별 토큰과 Access-Control-Allow-Origin null은 opaque 문서의 로컬 폰트·모듈 읽기를 허용한다. Range는 아직 구현하지 않는다.
+본문은 앱이 선택한 인코딩의 UTF-8 snapshot이다. 64MiB 상한을 검사하고 SharedBytes 리더 앞·에이전트 태그·뒤를 연결하여 전체 본문을 다시 복제하지 않는다. 자원 파일도 크기를 검사한 뒤 스트림으로 보낸다. HTTP charset은 utf-8, 기본 CSP는 외부 통신·폼·하위 프레임을 막으며 Referrer-Policy no-referrer와 Cache-Control no-store를 사용한다. 문서별 토큰과 Access-Control-Allow-Origin null은 opaque 문서의 로컬 폰트·모듈 읽기를 허용한다. Range는 아직 구현하지 않는다.
+
+외부 허용은 토큰 등록부의 external과 탭 상태로 보관하며 저장하지 않는다. frame_external이 성공한 뒤 로딩 revision을 올려 iframe을 새로 만들고, response_policy는 명시적 루프백 출처를 유지하면서 script/style/img/font/media/connect에만 HTTPS를 추가한다. 재읽기는 같은 문서의 허용을 유지하고 닫기는 토큰과 허용을 함께 폐기한다. 에이전트의 모든 메시지는 해당 로딩의 query 식별값을 싣고 부모는 WindowProxy와 식별값을 함께 검사한다. frameLoaded는 load 이벤트 진단이고 frameReadyLoad는 새 ready의 식별값이므로 둘을 섞지 않는다.
+
+압축 HTML URL은 /토큰/docs/page.html처럼 항목의 디렉터리를 보존한다. 그래야 브라우저가 ../shared.css를 압축 루트 안에서 해석하며, 서버도 퍼센트 디코딩 후 루트 이탈을 거부할 수 있다. AppState는 같은 창의 열린 파일 ZIP 중 root와 일치하는 직접 부모만 조회한다. 형제 바이트는 ArchiveDoc::read_entry_limited로 읽는 도중 64MiB를 제한하고 기존 read_entry의 512MiB 계약은 유지한다. 부모를 닫으면 새 형제 요청은 404이며 이미 독립한 HTML snapshot은 계속 읽을 수 있다. 중첩·URL 출처에는 형제 서빙을 제공하지 않는다.
 
 에이전트는 DOMContentLoaded 뒤 목차를 보내고, 부모와 자식은 event.source의 WindowProxy를 대조한다. 부모는 메시지 필드·범위와 중복 제목 id를 검사한다. 제목은 최대 10,000개, 찾기는 텍스트 노드별 최대 100,000개 일치다. 긴 노드 목록은 4,096개마다 실행을 양보하고 새 찾기는 이전 세대를 버린다. iframe 안의 Ctrl+F·Ctrl+E는 부모의 찾기/원문으로 전달한다. HTML 원문은 TextRawView와 기존 lines/lines 작업 슬롯을 재사용한다. 탭 전환은 스크롤 비율을 보존하고 파일 세대 변경은 프레임을 새로 만든다.
 
-등록된 커스텀 스킴은 Tauri에서 Local로 취급돼 M39의 same-origin 대조군에서 명령이 실행됐다. HTTP 출처는 opaque일 때 Origin 파서에서, same-origin일 때 Remote ACL에서 거부됐다. 제품 응답은 엄격한 CSP를 유지하고 ready를 IPC 프로브에 묶지 않는다. SmokeRun이 있는 실행에서만 probe=1 응답의 connect-src에 IPC 전송을 허용하며, 그 응답의 에이전트만 프로브를 수행한다. timeout/실행은 회귀 검사 실패이고, 실행 응답은 프레임을 비워 격리 오류로 표시한다. 다른 OS의 거부 경로는 CI 스모크가 확인한다.
+등록된 커스텀 스킴은 Tauri에서 Local로 취급돼 M39의 same-origin 대조군에서 명령이 실행됐다. HTTP 출처는 opaque일 때 Origin 파서에서, same-origin일 때 Remote ACL에서 거부됐다. 제품 응답은 기본적으로 엄격한 CSP를 사용하고 ready를 IPC 프로브에 묶지 않는다. SmokeRun이 있는 실행에서만 probe=1 응답의 connect-src에 IPC 전송을 허용하며, 외부 자원 허용 시에도 이 스모크 전용 검사를 유지한다. timeout/실행은 회귀 검사 실패이고, 실행 응답은 프레임을 비워 격리 오류로 표시한다. 다른 OS의 거부 경로는 CI 스모크가 확인한다.

@@ -1178,6 +1178,24 @@ await writeFile(
     // a workbook among the rows, with the badge and the click that opens it.
     { name: "data/sales.xlsx", body: workbookBytes, utf8: true },
     { name: "data/app.sqlite", body: databaseBytes, utf8: true },
+    { name: "docs/page.html", body: `<!doctype html>
+<html><head><meta charset="utf-8"><title>Archive HTML</title>
+<link rel="stylesheet" href="./page.css"><link rel="stylesheet" href="../shared.css">
+</head><body><h1>Archive siblings</h1><p>Local CSS, parent-directory CSS and an image.</p>
+<img id="pixel" src="pixel.svg" alt="Archive image"><a href="../report.json">Open JSON</a>
+<script>
+addEventListener('message', event => {
+ if(event.source !== parent || event.data?.type !== 'fixture-check')return;
+ const answer = () => parent.postMessage({type:'fixture-check',load:location.search,
+  cssApplied:getComputedStyle(document.body).color==='rgb(17, 34, 51)',
+  parentCssApplied:getComputedStyle(document.body).backgroundColor==='rgb(245, 246, 247)',
+  imageLoaded:document.getElementById('pixel').complete && document.getElementById('pixel').naturalWidth===8},'*');
+ if(document.readyState==='complete')answer();else addEventListener('load',answer,{once:true});
+});
+</script></body></html>`, utf8: true },
+    { name: "docs/page.css", body: "body{color:#112233;padding:2rem;font-family:sans-serif}", utf8: true },
+    { name: "shared.css", body: "body{background-color:#f5f6f7}", utf8: true },
+    { name: "docs/pixel.svg", body: '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#112233"/></svg>', utf8: true },
   ]),
 );
 console.log("  archive.zip");
@@ -1268,11 +1286,14 @@ await writeFile(path.join(OUT, 'report.html'), `<!doctype html>
 <section><h2 id="end">End</h2><p>Source mode preserves the original HTML.</p></section>
 <script>
 document.body.dataset.scriptRan='yes';
+let blocked=0;
+addEventListener('securitypolicyviolation',()=>blocked++);
+document.body.dataset.externalAttempted='yes';
 fetch('https://example.com/').catch(()=>{});
 addEventListener('message', async event => {
  if(event.source !== parent || event.data?.type !== 'fixture-check')return;
  await document.fonts.load('16px FixtureFont');
- parent.postMessage({type:'fixture-check',scriptRan:document.body.dataset.scriptRan==='yes',moduleRan:document.body.dataset.moduleRan==='yes',
+ parent.postMessage({type:'fixture-check',load:location.search,blocked,externalAttempted:document.body.dataset.externalAttempted==='yes',scriptRan:document.body.dataset.scriptRan==='yes',moduleRan:document.body.dataset.moduleRan==='yes',
  fontLoaded:document.fonts.check('16px FixtureFont') && [...document.fonts].some(font=>font.family==='FixtureFont' && font.status==='loaded')},'*');
 });
 </script></body></html>\n`);

@@ -201,11 +201,28 @@ export class DocTab {
   frameScroll = $state(0);
   frameBlocked = $state(0);
   frameProbe = $state<string | null>(null);
+  frameExternal = $state(false);
+  frameToggling = $state(false);
+  frameRevision = $state(0);
+  frameReadyLoad = $state('');
   frameSearch = $state({open:false, query:"", n:0, index:0, request:0});
   readonly markdownSearch = new MarkdownSearchState();
   codeLanguages: Record<string, ipc.CodeLanguage> = {};
   readonly codeSelections = new Map<number, string>();
   private rawRequest: Promise<string> | null = null;
+
+  get frameQuery() { return `?g=${this.meta.generation ?? 0}&x=${this.frameRevision}`; }
+
+  async setFrameExternal(allow: boolean) {
+    if (this.frameToggling || allow === this.frameExternal) return;
+    this.frameToggling = true;
+    try {
+      await ipc.frameExternal(this.id, allow);
+      this.frameExternal = allow;
+      this.frameRevision++;
+      this.frameReady = false; this.frameReadyLoad = ''; this.frameBlocked = 0;
+    } finally { this.frameToggling = false; }
+  }
 
   loadRaw(): Promise<string> {
     if (this.raw !== null) return Promise.resolve(this.raw);
@@ -348,6 +365,7 @@ export class DocTab {
     this.frameBlocked = 0; this.frameProbe = null;
     this.frameError = null; this.frameUrlPort = null; this.frameLoaded = false;
     this.frameServed = null; this.frameCsp = []; this.frameAgentStarted = false;
+    this.frameReadyLoad = '';
     this.frameSearch = {open:false,query:"",n:0,index:0,request:0};
     this.markdownSearch.open = false;
     this.markdownSearch.query = '';

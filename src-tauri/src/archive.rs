@@ -158,6 +158,12 @@ impl ArchiveDoc {
     /// gigabytes and holds four kilobytes must not be able to ask for the
     /// allocation on the strength of saying so.
     pub fn read_entry(&self, index: u32) -> Result<Vec<u8>> {
+        self.read_entry_limited(index, MAX_DECOMPRESSED_BYTES)
+    }
+
+    /// A caller may impose a smaller ceiling before decompression allocates it.
+    pub(crate) fn read_entry_limited(&self, index: u32, limit: usize) -> Result<Vec<u8>> {
+        let limit = limit.min(MAX_DECOMPRESSED_BYTES);
         let entry = self.entry(index).ok_or(Error::NoSuchEntry { index })?;
         // Said out loud rather than handled. Asking for a password would mean
         // holding one, and a viewer that unlocks archives is a different
@@ -177,17 +183,17 @@ impl ArchiveDoc {
         let mut out = Vec::new();
         // One byte past the limit is enough to know, and stops the read there
         // rather than after the whole thing has been built.
-        file.take(MAX_DECOMPRESSED_BYTES as u64 + 1)
+        file.take(limit as u64 + 1)
             .read_to_end(&mut out)
             .map_err(|e| Error::ParseFailed {
                 subject: Subject::Archive,
                 detail: e.to_string(),
             })?;
-        if out.len() > MAX_DECOMPRESSED_BYTES {
+        if out.len() > limit {
             return Err(Error::TooLarge {
                 subject: Subject::Decompressed,
                 megabytes: out.len() / 1024 / 1024,
-                limit_mb: MAX_DECOMPRESSED_BYTES / 1024 / 1024,
+                limit_mb: limit / 1024 / 1024,
             });
         }
         Ok(out)

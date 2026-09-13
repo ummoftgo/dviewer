@@ -1089,3 +1089,13 @@ vitest는 324개·28파일, check는 오류0·경고0·4로케일×438키다. �
 새 debug·release 바이너리로 각각 스모크 1회가 통과했다(46개 + 단일 인스턴스 전달·새 창 왕복2). 앱 sweep 시간은 debug 18,511ms, release 17,316ms였다. 두 빌드의 report.html 관측값은 동일하다: 제목3, 찾기2, 원문19줄, inline script/module/font=true, probe=`rejected:Origin header is not a valid URL`. 단순 timeout을 거부로 세지 않는다.
 
 에이전트 삽입 제거 변형은 새 debug 빌드에서 report.html ready timeout 1개 실패·나머지45개 통과, 왕복2 통과였다. 원본을 바이트 단위로 복원하고 정상 debug·release를 다시 빌드했다. Windows 실제 실행에 한정하며 WebKit은 CI 확인이 남아 있다. clippy는 이번 단계에서 실행하지 않았다.
+
+## M42 — 외부 자원 허용과 압축 HTML 형제 자원
+
+M46 통합 후 프런트는 vitest 348개·32파일, check 오류·경고 0 및 4로케일×454키, FrameView Svelte 분석 issues 0이다. 토글 IPC 성공·실패, 재읽기 동안 허용 유지, 새 탭 초기값, 이전 로딩 메시지 거부를 검사한다.
+
+Rust에는 문서별 완화 CSP와 프로브 유지, 압축 경로의 루트 이탈 거부, 같은 창의 직접 파일 ZIP 부모만 이용하는 형제 서빙, 읽는 도중의 해제 상한 검사를 추가했다. 생성기의 archive.zip에는 docs/page.html·docs/page.css·shared.css·docs/pixel.svg를 추가하고, 기존 htmlFrame에는 허용·재차단과 실제 계산된 스타일·이미지 확인을 연결했다. 매니페스트 항목은 늘리지 않는다.
+
+M46과 v0.21.0 통합 뒤 Rust 전체 544개(fixtures required, 실패·무시 0)가 통과했다. 압축 경로의 루트 위 차단을 제거한 변형은 `../outside.css` 단언 1개 실패·543개 필터 제외였다. 완화 CSP를 무시하는 변형은 새 debug 빌드 스모크에서 report.html의 외부 허용 단언 1개만 실패했고, 나머지 45개와 왕복 2개는 통과했다. 두 변형 모두 소스를 바이트 단위로 복원했다.
+
+픽스처 재생성 후 정상 debug·release 빌드 스모크가 각각 46개와 왕복 2개를 통과했다(앱 sweep debug 18,621ms·release 17,586ms). 두 빌드의 report.html은 허용 뒤 차단 0·재차단 1, 압축 안 같은 디렉터리 CSS·부모 디렉터리 CSS·이미지 모두 true, 제목 3·찾기 2·원문 22줄, 인라인 스크립트·모듈·폰트 모두 true, 프로브 `rejected:Origin header is not a valid URL`이었다. release는 main의 진행 로그 변경을 rebase한 뒤 실행했으며, 이 rebase는 제품·빌드 입력을 바꾸지 않았다. Windows 실제 실행에 한정하고 Linux·macOS와 사용자 화면 확인은 별도다. clippy와 성능 전후 실측은 실행하지 않았다.

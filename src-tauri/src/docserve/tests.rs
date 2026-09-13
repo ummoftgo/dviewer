@@ -142,3 +142,108 @@ fn opaque_documents_get_an_explicit_server_origin_in_the_response_policy() {
         }
     }
 }
+
+#[test]
+fn external_permission_is_document_scoped_and_preserves_the_probe_policy() {
+    let state = AppState::default();
+    document(&state, 1, b"<head></head>"); document(&state, 2, b"<head></head>");
+    let server = DocServer { host: "127.0.0.1:12345".into(),
+        tokens: Arc::new(Mutex::new(HashMap::from([("a".into(), Route::new(1)), ("b".into(), Route::new(2))]))),
+        stop: Arc::new(AtomicBool::new(false)), worker: None };
+    let base = document_policy(&server.host);
+    let header = |id, probe| {
+        let path = if id == 1 { "/a/?probe=1" } else { "/b/?probe=1" };
+        let response = serve(&state, &server.tokens, path, probe, &base).unwrap();
+        response.headers().iter().find(|h| h.field.equiv("Content-Security-Policy")).unwrap().value.to_string()
+    };
+    assert_eq!(header(1, false), base);
+    server.external(1, true).unwrap();
+    for probe in [false, true] {
+        let policy = header(1, probe);
+        for directive in ["script-src", "style-src", "img-src", "font-src", "media-src"] {
+            assert!(policy.contains(&format!("{directive} https: http://127.0.0.1:12345")));
+        }
+        assert!(policy.contains("connect-src https:"));
+        assert_eq!(policy.contains("http://ipc.localhost"), probe);
+        assert!(policy.contains("frame-src 'none'; form-action 'none'; base-uri 'none'; worker-src http://127.0.0.1:12345 blob:"));
+        assert!(!policy.contains("unsafe-eval"));
+        assert_eq!(header(2, false), base);
+    }
+    server.url(1).unwrap();
+    assert!(header(1, false).contains("https:"));
+    server.external(1, false).unwrap();
+    assert_eq!(header(1, false), base);
+    server.external(1, true).unwrap(); server.revoke(1);
+    assert!(server.external(1, false).is_err());
+    server.url(1).unwrap();
+    assert!(!server.tokens.lock().values().find(|route| route.id == 1).unwrap().external);
+}
+
+#[test]
+fn archive_paths_preserve_directories_but_never_climb_above_the_root() {
+    assert_eq!(archive_path("docs/../shared.css").as_deref(), Some("shared.css"));
+    assert_eq!(archive_path("./docs//page.html").as_deref(), Some("docs/page.html"));
+    let path = "문서/한 글#?%.html";
+    let encoded = encode_path(path);
+    assert!(encoded.contains('/'));
+    assert_eq!(percent_encoding::percent_decode_str(&encoded).decode_utf8().unwrap(), path);
+    for path in ["../outside.css", "docs/../../outside.css", "/outside.css", "C:/outside.css", "docs\\page.css", "bad\0.css", ""] {
+        assert!(archive_path(path).is_none(), "{path}");
+    }
+}
+
+#[test]
+fn archive_siblings_need_a_direct_file_parent_in_the_same_window() {
+    use crate::archive::{ArchiveDoc, fixtures::{stored, zip_bytes}};
+    let state = AppState::default();
+    let root = DocSource::File { path: "bundle.zip".into() };
+    let bytes = zip_bytes(vec![stored(b"docs/page.html", b"<head></head>", 0),
+        stored(b"docs/page.css", b"body{color:red}", 0), stored(b"shared.css", b"body{margin:0}", 0)]);
+    let parent = |id, window, source: DocSource| {
+        let doc = Document::new(id, "bundle.zip".into(), source, None, DocKind::Zip, bytes.clone(), encoding::verbatim(bytes.clone()));
+        doc.set_archive(0, Arc::new(ArchiveDoc::open(bytes.clone()).unwrap())).unwrap();
+        state.insert(window, doc);
+    };
+    let child = |id, source: DocSource| {
+        let bytes = Arc::new(DocBytes::Owned(b"<head></head>".to_vec()));
+        state.insert("main", Document::new(id, "page.html".into(), source, None, DocKind::Html, bytes.clone(), encoding::decode(bytes)));
+    };
+    let source = root.entry(0, "docs/page.html".into()).unwrap();
+    assert_eq!(document_path(&source).as_deref(), Some("docs/page.html"));
+    parent(1, "main", root.clone()); parent(2, "other-window", root.clone()); child(3, source);
+    let tokens = Mutex::new(HashMap::from([("a".into(), Route::new(3))]));
+    let policy = document_policy("127.0.0.1:12345");
+    assert!(serve(&state, &tokens, "/a/docs/page%2Ehtml", false, &policy).is_some());
+    for (path, expected) in [("/a/docs/page.css", "body{color:red}"), ("/a/docs/../shared.css", "body{margin:0}")] {
+        let response = serve(&state, &tokens, path, false, &policy).unwrap();
+        assert!(response.headers().iter().any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "text/css"));
+        let mut body = String::new(); response.into_reader().read_to_string(&mut body).unwrap();
+        assert_eq!(body, expected);
+    }
+    for path in ["/a/docs/%2e%2e/%2e%2e/shared.css", "/a/../shared.css", "/a/missing.css"] {
+        assert!(serve(&state, &tokens, path, false, &policy).is_none());
+    }
+    state.remove(1);
+    assert!(serve(&state, &tokens, "/a/docs/page.css", false, &policy).is_none());
+    assert!(serve(&state, &tokens, "/a/docs/page.html", false, &policy).is_some());
+    let nested = root.entry(4, "inner.zip".into()).unwrap();
+    parent(4, "main", nested.clone()); child(5, nested.entry(0, "docs/page.html".into()).unwrap());
+    let remote = DocSource::Url { url: "https://example.test/bundle.zip".into() };
+    parent(6, "main", remote.clone()); child(7, remote.entry(0, "docs/page.html".into()).unwrap());
+    for id in [5, 7] {
+        assert!(state.frame_archive(id).is_none());
+        let tokens = Mutex::new(HashMap::from([("b".into(), Route::new(id))]));
+        assert!(serve(&state, &tokens, "/b/docs/page.html", false, &policy).is_some());
+        assert!(serve(&state, &tokens, "/b/docs/page.css", false, &policy).is_none());
+    }
+}
+
+#[test]
+fn resource_decompression_stops_at_the_callers_limit() {
+    use crate::archive::{ArchiveDoc, fixtures::{crc32, deflated, zip_of}};
+    let body = b"12345678";
+    let archive = ArchiveDoc::open(zip_of(&[(deflated(b"page.css", body), crc32(body))])).unwrap();
+    assert!(matches!(archive.read_entry_limited(0, 4), Err(Error::TooLarge { .. })));
+    assert_eq!(archive.read_entry_limited(0, body.len()).unwrap(), body);
+    assert_eq!(archive.read_entry(0).unwrap(), body);
+}

@@ -26,9 +26,9 @@ test('frame errors never expose document URLs or tokens in the diagnostic line',
 test('request counts, parent CSP and agent start distinguish the second timeout stage without URLs', () => {
   const frame = {} as Window;
   const token = 'cd'.repeat(32);
-  const data = {type:'agentStart', ignored:token};
-  expect(frameMessage({source:frame, data}, frame)).toEqual({type:'agentStart'});
-  expect(frameMessage({source:{} as Window, data}, frame)).toBeNull();
+  const data = {type:'agentStart', ignored:token, load:'?g=0&x=0'};
+  expect(frameMessage({source:frame, data}, frame, data.load)).toEqual({type:'agentStart'});
+  expect(frameMessage({source:{} as Window, data}, frame, data.load)).toBeNull();
   const csp = parentCspViolation('frame-src', `http://127.0.0.1:46199/${token}/?g=0`);
   expect(csp).toBe('frame-src port 46199');
   expect(parentCspViolation('script-src-elem', 'inline')).toBe('script-src-elem inline');

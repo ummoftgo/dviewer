@@ -67,6 +67,7 @@ vi.mock("../ipc", async (importOriginal) => {
     gridOrder: vi.fn(),
     watchDoc: vi.fn(async () => {}),
     reloadDoc: vi.fn(),
+    frameExternal: vi.fn(async () => {}),
     treeAsTable: vi.fn(async (parent: number, node: number) => {
       const waiting = gate;
       gate = null;
@@ -279,6 +280,7 @@ beforeEach(() => {
   release = null;
   vi.mocked(ipc.openPath).mockClear();
   vi.mocked(ipc.openEntry).mockClear();
+  vi.mocked(ipc.frameExternal).mockReset().mockResolvedValue(undefined);
 });
 
 describe('relative document links', () => {
@@ -799,6 +801,38 @@ test('HTML frame metadata resets on reload while its search stays local to the v
   expect([tab.frameError,tab.frameUrlPort,tab.frameLoaded]).toEqual([null,null,false]);
   expect([tab.frameServed,tab.frameCsp,tab.frameAgentStarted]).toEqual([null,[],false]);
   expect(tab.frameSearch).toEqual({open:false,query:'',n:0,index:0,request:0});
+});
+
+test('external resources apply only after IPC succeeds and reload keeps the tab permission', async () => {
+  const tab = new DocTab({...meta({type:'file',path:'C:/report.html'},'html'), generation:1});
+  tab.frameReady = true; tab.frameReadyLoad = tab.frameQuery; tab.frameBlocked = 3;
+  const before = tab.frameQuery;
+  let finish!: () => void;
+  vi.mocked(ipc.frameExternal).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const pending = tab.setFrameExternal(true);
+  expect([tab.frameToggling, tab.frameExternal, tab.frameQuery, tab.frameBlocked]).toEqual([true, false, before, 3]);
+  await tab.setFrameExternal(true);
+  expect(ipc.frameExternal).toHaveBeenCalledTimes(1);
+  finish(); await pending;
+  expect(ipc.frameExternal).toHaveBeenCalledWith(tab.id, true);
+  expect([tab.frameExternal,tab.frameToggling,tab.frameReady,tab.frameReadyLoad,tab.frameBlocked]).toEqual([true,false,false,'',0]);
+  expect(tab.frameQuery).not.toBe(before);
+  const allowed = tab.frameQuery;
+  tab.meta = {...tab.meta,generation:2}; tab.invalidate();
+  expect(tab.frameExternal).toBe(true);
+  expect(tab.frameQuery).not.toBe(allowed);
+  await tab.setFrameExternal(false);
+  expect([tab.frameExternal,tab.frameRevision]).toEqual([false,2]);
+  expect(new DocTab(tab.meta).frameExternal).toBe(false);
+});
+
+test('a failed permission command leaves the loaded document and block count intact', async () => {
+  const tab = new DocTab(meta({type:'text'},'html'));
+  tab.frameReady = true; tab.frameReadyLoad = tab.frameQuery; tab.frameBlocked = 2;
+  vi.mocked(ipc.frameExternal).mockRejectedValueOnce(new Error('rejected'));
+  await expect(tab.setFrameExternal(true)).rejects.toThrow('rejected');
+  expect([tab.frameExternal,tab.frameRevision,tab.frameToggling,tab.frameReady,tab.frameBlocked]).toEqual([false,0,false,true,2]);
+  expect(tab.frameReadyLoad).toBe(tab.frameQuery);
 });
 
 test('relative HTML targets retain their anchor for FrameView to consume', async () => {

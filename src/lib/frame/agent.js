@@ -1,7 +1,8 @@
 // Runs inside the document's opaque sandbox. The host validates every message.
 (() => {
-  parent.postMessage({type:'agentStart'}, '*');
-  const send = value => parent.postMessage(value, '*');
+  const load = location.search;
+  parent.postMessage({type:'agentStart', load}, '*');
+  const send = value => parent.postMessage({...value, load}, '*');
   const MAX_HEADINGS = 10000, MAX_MATCHES = 100000;
   let blocked = 0, scrollTimer, search = 0;
   let query = '', ranges = [], selected = -1, built = false;

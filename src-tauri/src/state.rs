@@ -881,6 +881,23 @@ impl AppState {
         self.docs.read().get(&id).cloned().ok_or(Error::NoSuchDoc { id })
     }
 
+    pub(crate) fn frame_archive(&self, id: DocId) -> Option<Arc<crate::archive::ArchiveDoc>> {
+        let owners = self.owners.read();
+        let owner = owners.by_doc.get(&id)?;
+        let docs = self.docs.read();
+        let child = docs.get(&id)?;
+        let DocSource::ArchiveEntry { root, entries } = &child.source else { return None; };
+        if entries.len() != 1 { return None; }
+        let DocSource::File { path } = root.as_ref() else { return None; };
+        docs.values().find_map(|doc| {
+            if owners.by_doc.get(&doc.id) != Some(owner) || doc.kind() != DocKind::Zip { return None; }
+            match &doc.source {
+                DocSource::File { path: parent } if parent == path => doc.archive(),
+                _ => None,
+            }
+        })
+    }
+
     /// Dropping the Arc releases the mmap and the JSON index immediately,
     /// provided no background job still holds a clone.
     pub fn remove(&self, id: DocId) {

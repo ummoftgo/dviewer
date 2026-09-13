@@ -805,3 +805,4 @@ export function warningMessage(warning: DecodeWarning): string {
 export const frameUrl = (docId: number) => invoke<string>("frame_url", { docId });
 export interface FrameServed { html: number; agent: number; resource: number }
 export const frameServed = (docId: number) => invoke<FrameServed>("frame_served", { docId });
+export const frameExternal = (docId: number, allow: boolean) => invoke<void>("frame_external", { docId, allow });

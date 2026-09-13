@@ -3,7 +3,7 @@ use std::{collections::HashMap, io::{Cursor, Read}, net::Ipv4Addr, path::{Compon
 use parking_lot::Mutex;
 use tauri::Manager;
 use subtle::ConstantTimeEq;
-use crate::{bytes::SharedBytes, error::{Error, Result, Subject}, state::{AppState, DocId, DocKind}};
+use crate::{bytes::SharedBytes, error::{Error, Result, Subject}, state::{AppState, DocId, DocKind, DocSource}};
 
 pub const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
 const AGENT: &str = include_str!("../../src/lib/frame/agent.js");
@@ -17,10 +17,10 @@ struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64 }
 pub struct FrameServed { html: u64, agent: u64, resource: u64 }
 
 #[derive(Clone)]
-struct Route { id: DocId, served: Arc<Served> }
+struct Route { id: DocId, served: Arc<Served>, external: bool }
 
 impl Route {
-    fn new(id: DocId) -> Self { Self { id, served: Arc::new(Served::default()) } }
+    fn new(id: DocId) -> Self { Self { id, served: Arc::new(Served::default()), external: false } }
     fn counts(&self) -> FrameServed {
         FrameServed { html: self.served.html.load(Ordering::Relaxed), agent: self.served.agent.load(Ordering::Relaxed), resource: self.served.resource.load(Ordering::Relaxed) }
     }
@@ -79,6 +79,13 @@ impl DocServer {
     fn served(&self, id: DocId) -> Result<FrameServed> {
         self.tokens.lock().values().find(|route| route.id == id).map(Route::counts).ok_or(Error::NoSuchDoc { id })
     }
+
+    fn external(&self, id: DocId, allow: bool) -> Result<()> {
+        let mut tokens = self.tokens.lock();
+        let route = tokens.values_mut().find(|doc| doc.id == id).ok_or(Error::NoSuchDoc { id })?;
+        route.external = allow;
+        Ok(())
+    }
 }
 
 impl Drop for DocServer {
@@ -93,13 +100,22 @@ pub fn frame_url(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<Str
     let doc = state.get(doc_id)?;
     if doc.kind() != DocKind::Html { return Err(Error::WrongView { subject: Subject::Source }); }
     check_size(doc.bytes().len())?;
-    state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.url(doc_id)
+    let path = document_path(&doc.source).ok_or(Error::WrongView { subject: Subject::Source })?;
+    let base = state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.url(doc_id)?;
+    Ok(format!("{base}{}", encode_path(&path)))
 }
 
 #[tauri::command]
 pub fn frame_served(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<FrameServed> {
     state.get(doc_id)?;
     state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.served(doc_id)
+}
+
+#[tauri::command]
+pub fn frame_external(state: tauri::State<'_, AppState>, doc_id: DocId, allow: bool) -> Result<()> {
+    let doc = state.get(doc_id)?;
+    if doc.kind() != DocKind::Html { return Err(Error::WrongView { subject: Subject::Source }); }
+    state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.external(doc_id, allow)
 }
 
 fn check_size(len: usize) -> Result<()> {
@@ -111,14 +127,51 @@ fn document_policy(host: &str) -> String {
     POLICY.replace("'self'", &format!("http://{host}"))
 }
 
-fn reply(body: Box<dyn Read + Send>, len: usize, mime: &'static str, policy: Option<&str>, probe: bool) -> Response {
+fn archive_path(path: &str) -> Option<String> {
+    if path.starts_with('/') || path.contains(['\\', ':']) || path.chars().any(char::is_control) { return None; }
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {},
+            ".." => { parts.pop()?; },
+            _ => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+fn document_path(source: &DocSource) -> Option<String> {
+    match source {
+        DocSource::ArchiveEntry { entries, .. } => archive_path(&entries.last()?.name.replace('\\', "/")),
+        _ => Some(String::new()),
+    }
+}
+
+fn encode_path(path: &str) -> String {
+    path.split('/').map(|part| percent_encoding::utf8_percent_encode(part, percent_encoding::NON_ALPHANUMERIC).to_string()).collect::<Vec<_>>().join("/")
+}
+
+fn response_policy(base: &str, external: bool, probe: bool) -> String {
+    let mut policy = base.to_owned();
+    if external {
+        for directive in ["script-src", "style-src", "img-src", "font-src", "media-src"] {
+            policy = policy.replace(&format!("{directive} "), &format!("{directive} https: "));
+        }
+    }
+    let connect = match (external, probe) {
+        (false, false) => "'none'", (true, false) => "https:",
+        (false, true) => "http://ipc.localhost", (true, true) => "https: http://ipc.localhost",
+    };
+    policy.replace("connect-src 'none'", &format!("connect-src {connect}"))
+}
+
+fn reply(body: Box<dyn Read + Send>, len: usize, mime: &'static str, policy: Option<&str>, external: bool, probe: bool) -> Response {
     let mut response = tiny_http::Response::new(tiny_http::StatusCode(200), vec![], body, Some(len), None);
     for (name, value) in [("Content-Type", mime), ("Referrer-Policy", "no-referrer"), ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"), ("Access-Control-Allow-Origin", "null")] {
         response.add_header(tiny_http::Header::from_bytes(name, value).expect("static header"));
     }
     if let Some(policy) = policy {
-        let policy = if probe { policy.replace("connect-src 'none'", "connect-src http://ipc.localhost") } else { policy.into() };
-        response.add_header(tiny_http::Header::from_bytes("Content-Security-Policy", policy).expect("static policy"));
+        response.add_header(tiny_http::Header::from_bytes("Content-Security-Policy", response_policy(policy, external, probe)).expect("static policy"));
     }
     response
 }
@@ -126,7 +179,7 @@ fn reply(body: Box<dyn Read + Send>, len: usize, mime: &'static str, policy: Opt
 fn valid_host(hosts: &[&str], expected: &str) -> bool { hosts == [expected] }
 
 fn not_found() -> Response {
-    reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", None, false).with_status_code(404)
+    reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", None, false, false).with_status_code(404)
 }
 
 fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str) -> Option<Response> {
@@ -137,15 +190,20 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
     let doc = state.get(route.id).ok()?;
     let snapshot = doc.snapshot();
     if snapshot.kind != DocKind::Html { return None; }
+    let entry = matches!(doc.source, DocSource::ArchiveEntry { .. });
+    let name = if entry && relative != "_/agent.js" {
+        archive_path(&percent_encoding::percent_decode_str(relative).decode_utf8().ok()?)?
+    } else { relative.to_owned() };
+    let main = name == document_path(&doc.source)?;
     // Count authenticated requests, not successful delivery or script execution.
-    let counter = if relative.is_empty() { &route.served.html }
+    let counter = if main { &route.served.html }
         else if relative == "_/agent.js" { &route.served.agent } else { &route.served.resource };
     counter.fetch_add(1, Ordering::Relaxed);
     let probe = smoke && query.split('&').any(|part| part == "probe=1");
     if relative == "_/agent.js" {
-        return Some(reply(Box::new(Cursor::new(AGENT.as_bytes())), AGENT.len(), "text/javascript; charset=utf-8", None, false));
+        return Some(reply(Box::new(Cursor::new(AGENT.as_bytes())), AGENT.len(), "text/javascript; charset=utf-8", None, false, false));
     }
-    if relative.is_empty() {
+    if main {
         check_size(snapshot.bytes.len()).ok()?;
         let tag = format!("<script src=\"/{token}/_/agent.js\"{}></script>", if probe { " data-probe" } else { "" });
         let at = injection_offset(&snapshot.bytes);
@@ -153,16 +211,23 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
         let mut tail = Cursor::new(SharedBytes::new(snapshot.bytes.clone()));
         tail.set_position(at as u64);
         let len = snapshot.bytes.len() + tag.len();
-        return Some(reply(Box::new(first.chain(Cursor::new(tag.into_bytes())).chain(tail)), len, "text/html; charset=utf-8", Some(policy), probe));
+        return Some(reply(Box::new(first.chain(Cursor::new(tag.into_bytes())).chain(tail)), len, "text/html; charset=utf-8", Some(policy), route.external, probe));
     }
-    // Sibling resources belong only to local file documents, never a URL or archive.
-    if !matches!(doc.source, crate::state::DocSource::File { .. }) { return None; }
+    if entry {
+        let archive = state.frame_archive(doc.id)?;
+        let sibling = archive.listing().entries.iter().find(|sibling| archive_path(&sibling.name.replace('\\', "/")).as_deref() == Some(&name))?;
+        let bytes = archive.read_entry_limited(sibling.index, MAX_DOCUMENT_BYTES).ok()?;
+        let len = bytes.len();
+        let mime = mime(Path::new(&name));
+        return Some(reply(Box::new(Cursor::new(bytes)), len, mime, mime.starts_with("text/html").then_some(policy), route.external, false));
+    }
+    if !matches!(doc.source, DocSource::File { .. }) { return None; }
     let file_path = resource_path(doc.base_dir.as_ref()?, relative)?;
     let file = std::fs::File::open(&file_path).ok()?;
     let size = file.metadata().ok()?.len();
     if size > MAX_DOCUMENT_BYTES as u64 { return None; }
     let mime = mime(&file_path);
-    Some(reply(Box::new(file.take(size)), size as usize, mime, mime.starts_with("text/html").then_some(policy), false))
+    Some(reply(Box::new(file.take(size)), size as usize, mime, mime.starts_with("text/html").then_some(policy), route.external, false))
 }
 
 fn resource_path(base: &Path, encoded: &str) -> Option<PathBuf> {

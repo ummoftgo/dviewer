@@ -11,10 +11,13 @@ test('malformed and duplicate headings cannot enter a keyed TOC', () => {
 });
 test('an opaque origin is not identity: only the mounted frame may send messages', () => {
   const frame = {} as Window, other = {} as Window;
-  const data = {type:'blocked',n:2};
-  expect(frameMessage({source:frame,data},frame)).toEqual(data);
-  expect(frameMessage({source:other,data},frame)).toBeNull();
-  expect(frameMessage({source:null,data},null)).toBeNull();
+  const load = '?g=1&x=2';
+  const data = {type:'blocked',n:2,load};
+  expect(frameMessage({source:frame,data},frame,load)).toEqual({type:'blocked',n:2});
+  expect(frameMessage({source:other,data},frame,load)).toBeNull();
+  expect(frameMessage({source:null,data},null,load)).toBeNull();
+  expect(frameMessage({source:frame,data:{...data,load:'?g=1&x=1'}},frame,load)).toBeNull();
+  expect(frameMessage({source:frame,data},frame,'')).toBeNull();
 });
 test('unknown messages and unbounded numeric fields are ignored', () => {
   for(const value of [null,{type:'unknown'},{type:'scroll',ratio:Infinity},{type:'scroll',ratio:-1},

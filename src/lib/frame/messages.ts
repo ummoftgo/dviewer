@@ -48,6 +48,6 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
   }
 }
 
-export function frameMessage(event: Pick<MessageEvent, 'source' | 'data'>, frame: Window | null): FrameMessage | null {
-  return frame !== null && event.source === frame ? parseFrameMessage(event.data) : null;
+export function frameMessage(event: Pick<MessageEvent, 'source' | 'data'>, frame: Window | null, load: string): FrameMessage | null {
+  return frame !== null && event.source === frame && load !== '' && event.data?.load === load ? parseFrameMessage(event.data) : null;
 }

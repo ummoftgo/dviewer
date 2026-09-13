@@ -174,6 +174,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             docserve::frame_url,
             docserve::frame_served,
+            docserve::frame_external,
             update::service::update_status,
             update::service::update_check,
             update::service::update_set_check,
