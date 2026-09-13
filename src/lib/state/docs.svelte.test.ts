@@ -628,3 +628,21 @@ test('table width defaults wait for settings and remain per tab after opening', 
     expect(first.tableFillRatios).toBeNull(); expect(first.tableWidthMode).toBe('fill');
   } finally { load.mockRestore(); settings.tableWidthMode = original; }
 });
+
+
+test.each(['sqlite', 'xlsx', 'parquet', 'treeTable'] as const)('%s receives the width setting after loading, including derived tabs', async kind => {
+  const original = settings.tableWidthMode;
+  const parent = kind === 'treeTable' ? (await workspace.openPath('C:/parent.json'))! : null;
+  settings.tableWidthMode = 'fill';
+  const loaded = { ...meta({ type: 'file', path: 'C:/collection.' + kind }, kind), view: 'collection' as const };
+  if (parent) vi.mocked(ipc.treeAsTable).mockResolvedValueOnce({ ...loaded, source: { type: 'treeSlice', parent: parent.id, generation: 0, node: 7, path: '$.items' } });
+  else vi.mocked(ipc.openPath).mockResolvedValueOnce(loaded);
+  const load = vi.spyOn(settings, 'load').mockImplementationOnce(async () => { settings.tableWidthMode = 'scroll'; });
+  try {
+    const tab = (parent ? await workspace.openTreeTable(parent, { id: 7, kind: 'array', key: 'items', index: null } as TreeRow) : await workspace.openPath(loaded.title))!;
+    expect(tab.kind).toBe(kind);
+    expect(tab.tableWidthMode).toBe('scroll');
+    settings.tableWidthMode = 'fill';
+    expect(tab.tableWidthMode).toBe('scroll');
+  } finally { load.mockRestore(); settings.tableWidthMode = original; }
+});

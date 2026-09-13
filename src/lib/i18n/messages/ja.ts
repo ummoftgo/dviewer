@@ -19,6 +19,7 @@ export const ja: Messages = {
   "grid.filterColumn": "この列でフィルター…",
   "grid.filterClear": "フィルターを解除",
   "settings.tableWidths": "表の幅",
+  "settings.tableWidthsHint": "通常の表、データベース、シート、Parquet、派生表に適用します。",
   "settings.tableWidth.fill": "表示幅いっぱいに広げる",
   "settings.tableWidth.scroll": "横スクロール",
   "grid.recommendWidths": "幅を自動調整",

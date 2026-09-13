@@ -83,6 +83,7 @@
         </label>
       {/each}
       <h3>{t('settings.tableWidths')}</h3>
+      <p class="hint">{t('settings.tableWidthsHint')}</p>
       {#each ['fill', 'scroll'] as mode (mode)}
         <label class="table-mode">
           <input type="radio" name="table-width-mode" value={mode}

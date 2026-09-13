@@ -67,7 +67,7 @@
     onsortTo?: (sort: GridSort | null) => void;
     onfilterColumn?: (column: number) => void;
     onfilterClear?: () => void;
-    /** Only TableView opts into the new width controls; collections stay unchanged. */
+    /** Table and collection hosts share the same width controls. */
     widthMode?: TableMode;
   }
 

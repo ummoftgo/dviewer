@@ -1257,6 +1257,7 @@ const SMOKE = [
   { file: "stream.jsonl", expect: "table" },
   { file: "sample.sqlite", expect: "collection" },
   { file: "sample.xlsx", expect: "collection" },
+  { file: "sample.xlsx", expect: "collection", then: "collectionWidths" },
   { file: "sample.parquet", expect: "collection" },
 
   // The paths that are not a plain read: compression, and the encodings that

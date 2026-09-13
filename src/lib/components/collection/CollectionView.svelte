@@ -14,6 +14,7 @@
    * at the Rust boundary and both draw through `DataGrid`.
    */
   import DataGrid from "../grid/DataGrid.svelte";
+  import { resetColumns } from "../grid/columns";
   import SearchBar from "../grid/SearchBar.svelte";
   import GridControls from "../grid/GridControls.svelte";
   import CollectionPicker from "./CollectionPicker.svelte";
@@ -125,7 +126,7 @@
     tab.gridStats = null;
     tab.selectedCell = null;
     tab.pendingCell = null;
-    tab.columnWidths = [];
+    resetColumns(tab);
     tab.tableScrollTop = 0;
     tab.tableSearch.reset();
     loading = true;
@@ -253,6 +254,7 @@
       {rowCount}
       {columnCount}
       {columnName}
+      widthMode={tab.tableWidthMode}
       sortAvailable={!columnar}
       onsort={(column) => void controls?.sortColumn(column)}
       onsortTo={(sort) => void controls?.sortTo(sort)}

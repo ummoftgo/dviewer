@@ -10,6 +10,12 @@ import type { TableRow } from "../../ipc";
 import type { DocTab } from "../../state/docs.svelte";
 import { fillWidths, resizeWidths, widthRatios, type TableMode } from "../markdown/tables";
 
+/** A new collection must not inherit the previous collection's drag ratios. */
+export function resetColumns(tab: Pick<DocTab, "columnWidths" | "tableFillRatios">): void {
+  tab.columnWidths = [];
+  tab.tableFillRatios = null;
+}
+
 export const MIN_COLUMN = 64;
 export const MAX_AUTO_COLUMN = 420;
 export const MAX_FIT_COLUMN = 4000;

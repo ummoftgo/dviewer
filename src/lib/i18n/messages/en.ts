@@ -19,6 +19,7 @@ export const en: Messages = {
   "grid.filterColumn": "Filter this column…",
   "grid.filterClear": "Clear filter",
   "settings.tableWidths": "Table widths",
+  "settings.tableWidthsHint": "Applies to tables, databases, sheets, Parquet, and derived tables.",
   "settings.tableWidth.fill": "Fill viewport",
   "settings.tableWidth.scroll": "Horizontal scrolling",
   "grid.recommendWidths": "Recommend widths",

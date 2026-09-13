@@ -19,6 +19,7 @@ export const zhHans: Messages = {
   "grid.filterColumn": "筛选此列…",
   "grid.filterClear": "清除筛选",
   "settings.tableWidths": "表格宽度",
+  "settings.tableWidthsHint": "适用于普通表格、数据库、工作表、Parquet 和派生表。",
   "settings.tableWidth.fill": "填满视口",
   "settings.tableWidth.scroll": "水平滚动",
   "grid.recommendWidths": "推荐列宽",

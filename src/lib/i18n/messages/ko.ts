@@ -24,6 +24,7 @@ export const ko = {
   "grid.filterColumn": "이 열만 필터…",
   "grid.filterClear": "필터 지우기",
   "settings.tableWidths": "표 너비",
+  "settings.tableWidthsHint": "일반 표와 데이터베이스·시트·Parquet·파생 표에 적용합니다.",
   "settings.tableWidth.fill": "창 너비 채우기",
   "settings.tableWidth.scroll": "가로 스크롤",
   "grid.recommendWidths": "너비 추천",

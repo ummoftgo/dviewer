@@ -43,7 +43,7 @@ Open local files reload automatically after a detected save. Continuous writes d
 
 Text and logs also offer **Table / Source** in the toolbar. Source view includes line numbers and search, up to a 16 MiB decoded buffer. A source loading error stays in that view so you can return to the table. Tables retain their 4 GiB minus one byte and 50 million record limits.
 
-CSV, TSV, JSONL, text, and log tables fill spare viewport space in proportion to column widths by default, and scroll horizontally when the columns are wider than the viewport. Settings can change the default for new tabs to horizontal scrolling. Fit column and Recommend widths in the header menu raise the automatic 420px ceiling to 4000px; Reset widths restores automatic sizing. Estimates use 500-character cell previews from the current row sample. SQLite, Excel, Parquet, and derived collection tables keep their existing width behavior.
+CSV, TSV, JSONL, text, log, SQLite, Excel, Parquet, and derived tables fill spare viewport space in proportion to column widths by default, and scroll horizontally when the columns are wider than the viewport. Settings can change the default for new tabs to horizontal scrolling. Fit column and Recommend widths in the header menu raise the automatic 420px ceiling to 4000px; Reset widths restores automatic sizing. Estimates use 500-character cell previews from the current row sample. Switching sheets or tables clears the previous widths and fill ratios and sizes columns from a new sample.
 
 ## Requirements
 

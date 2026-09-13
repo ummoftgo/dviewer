@@ -14,6 +14,7 @@
  */
 import * as ipc from "./ipc";
 import { checkTextReading } from "./components/table/smoke";
+import { checkCollectionWidths } from "./components/collection/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
 import { checkMarkdownCopy, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
@@ -99,6 +100,10 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === "collectionWidths") {
+    await checkCollectionWidths(tab);
+    return { ok: true, stage: what };
+  }
   if (what === "textReading") {
     await checkTextReading(tab);
     return { ok: true, stage: what };

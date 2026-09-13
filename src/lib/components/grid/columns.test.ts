@@ -7,7 +7,7 @@
  * each, and a table of them came out with columns twice the width they needed.
  */
 import { describe, expect, test } from "vitest";
-import { MAX_AUTO_COLUMN, MAX_FIT_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength, layoutColumns, resizeColumn } from "./columns";
+import { MAX_AUTO_COLUMN, MAX_FIT_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength, layoutColumns, resizeColumn, resetColumns } from "./columns";
 import type { DocTab } from "../../state/docs.svelte";
 import type { TableRow } from "../../ipc";
 
@@ -133,4 +133,13 @@ describe('table width layout', () => {
     expect(tab.columnWidths).toEqual([MIN_COLUMN, 420]);
     expect(tab.tableWidthMode).toBe('fill');
   });
+});
+
+
+test('switching collections discards both widths and drag ratios before the next page arrives', () => {
+  const tab = { columnWidths: [100, 200], tableFillRatios: [90, 10], tableWidthMode: 'fill' } as unknown as DocTab;
+  resetColumns(tab);
+  expect(tab.columnWidths).toEqual([]);
+  expect(tab.tableFillRatios).toBeNull();
+  expect(tab.tableWidthMode).toBe('fill');
 });
