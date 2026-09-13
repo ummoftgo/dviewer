@@ -24,6 +24,7 @@ import type {
   TocEntry,
 } from "../ipc";
 import { chainOf, opensAs, sameSource } from "../source";
+import { normalizeSegments, resolveLink } from '../links';
 import { forgetDoc } from "../components/tree/actions";
 import { toasts } from './toast.svelte';
 import { NodeHistory } from "./history.svelte";
@@ -180,7 +181,7 @@ export class DocTab {
    * new-tab button offers every way in (a file, a URL, pasted text, something
    * opened before) rather than only the file dialog.
    */
-  status = $state<"blank" | "opening" | "ready">("ready");
+  status = $state<"blank" | "opening" | "ready" | "error">("ready");
   meta = $state<DocMeta>()!;
   mode = $state<ViewMode>("rendered");
   error = $state<string | null>(null);
@@ -188,6 +189,7 @@ export class DocTab {
 
   // Markdown
   markdownRevision = $state(0);
+  pendingAnchor = $state<string | null>(null);
   readonly markdownSearch = new MarkdownSearchState();
   codeLanguages: Record<string, ipc.CodeLanguage> = {};
   readonly codeSelections = new Map<number, string>();
@@ -317,6 +319,7 @@ export class DocTab {
     this.order.reset();
     this.tables.clear();
     this.markdownRevision++;
+    this.pendingAnchor = null;
     this.markdownSearch.open = false;
     this.markdownSearch.query = '';
     this.markdownSearch.reset();
@@ -375,12 +378,12 @@ class Workspace {
 
   /** Re-focus an already-open file instead of loading a second copy. */
   private findByPath(path: string): DocTab | null {
-    return this.tabs.find((tab) => opensAs(tab.meta.source, path)) ?? null;
+    return this.tabs.find((tab) => tab.status !== 'error' && opensAs(tab.meta.source, path)) ?? null;
   }
 
   /** Re-focus the tab already showing an entry, rather than unpacking it twice. */
   private findEntry(source: DocSource): DocTab | null {
-    return this.tabs.find((tab) => sameSource(tab.meta.source, source)) ?? null;
+    return this.tabs.find((tab) => tab.status !== 'error' && sameSource(tab.meta.source, source)) ?? null;
   }
 
   /**
@@ -409,17 +412,45 @@ class Workspace {
     for (const url of request.urls) await this.openUrl(url);
   }
 
-  async openPath(path: string) {
+  async openPath(path: string, keepError = false) {
     const existing = this.findByPath(path);
     if (existing) {
       this.activeId = existing.id;
       return existing;
     }
-    return this.run(placeholder(path), () => ipc.openPath(path), path);
+    return this.run(placeholder(path), () => ipc.openPath(path), path, '', keepError);
   }
 
-  async openUrl(url: string) {
-    return this.run(placeholder(url, { type: "url", url }), () => ipc.openUrl(url));
+  async openUrl(url: string, keepError = false) {
+    const existing = this.findEntry({ type: 'url', url });
+    if (existing) { this.activeId = existing.id; return existing; }
+    return this.run(placeholder(url, { type: "url", url }), () => ipc.openUrl(url), undefined, '', keepError);
+  }
+
+  async openLink(from: DocTab, href: string): Promise<DocTab | null> {
+    const link = resolveLink(from.meta, href);
+    let opened: DocTab | null;
+    if (!link) {
+      toasts.show(t('link.unsupported'), 'info');
+      return null;
+    }
+    if (link.type === 'file') opened = await this.openPath(link.path, true);
+    else if (link.type === 'url') opened = await this.openUrl(link.url, true);
+    else {
+      const parent = this.findEntry(link.parent);
+      const entry = parent?.entries.find(entry => normalizeSegments(entry.name) === link.name);
+      // Entry sources retain identity after closing their parent, but no archive handle.
+      if (!parent || parent.kind !== 'zip' || parent.status !== 'ready' || !entry) {
+        toasts.show(t('link.unsupported'), 'info');
+        return null;
+      }
+      opened = await this.openEntry(parent, entry, true);
+    }
+    if (opened?.kind === 'markdown' && link.anchor) {
+      opened.pendingAnchor = link.anchor;
+      opened.mode = 'rendered';
+    }
+    return opened;
   }
 
   /**
@@ -430,7 +461,7 @@ class Workspace {
    * nobody has asked for. The list is the hub, in the same grammar the start
    * pane already uses.
    */
-  async openEntry(archive: DocTab, entry: ArchiveEntry) {
+  async openEntry(archive: DocTab, entry: ArchiveEntry, keepError = false) {
     // What the backend is about to build, built here too so the tab that is
     // already showing it can be raised without unpacking anything.
     const wanted = chainOf(archive.meta.source, entry);
@@ -443,7 +474,7 @@ class Workspace {
     archive.openingEntry = entry.index;
     try {
       return await this.run(placeholder(entry.name, wanted ?? undefined), () =>
-        ipc.openEntry(archive.id, entry.index),
+        ipc.openEntry(archive.id, entry.index), undefined, '', keepError,
       );
     } finally {
       archive.openingEntry = null;
@@ -485,6 +516,7 @@ class Workspace {
     load: () => Promise<DocMeta>,
     failedPath?: string,
     label = "",
+    keepError = false,
   ): Promise<DocTab | null> {
     // Opening from a blank tab fills that tab in rather than adding another —
     // the blank one is where the reader started, so it is where they expect
@@ -526,6 +558,13 @@ class Workspace {
       if (this.activeId === meta.id) this.activeId = tab.id;
       return tab;
     } catch (err) {
+      if (keepError) {
+        if (this.tabs.includes(tab)) {
+          tab.error = ipc.errorMessage(err);
+          tab.status = 'error';
+        }
+        return null;
+      }
       // A tab that was blank goes back to blank; one created for this document
       // has nothing left to show.
       if (blank) {

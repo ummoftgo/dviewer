@@ -14,18 +14,7 @@ import { ICON_PATHS } from "../Icon.svelte";
 import { fillWidths, recommendWidths, rectangularColumns, resizeWidths, widthRatios, type ColumnMeasure, type TableMode, type TableState } from "./tables";
 import { measureColumns } from './measureTable';
 import { stickyHead } from './stickyHead';
-
-/** Collapse `.` and `..` segments so a path is safe to hand to the asset protocol. */
-function normalizeSegments(path: string): string {
-  const out: string[] = [];
-  for (const segment of path.split("/")) {
-    if (segment === "" || segment === ".") continue;
-    if (segment === "..") out.pop();
-    else out.push(segment);
-  }
-  // A leading drive letter or root slash must survive the rebuild.
-  return (path.startsWith("/") ? "/" : "") + out.join("/");
-}
+import { normalizeSegments } from '../../links';
 
 function isAbsolute(src: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//") || src.startsWith("/");
@@ -73,7 +62,8 @@ export function rewriteImages(root: HTMLElement, meta: DocMeta) {
  * Send outbound links to the system browser. Navigating the webview itself
  * would replace the whole app with the target page and there is no way back.
  */
-export function interceptLinks(root: HTMLElement, onAnchor: (id: string) => void): () => void {
+export function interceptLinks(root: HTMLElement, onAnchor: (id: string) => void,
+  onDocument: (href: string) => void): () => void {
   const onClick = (event: MouseEvent) => {
     const anchor = (event.target as HTMLElement | null)?.closest("a");
     if (!anchor) return;
@@ -82,7 +72,8 @@ export function interceptLinks(root: HTMLElement, onAnchor: (id: string) => void
 
     event.preventDefault();
     if (href.startsWith("#")) {
-      onAnchor(decodeURIComponent(href.slice(1)));
+      try { onAnchor(decodeURIComponent(href.slice(1))); }
+      catch { toasts.show(t('link.unsupported'), 'info'); }
       return;
     }
     // Handed to the OS, which decides what opens them. The list is closed on
@@ -96,10 +87,7 @@ export function interceptLinks(root: HTMLElement, onAnchor: (id: string) => void
       return;
     }
 
-    // Everything else — a relative path to another document, an unknown
-    // scheme — was cancelled and then dropped, so the link simply did nothing
-    // and never said why.
-    toasts.show(t("link.unsupported"), "info");
+    onDocument(href);
   };
 
   root.addEventListener("click", onClick);

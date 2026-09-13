@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { i18n, t } from "../../i18n";
   import { errorMessage, renderMarkdown, highlightLanguages, type HighlightLanguage } from "../../ipc";
-  import type { DocTab } from "../../state/docs.svelte";
+  import { workspace, type DocTab } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
   import { enhanceCode, type CodeControl } from './codeControls';
   import { favoriteLanguages } from './code';
@@ -122,7 +122,14 @@
   $effect(() => {
     const host = article;
     if (!host) return;
-    return interceptLinks(host, scrollToAnchor);
+    return interceptLinks(host, scrollToAnchor, href => { void workspace.openLink(tab, href); });
+  });
+
+  $effect(() => {
+    const anchor = tab.pendingAnchor;
+    if (!anchor || !article || tab.html === null || enhancing) return;
+    scrollToAnchor(anchor);
+    tab.pendingAnchor = null;
   });
 
   async function openLanguage(control: CodeControl) {

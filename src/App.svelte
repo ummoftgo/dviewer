@@ -270,7 +270,7 @@
     <SubTabBar />
   {/if}
 
-  {#if active && active.status !== "blank"}
+  {#if active && active.status !== "blank" && active.status !== 'error'}
     <Toolbar
       tab={active}
       {showToc}
@@ -294,6 +294,8 @@
             <div class="spinner" aria-hidden="true"></div>
             <p>{t("app.opening", { title: active.meta.title })}</p>
           </div>
+        {:else if active.status === 'error'}
+          <div class="opening"><p class="error" role="alert">{active.error}</p></div>
         {:else if active.mode === "raw" && supportsRaw(active.view, active.kind)}
           {#if active.kind === 'text'}
             <TextRawView tab={active} bind:focusSearch={searchBarFocus} />

@@ -361,6 +361,22 @@ ${"가로로 아주 긴 줄 ".repeat(30)}
 `;
 
 await writeFile(path.join(OUT, "sample.md"), markdown);
+
+await mkdir(path.join(OUT, 'relative links'), { recursive: true });
+await writeFile(path.join(OUT, 'markdown-links.md'), [
+  '# Relative links', '',
+  '[JSON](./small.json)', '',
+  '[Missing file](./m41-missing.json)', '',
+  '[Encoded Markdown anchor](./relative%20links/%ED%95%9C%EA%B8%80%20%EB%AC%B8%EC%84%9C.md#target)', '',
+  '[Unsupported absolute path](file:///C:/unsupported.md)', '',
+].join('\n'));
+await writeFile(path.join(OUT, 'relative links', '한글 문서.md'), [
+  '# Linked document', '',
+  ...Array.from({ length: 40 }, (_, i) => `Paragraph before ${i}.\n`),
+  '## Target', '', '[Back](../markdown-links.md#relative-links)', '',
+  ...Array.from({ length: 40 }, (_, i) => `Paragraph after ${i}.\n`),
+].join('\n'));
+console.log('  markdown-links.md / relative links/한글 문서.md');
 console.log("  sample.md");
 
 // M25: fixed counts make the post-processing benchmark reproducible.
@@ -1134,7 +1150,7 @@ function archiveOf(entries, { zip64 = false } = {}) {
 
 const nested = archiveOf([
   { name: "inner/deep.json", body: JSON.stringify({ depth: 2, note: "안쪽 문서" }, null, 2), utf8: true },
-  { name: "inner/notes.md", body: "# 안쪽\n\n압축 안의 압축입니다.\n", utf8: true },
+  { name: "inner/notes.md", body: "# 안쪽\n\n압축 안의 압축입니다.\n\n[형제 JSON](./deep.json)\n", utf8: true },
 ]);
 
 await writeFile(
@@ -1142,7 +1158,7 @@ await writeFile(
   archiveOf([
     { name: "report.json", body: JSON.stringify({ ok: true, rows: [1, 2, 3] }, null, 2), utf8: true },
     { name: "logs/app.log", body: Array.from({ length: 40 }, (_, i) => `2026-08-31 12:00:${String(i).padStart(2, "0")} INFO  line ${i}`).join("\n") + "\n", utf8: true },
-    { name: "docs/readme.md", body: "# 압축 안의 문서\n\n항목을 고르면 새 탭으로 열립니다.\n", utf8: true },
+    { name: "docs/readme.md", body: "# 압축 안의 문서\n\n항목을 고르면 새 탭으로 열립니다.\n\n[형제 JSON](../report.json)\n\n[안쪽 압축](../inner.zip)\n", utf8: true },
     { name: "data/sales.csv", body: "지역,매출\n서울,120\n부산,80\n", utf8: true },
     // A `.gz` inside a zip: two layers of compression, which the open pipeline
     // already undoes in the right order without anything new.
@@ -1246,6 +1262,7 @@ console.log("  zip64.zip");
 const SMOKE = [
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
+  { file: 'markdown-links.md', expect: 'prose', then: 'relativeLinks' },
   { file: "long-markdown.md", expect: "prose" },
   { file: "markdown-reading.md", expect: "prose" },
   { file: "markdown-search-large.md", expect: "prose" },

@@ -606,6 +606,10 @@ cd src-tauri && cargo run --release --example fonts
 
 `원문 → comrak(GFM) → syntect 구문 강조 → ammonia 정화 → HTML` 까지가 Rust이고, 브라우저가 필요한 후처리는 프론트엔드에서 합니다: 상대 이미지 경로를 asset 프로토콜로 바꾸기, Mermaid 렌더, KaTeX 조판, 표의 열 너비와 보기 방식 (`src/lib/components/markdown/enhance.ts`).
 
+상대 문서 링크는 `src/lib/links.ts`에서 쿼리·앵커를 먼저 분리한 뒤 경로를 디코딩한다. 이미지와 공유하는 `normalizeSegments`는 드라이브·UNC 공유·POSIX 루트를 상위 이동이 지우지 못하게 보존한다. 입력 링크 자체의 절대 경로와 스킴은 제외하므로 Rust 정제 정책은 바꾸지 않는다. 파일·URL은 기존 열기 경로를 재사용하고, 파일 탭 비교는 경로 구분자를 통일한다(대소문자·심볼릭 링크 정규화는 하지 않는다). URL 문자열도 기존 탭과 비교한다.
+
+`workspace.openLink`는 원래 탭을 유지한다. 링크 열기에서만 실패 placeholder를 `error` 상태로 남기며, 앱은 실제 문서 뷰와 도구 모음을 띄우지 않고 오류를 표시한다. 실패 탭은 중복 검색에서 제외해 다시 시도할 수 있다. 압축 항목은 소스 체인의 직접 부모와 열린 압축 탭을 대조하고 해당 탭의 목록에서 형제 항목을 찾는다. 부모가 닫혔거나 목록에 대상이 없으면 기존 `link.unsupported`로 알리며 재개봉·압축 해제는 하지 않는다. 앵커는 대상 탭의 `pendingAnchor`로 전달하고 MarkdownView가 HTML·Mermaid·수식·표 후처리를 끝낸 뒤 기존 스크롤 함수를 호출하고 비운다. 원문 보기였던 대상은 렌더 보기로 바꾼다.
+
 구문 강조는 인라인 스타일이 아니라 **클래스 기반**이고, 라이트/다크 두 스타일시트를 미리 만들어 둡니다. 테마를 바꿔도 Rust의 파싱·구문 강조는 다시 계산하지 않습니다. Mermaid의 테마를 맞추기 위해 프런트의 HTML DOM은 재생성합니다.
 
 URL과 클립보드로 들어온 문서도 있으므로 ammonia 정화는 선택이 아닙니다. `<script>`·`onerror`·`javascript:` 는 `markdown.rs` 의 테스트로 막혀 있습니다.

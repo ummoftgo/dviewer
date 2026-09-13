@@ -47,6 +47,13 @@ describe("building the way in", () => {
 });
 
 describe("recognising the same document", () => {
+  test('Windows and UNC sources compare with normalized separators, including archive roots', () => {
+    expect(sameSource(FILE, { type: 'file', path: 'C:\\docs\\bundle.zip' })).toBe(true);
+    const unc: DocSource = { type: 'file', path: '\\\\server\\share\\bundle.zip' };
+    expect(sameSource(twoStepsIn(unc), twoStepsIn({ type: 'file', path: '//server/share/bundle.zip' }))).toBe(true);
+    expect(opensAs(chainOf(unc, entry(0, 'only.md'))!, '//server/share/bundle.zip')).toBe(true);
+    expect(opensAs(unc, '/server/share/bundle.zip')).toBe(false);
+  });
   test("tree slices use the snapshot and node rather than a truncated path", () => {
     const source: DocSource = { type: "treeSlice", parent: 1, generation: 0, node: 3, path: "$.items" };
     expect(sameSource(source, { ...source, path: "different display" })).toBe(true);

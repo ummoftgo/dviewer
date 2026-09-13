@@ -100,6 +100,7 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === 'relativeLinks') return checkRelativeLinks(tab);
   if (what === "collectionWidths") {
     await checkCollectionWidths(tab);
     return { ok: true, stage: what };
@@ -265,6 +266,47 @@ export async function runSmoke(): Promise<void> {
   }
 
   await ipc.smokeDone();
+}
+
+async function checkRelativeLinks(from: DocTab): Promise<Outcome> {
+  const waitFor = async (condition: () => boolean) => {
+    const deadline = Date.now() + STEP_TIMEOUT_MS;
+    while (!condition()) {
+      if (Date.now() >= deadline) throw new Error('relative link did not finish opening');
+      await sleep(POLL_MS);
+    }
+  };
+  const click = async (href: string) => {
+    workspace.activate(from.id);
+    const find = () => document.querySelector<HTMLAnchorElement>(`article.markdown-body a[href="${href}"]`);
+    await waitFor(() => !!find());
+    find()!.click();
+    await waitFor(() => workspace.active !== from && workspace.active !== null
+      && workspace.active.status !== 'opening');
+    return workspace.active!;
+  };
+  const json = await click('./small.json');
+  if (json.status !== 'ready' || json.kind !== 'json') throw new Error('relative JSON link did not open a ready tab');
+  const ready = await settle(json, 'tree');
+  if (!ready.ok) return ready;
+  if (await click('./small.json') !== json) throw new Error('relative link duplicated the JSON tab');
+
+  const markdown = await click('./relative%20links/%ED%95%9C%EA%B8%80%20%EB%AC%B8%EC%84%9C.md#target');
+  const prose = await settle(markdown, 'prose');
+  if (!prose.ok) return prose;
+  await waitFor(() => markdown.pendingAnchor === null && markdown.scrollTop > 0
+    && !!document.querySelector('article.markdown-body #target'));
+
+  const failed = await click('./m41-missing.json');
+  if (failed.status !== 'error' || !failed.error || from.error || !workspace.tabs.includes(from)) {
+    throw new Error('missing relative file did not leave an error tab and intact source');
+  }
+  await waitFor(() => document.querySelector('main [role="alert"]')?.textContent === failed.error);
+  await workspace.close(failed.id);
+  await workspace.close(markdown.id);
+  await workspace.close(json.id);
+  workspace.activate(from.id);
+  return { ok: true, stage: 'relativeLinks', view: 'prose' };
 }
 
 /** This uses the rendered fixture, including hidden and unsupported HTML tables. */

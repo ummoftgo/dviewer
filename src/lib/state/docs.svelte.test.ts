@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DocKind, DocMeta, DocSource, TreeRow } from "../ipc";
 import { settings } from "./settings.svelte";
 import { toasts } from './toast.svelte';
-import { i18n } from '../i18n';
+import { i18n, t } from '../i18n';
 
 vi.mock("../persist", () => ({ getValue: vi.fn(async () => undefined), setValue: vi.fn() }));
 
@@ -278,6 +278,125 @@ beforeEach(() => {
   gate = null;
   release = null;
   vi.mocked(ipc.openPath).mockClear();
+  vi.mocked(ipc.openEntry).mockClear();
+});
+
+describe('relative document links', () => {
+  function markdown(source: DocSource = { type: 'file', path: 'C:/specs/guide.md' }) {
+    const tab = new DocTab({ ...meta(source, 'markdown'), baseDir: 'C:/specs' });
+    workspace.tabs = [tab]; workspace.activate(tab.id);
+    return tab;
+  }
+
+  test('opens a new tab and keeps the source document and reading state', async () => {
+    const from = markdown();
+    from.html = '<h1>Guide</h1>'; from.scrollTop = 432; from.markdownSearch.query = 'keep';
+    const opened = await workspace.openLink(from, './schema.json');
+    expect(workspace.tabs).toEqual([from, opened]);
+    expect(workspace.active).toBe(opened);
+    expect(opened?.status).toBe('ready');
+    expect([from.html, from.scrollTop, from.markdownSearch.query]).toEqual(['<h1>Guide</h1>', 432, 'keep']);
+    expect(ipc.openPath).toHaveBeenLastCalledWith('C:/specs/schema.json');
+  });
+
+  test('raises an existing Windows path after separator normalization', async () => {
+    const from = markdown();
+    const existing = await workspace.openPath('C:\\specs\\schema.json');
+    workspace.activate(from.id);
+    expect(await workspace.openLink(from, './schema.json')).toBe(existing);
+    expect(workspace.active).toBe(existing);
+    expect(workspace.tabs).toHaveLength(2);
+    expect(ipc.openPath).toHaveBeenCalledTimes(1);
+  });
+
+  test('URL links reuse the loaded URL tab', async () => {
+    const from = markdown({ type: 'url', url: 'https://example.test/specs/guide.md' });
+    const open = vi.spyOn(ipc, 'openUrl').mockImplementation(async url => meta({ type: 'url', url }));
+    try {
+      const first = await workspace.openLink(from, '../schema.json?unused=1');
+      workspace.activate(from.id);
+      expect(await workspace.openLink(from, '../schema.json#ignored')).toBe(first);
+      expect(workspace.active).toBe(first);
+      expect(workspace.tabs).toHaveLength(2);
+      expect(open).toHaveBeenCalledExactlyOnceWith('https://example.test/schema.json');
+      expect(first?.pendingAnchor).toBeNull();
+    } finally { open.mockRestore(); }
+  });
+
+  test('a failed link keeps an error placeholder, leaves the source intact and can be retried', async () => {
+    const from = markdown();
+    const notify = vi.spyOn(toasts, 'show').mockImplementation(() => 0);
+    vi.mocked(ipc.openPath).mockRejectedValueOnce(new Error('The requested file does not exist.'));
+    try {
+      expect(await workspace.openLink(from, './missing.json')).toBeNull();
+      const failed = workspace.active!;
+      expect(workspace.tabs).toEqual([from, failed]);
+      expect(failed.status).toBe('error');
+      expect(failed.error).toBe('The requested file does not exist.');
+      expect(from.error).toBeNull(); expect(workspace.notice).toBeNull();
+      expect(notify).not.toHaveBeenCalled();
+      const retried = await workspace.openLink(from, './missing.json');
+      expect(retried?.status).toBe('ready');
+      expect(retried).not.toBe(failed);
+      expect(ipc.openPath).toHaveBeenCalledTimes(2);
+      const closedBefore = closed.length;
+      await workspace.close(failed.id);
+      expect(closed).toHaveLength(closedBefore);
+    } finally { notify.mockRestore(); }
+  });
+
+  test('a closed pending link cannot revive its placeholder on failure', async () => {
+    const from = markdown();
+    let reject!: (reason: Error) => void;
+    vi.mocked(ipc.openPath).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    const pending = workspace.openLink(from, './missing.json');
+    await workspace.close(workspace.activeId!);
+    reject(new Error('The requested file does not exist.'));
+    expect(await pending).toBeNull();
+    expect(workspace.tabs).toEqual([from]);
+    expect(from.error).toBeNull(); expect(workspace.notice).toBeNull();
+  });
+
+  test('a delayed Markdown open receives its decoded anchor after loading', async () => {
+    const from = markdown();
+    let answer!: (value: DocMeta) => void;
+    vi.mocked(ipc.openPath).mockImplementationOnce(() => new Promise(resolve => { answer = resolve; }));
+    const pending = workspace.openLink(from, '../notes.md#%EC%A0%88');
+    expect(workspace.active?.status).toBe('opening');
+    answer(meta({ type: 'file', path: 'C:/notes.md' }, 'markdown'));
+    const opened = (await pending)!;
+    expect(opened.pendingAnchor).toBe('절');
+    opened.mode = 'raw'; workspace.activate(from.id);
+    expect(await workspace.openLink(from, '../notes.md#other')).toBe(opened);
+    expect([opened.pendingAnchor, opened.mode]).toEqual(['other', 'rendered']);
+    opened.invalidate(); expect(opened.pendingAnchor).toBeNull();
+  });
+
+  test('archive links use the immediate open parent and reuse sibling tabs', async () => {
+    const root: DocSource = { type: 'file', path: 'C:\\bundle.zip' };
+    const parentSource: DocSource = { type: 'archiveEntry', root, entries: [{ index: 1, name: 'inside.zip' }] };
+    const from = markdown({ ...parentSource, entries: [...parentSource.entries, { index: 2, name: 'docs/guide.md' }] });
+    const parent = new DocTab(meta(parentSource, 'zip'));
+    const entry = { index: 3, name: 'schema.json', size: 1, encrypted: false, kind: 'json' as const };
+    parent.entries = [entry]; workspace.tabs = [parent, from];
+    const open = vi.mocked(ipc.openEntry).mockClear().mockResolvedValueOnce(meta({
+      ...parentSource, entries: [...parentSource.entries, { index: 3, name: 'schema.json' }],
+    }));
+    const opened = await workspace.openLink(from, '../schema.json');
+    expect(open).toHaveBeenCalledExactlyOnceWith(parent.id, 3);
+    workspace.activate(from.id);
+    expect(await workspace.openLink(from, '../schema.json')).toBe(opened);
+    expect(workspace.tabs).toHaveLength(3);
+    await workspace.close(parent.id);
+    const notify = vi.spyOn(toasts, 'show').mockImplementation(() => 0);
+    try {
+      workspace.activate(from.id);
+      expect(await workspace.openLink(from, '../schema.json')).toBeNull();
+      expect(notify).toHaveBeenCalledExactlyOnceWith(t('link.unsupported'), 'info');
+      expect(workspace.active).toBe(from);
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally { notify.mockRestore(); }
+  });
 });
 
 describe("order completion belongs to the tab, not its mounted view", () => {

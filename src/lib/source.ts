@@ -11,6 +11,8 @@
  */
 import type { ArchiveEntry, DocSource } from "./ipc";
 
+const samePath = (a: string, b: string) => a.replace(/\\/g, '/') === b.replace(/\\/g, '/');
+
 /**
  * Whether two sources name the same document.
  *
@@ -26,7 +28,7 @@ export function sameSource(a: DocSource, b: DocSource): boolean {
   if (a.type === "treeSlice" && b.type === "treeSlice") {
     return a.parent === b.parent && a.generation === b.generation && a.node === b.node;
   }
-  if (a.type === "file" && b.type === "file") return a.path === b.path;
+  if (a.type === "file" && b.type === "file") return samePath(a.path, b.path);
   if (a.type === "url" && b.type === "url") return a.url === b.url;
   if (a.type === "archiveEntry" && b.type === "archiveEntry") {
     return (
@@ -66,11 +68,11 @@ export function chainOf(source: DocSource, entry: ArchiveEntry): DocSource | nul
  * opening the same archive twice makes two tabs.
  */
 export function opensAs(source: DocSource, path: string): boolean {
-  if (source.type === "file") return source.path === path;
+  if (source.type === "file") return samePath(source.path, path);
   return (
     source.type === "archiveEntry" &&
     source.entries.length === 1 &&
     source.root.type === "file" &&
-    source.root.path === path
+    samePath(source.root.path, path)
   );
 }
