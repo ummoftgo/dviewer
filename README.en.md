@@ -41,7 +41,7 @@ Installers register supported Markdown, JSON, YAML, TOML, CSV/TSV, Parquet, and 
 
 Open local files reload automatically after a detected save. Continuous writes do not postpone updates until writing stops. Turn this off in settings to receive a change notification instead. Reload closes derived table tabs and node panels; open them again from the new document. URLs, gzip files, and archive entries are not watched.
 
-Text and logs also offer **Table / Source** in the toolbar. Source view includes line numbers and search, up to a 16 MiB decoded buffer. A source loading error stays in that view so you can return to the table. Tables retain their 4 GiB minus one byte and 50 million record limits.
+Text and logs also offer **Table / Source** in the toolbar. Source view fetches only the visible window of lines, with line numbers, Unicode case-insensitive find, forward/backward wrapping and go-to-line. Long lines scroll horizontally while line numbers stay pinned. Source errors stay in that view so you can return to the table. Markdown source keeps its existing behavior.
 
 CSV, TSV, JSONL, text, log, SQLite, Excel, Parquet, and derived tables fill spare viewport space in proportion to column widths by default, and scroll horizontally when the columns are wider than the viewport. Settings can change the default for new tabs to horizontal scrolling. Fit column and Recommend widths in the header menu raise the automatic 420px ceiling to 4000px; Reset widths restores automatic sizing. Estimates use 500-character cell previews from the current row sample. Switching sheets or tables clears the previous widths and fill ratios and sizes columns from a new sample.
 
@@ -126,6 +126,10 @@ The technical documentation lives in `doc/` (Korean).
 | [Dependencies](doc/dependencies.md) | Why each package was chosen, and vulnerability checks |
 
 ## Known limits
+
+- Text/log source search queries are limited to 8MiB of UTF-8. Queries exceeding the search engine's compilation limit also report an error.
+
+- Text/log source is limited to `u32::MAX` bytes (just under 4GiB) and 50 million lines. A request returns at most 2,000 lines; a range exceeding 8MiB of decoded strings is refused, including a single oversized line. Find uses Unicode case-insensitive literal matching within each line, without regular expressions. Highlighting shows the first 2,000 matches per rendered line. Copy uses browser selection within the currently rendered range only. A final newline keeps its empty line; CRLF is displayed and copied as LF. Existing encoding conversion limits still apply.
 
 - Markdown search is limited to 2,000 matches, 256 characters per regular expression and 1 second of Worker execution. Zero-width matches are excluded. Rendered search excludes markup, app controls, hidden content and duplicate math representations; closed details are included and opened on navigation. Paragraph and cell boundaries are separated by newlines; a match containing only such a newline navigates to adjacent text. Environments without the highlight API show a notice and scroll to matches without highlighting them.
 

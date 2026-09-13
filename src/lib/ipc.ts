@@ -477,6 +477,11 @@ export function encodingChoices(): Promise<[string, string][]> {
 // --- markdown -------------------------------------------------------------
 
 export const docSourceText = (docId: number) => invoke<string>("doc_source_text", { docId });
+export interface LinePage { total: number; lines: string[] }
+export const docLines = (docId: number, start: number, count: number) =>
+  invoke<LinePage>("doc_lines", { docId, start, count });
+export const docLinesFind = (docId: number, query: string, from: number, backward: boolean) =>
+  invoke<number | null>("doc_lines_find", { docId, query, from, backward });
 export const renderMarkdown = (docId: number) =>
   invoke<RenderedMarkdown>("render_markdown", { docId });
 let languagesCache: Promise<HighlightLanguage[]> | null = null;

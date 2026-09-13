@@ -20,6 +20,7 @@
   import ArchiveView from "./lib/components/archive/ArchiveView.svelte";
   import MarkdownView from "./lib/components/markdown/MarkdownView.svelte";
   import RawView from "./lib/components/markdown/RawView.svelte";
+  import TextRawView from "./lib/components/table/TextRawView.svelte";
   import * as ipc from "./lib/ipc";
   import { detectSystemLocale, t } from "./lib/i18n";
   import { pickFiles } from "./lib/open";
@@ -294,7 +295,11 @@
             <p>{t("app.opening", { title: active.meta.title })}</p>
           </div>
         {:else if active.mode === "raw" && supportsRaw(active.view, active.kind)}
-          <RawView tab={active} bind:focusSearch={searchBarFocus} />
+          {#if active.kind === 'text'}
+            <TextRawView tab={active} bind:focusSearch={searchBarFocus} />
+          {:else}
+            <RawView tab={active} bind:focusSearch={searchBarFocus} />
+          {/if}
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "collection"}

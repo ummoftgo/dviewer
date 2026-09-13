@@ -13,7 +13,7 @@
  * harness targets are the event loop failing to turn.
  */
 import * as ipc from "./ipc";
-import { checkTextReading } from "./components/table/smoke";
+import { checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
 import { checkCollectionWidths } from "./components/collection/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
@@ -102,6 +102,10 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
   if (what === "collectionWidths") {
     await checkCollectionWidths(tab);
+    return { ok: true, stage: what };
+  }
+  if (what === "textRawVirtual") {
+    await checkTextRawVirtual(tab);
     return { ok: true, stage: what };
   }
   if (what === "textReading") {

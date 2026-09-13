@@ -211,6 +211,7 @@ export class DocTab {
   /** Preserved per tab so switching back does not lose the reader's place. */
   scrollTop = $state(0);
   rawScrollTop = $state(0);
+  readonly textSearch = $state({ query: '', current: null as number | null });
 
   // Tree (JSON, YAML, TOML, XML)
   treeStats = $state<TreeStats | null>(null);
@@ -324,6 +325,8 @@ export class DocTab {
     this.html = null;
     this.toc = [];
     this.raw = null;
+    this.textSearch.query = '';
+    this.textSearch.current = null;
     this.treeStats = null;
     this.indexing = null;
     this.history.reset();

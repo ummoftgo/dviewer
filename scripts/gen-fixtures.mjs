@@ -143,6 +143,17 @@ if (wantHuge) {
 await writeFile(path.join(OUT, "reading.txt"), "First line\n\nA long line: " + "reading ".repeat(80) + "\r\nLast line\n");
 console.log("  reading.txt");
 
+// Exactly 17 MiB: fixed 128-byte records, no final newline. The last source
+// line is content, so the raw-view search must actually navigate to it.
+const BIG_LOG_LINES = 17 * 1024 * 1024 / 128;
+await writeStream("big.log", (function* () {
+  for (let i = 0; i < BIG_LOG_LINES; i++) {
+    const last = i === BIG_LOG_LINES - 1;
+    const text = `2026-09-13 12:00:00 INFO ${last ? 'm35-last-unique' : `row-${i}`} `;
+    yield text.padEnd(last ? 128 : 127, 'x') + (last ? '' : '\n');
+  }
+})());
+
 // --- 텍스트와 로그 -----------------------------------------------------------
 
 await writeFile(
@@ -1251,6 +1262,7 @@ const SMOKE = [
   { file: "sample.csv", expect: "table", then: "toggleHeader" },
   { file: "semicolon.csv", expect: "table" },
   { file: "reading.txt", expect: "table", then: "textReading" },
+  { file: "big.log", expect: "table", then: "textRawVirtual" },
   { file: "sample.log", expect: "table" },
   { file: "edge.log", expect: "table" },
   { file: "sample.tsv", expect: "table" },
