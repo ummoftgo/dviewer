@@ -486,6 +486,8 @@ export const zhHans: Messages = {
   "markdown.code.search": "搜索语言",
   "markdown.code.failed": "无法更改语法高亮。",
   "grid.hideColumn": "隐藏此列",
+  "grid.freezeThrough": "冻结至此列",
+  "grid.unfreeze": "取消冻结列",
   "grid.moveLeft": "向左移动",
   "grid.moveRight": "向右移动",
   "grid.resetColumnView": "重置列布局",

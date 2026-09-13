@@ -244,6 +244,7 @@ export class DocTab {
   columnWidths = $state<number[]>([]);
   columnOrder = $state<number[]>([]);
   hiddenColumns = $state<number[]>([]);
+  frozenCount = $state(0);
   revealedColumn = $state<number | null>(null);
   selectedCell = $state<CellSelection | null>(null);
   tableScrollTop = $state(0);
@@ -326,6 +327,7 @@ export class DocTab {
   resetColumnView() {
     this.columnOrder = [];
     this.hiddenColumns = [];
+    this.frozenCount = 0;
     this.revealedColumn = null;
     this.tableFillRatios = null;
   }

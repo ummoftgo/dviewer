@@ -10,12 +10,32 @@ import { describe, expect, test } from "vitest";
 import { MAX_AUTO_COLUMN, MAX_FIT_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength, layoutColumns, resizeColumn, resetColumns, automaticColumnLimit, resizeColumnKey } from "./columns";
 import type { DocTab } from "../../state/docs.svelte";
 import type { TableRow } from "../../ipc";
-import { visibleColumns, hideColumn, revealColumn, moveColumn, projectLayout } from './columns';
+import { visibleColumns, hideColumn, revealColumn, moveColumn, projectLayout, freezeThrough, frozenOffsets } from './columns';
+import { i18n, t } from '../../i18n';
 
 function columnTab(): DocTab {
-  return { columnOrder: [], hiddenColumns: [], columnWidths: [100, 200, 300], tableFillRatios: null,
+  return { columnOrder: [], hiddenColumns: [], frozenCount: 0, columnWidths: [100, 200, 300], tableFillRatios: null,
     selectedCell: null, pendingCell: null, revealedColumn: null } as unknown as DocTab;
 }
+
+test('frozen offsets follow displayed widths after the gutter and shrink when a pinned column is hidden', () => {
+  const tab = columnTab(); tab.columnOrder = [2, 0, 1];
+  freezeThrough(tab, 0, 3);
+  expect(tab.frozenCount).toBe(2);
+  const layout = projectLayout(tab, visibleColumns(tab, 3), 644, 44, 'scroll');
+  expect(frozenOffsets(layout.widths, tab.frozenCount, 44)).toEqual([44, 344, null]);
+  hideColumn(tab, 2, 3);
+  expect(tab.frozenCount).toBe(1);
+  expect(frozenOffsets([100, 200], tab.frozenCount, 44)).toEqual([44, null]);
+  revealColumn(tab, 2);
+  expect(tab.frozenCount).toBe(1);
+});
+
+test('frozen offsets update with fill width and unfreezing leaves no offsets', () => {
+  expect(frozenOffsets([150, 450, 300], 2, 44)).toEqual([44, 194, null]);
+  expect(frozenOffsets([100, 200], 0, 44)).toEqual([null, null]);
+  expect(frozenOffsets([], 2, 44)).toEqual([]);
+});
 
 test('hide/move/reveal preserves source identity and protects the last column', () => {
   const tab = columnTab(); tab.selectedCell = { row: 4, column: 1 };
@@ -25,6 +45,9 @@ test('hide/move/reveal preserves source identity and protects the last column', 
   expect(hideColumn(tab, 0, 3)).toBe(true); expect(hideColumn(tab, 2, 3)).toBe(false);
   revealColumn(tab, 1, true);
   expect(visibleColumns(tab, 3)).toEqual([2, 1]); expect(tab.revealedColumn).toBe(1);
+  const locale = i18n.setting; i18n.setting = 'ko';
+  try { expect(t('grid.revealedColumn', { column: '이름' })).toBe('검색 결과의 이름 열을 다시 표시했습니다.'); }
+  finally { i18n.setting = locale; }
   expect(tab.columnWidths).toEqual([100, 200, 300]);
 });
 

@@ -491,6 +491,8 @@ export const ko = {
   "markdown.code.search": "언어 검색",
   "markdown.code.failed": "코드 강조를 변경하지 못했습니다.",
   "grid.hideColumn": "이 열 숨기기",
+  "grid.freezeThrough": "여기까지 고정",
+  "grid.unfreeze": "열 고정 해제",
   "grid.moveLeft": "왼쪽으로 이동",
   "grid.moveRight": "오른쪽으로 이동",
   "grid.resetColumnView": "열 구성 기본으로",

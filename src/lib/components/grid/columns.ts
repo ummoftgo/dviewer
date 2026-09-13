@@ -26,6 +26,7 @@ export function visibleColumns(tab: ColumnView, count: number): number[] {
 export function hideColumn(tab: DocTab, column: number, count: number): boolean {
   const visible = visibleColumns(tab, count);
   if (visible.length <= 1 || !visible.includes(column)) return false;
+  if (visible.indexOf(column) < tab.frozenCount) tab.frozenCount--;
   tab.hiddenColumns = [...tab.hiddenColumns, column];
   tab.tableFillRatios = null;
   tab.revealedColumn = null;
@@ -51,6 +52,21 @@ export function moveColumn(tab: DocTab, column: number, delta: -1 | 1, count: nu
   [order[left], order[right]] = [order[right], order[left]];
   tab.columnOrder = order;
   tab.revealedColumn = null;
+}
+
+export function freezeThrough(tab: DocTab, column: number, count: number): void {
+  const at = visibleColumns(tab, count).indexOf(column);
+  if (at >= 0) tab.frozenCount = at + 1;
+}
+
+/** Pinned data cells start after the already-pinned row-number gutter. */
+export function frozenOffsets(widths: readonly number[], count: number, gutter: number): (number | null)[] {
+  let left = gutter;
+  return widths.map((width, at) => {
+    const offset = at < count ? left : null;
+    left += width;
+    return offset;
+  });
 }
 
 /** Widths/ratios stay indexed by source column even when the display is projected. */

@@ -44,6 +44,8 @@
     hideColumn,
     revealColumn,
     moveColumn,
+    freezeThrough,
+    frozenOffsets,
     MAX_AUTO_COLUMN,
     MAX_FIT_COLUMN,
     automaticColumnLimit,
@@ -111,6 +113,8 @@
   const positions = $derived(new Map(columns.map((column, at) => [column, at])));
   const layout = $derived(projectLayout(tab, columns, viewportWidth, numberWidth, widthMode ?? 'scroll'));
   const presentation = $derived({ columnWidths: layout.widths });
+  const pinned = $derived(frozenOffsets(layout.widths, tab.frozenCount, numberWidth));
+  const pinnedWidth = $derived(numberWidth + layout.widths.slice(0, tab.frozenCount).reduce((sum, width) => sum + width, 0));
   const totalWidth = $derived(totalOf(presentation, numberWidth));
   let measuredMode = untrack(() => widthMode);
 
@@ -288,10 +292,10 @@
   function scrollColumnIntoView(column: number) {
     if (!viewport) return;
     const at = positions.get(column);
-    if (at === undefined) return;
+    if (at === undefined || at < tab.frozenCount) return;
     const left = columnLeft(presentation, at, numberWidth);
     const right = left + columnWidth(column);
-    if (left - numberWidth < viewport.scrollLeft) viewport.scrollLeft = left - numberWidth;
+    if (left - pinnedWidth < viewport.scrollLeft) viewport.scrollLeft = left - pinnedWidth;
     else if (right > viewport.scrollLeft + viewport.clientWidth) {
       viewport.scrollLeft = right - viewport.clientWidth;
     }
@@ -379,6 +383,8 @@
       { key: 'hide-column', label: t('grid.hideColumn'), disabled: columns.length <= 1, action: () => { hideColumn(tab, column, columnCount); } },
       { key: 'move-left', label: t('grid.moveLeft'), disabled: positions.get(column) === 0, action: () => moveColumn(tab, column, -1, columnCount) },
       { key: 'move-right', label: t('grid.moveRight'), disabled: positions.get(column) === columns.length - 1, action: () => moveColumn(tab, column, 1, columnCount) },
+      { key: 'freeze-columns', label: t('grid.freezeThrough'), action: () => freezeThrough(tab, column, columnCount) },
+      { key: 'unfreeze-columns', label: t('grid.unfreeze'), disabled: tab.frozenCount === 0, action: () => { tab.frozenCount = 0; } },
       { key: 'reset-columns', label: t('grid.resetColumnView'), action: () => tab.resetColumnView() },
       ...([null, false, true] as const).map((descending) => ({
         icon: descending === null ? "sort-none" as const : descending ? "sort-desc" as const : "sort-asc" as const,
@@ -505,6 +511,7 @@
   data-width-mode={widthMode}
   data-fitted={widthMode === undefined ? undefined : String(fitted)}
   data-visible-columns={columns.length}
+  data-frozen-count={tab.frozenCount}
   class:ordering={tab.order.running}
   class:empty={rowCount === 0 && tab.order.stats !== null}
   bind:this={viewport}
@@ -521,7 +528,8 @@
   <div class="head" style="width: {totalWidth}px" role="row">
     <div class="cell num" role="columnheader"></div>
     {#each columns as column, at (column)}
-      <div class="cell" style="width: {columnWidth(column)}px" role="columnheader" tabindex="-1"
+      <div class="cell" class:frozen={pinned[at] !== null}
+        style="width: {columnWidth(column)}px; left: {pinned[at] === null ? 'auto' : `${pinned[at]}px`}" role="columnheader" tabindex="-1"
         data-column={column} onkeydown={(event) => headerKey(event, column)}
         oncontextmenu={(event) => openMenu(event, -1, column)}
         aria-sort={tab.order.sort?.column === column ? (tab.order.sort.descending ? "descending" : "ascending") : "none"}>
@@ -553,17 +561,18 @@
       {@const displayRow = windowStart + at}
       <div class="row" style="top: {rowTop(metrics, scrollTop, displayRow)}px" role="row">
         <div class="cell num" role="rowheader">{n(row.index + firstRowNumber)}</div>
-        {#each columns as column (column)}
+        {#each columns as column, at (column)}
           {@const cell = row.cells[column]}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div
             class="cell"
+            class:frozen={pinned[at] !== null}
             class:selected={tab.selectedCell?.row === displayRow &&
               tab.selectedCell?.column === column}
             class:hit={isHit(displayRow, column)}
             class:null={cell?.null}
             data-level={cellTone?.(column, cell?.text)}
-            style="width: {columnWidth(column)}px"
+            style="width: {columnWidth(column)}px; left: {pinned[at] === null ? 'auto' : `${pinned[at]}px`}"
             role="gridcell"
             data-column={column}
             tabindex="-1"
@@ -624,6 +633,7 @@
   }
 
   .row {
+    --row-bg: var(--bg);
     position: absolute;
     left: 0;
     display: flex;
@@ -633,10 +643,12 @@
   /* Zebra striping: with many narrow columns the eye loses the row on the way
      across, and a stripe is cheaper to follow than a rule. */
   .row:nth-child(even) {
+    --row-bg: var(--bg-inset);
     background: var(--bg-inset);
   }
 
   .row:hover {
+    --row-bg: var(--bg-hover);
     background: var(--bg-hover);
   }
 
@@ -667,6 +679,9 @@
 
   .column-menu { flex: none; align-self: stretch; padding: 0 .25rem; border: 0; background: transparent; color: inherit; cursor: pointer; }
   .column-menu:hover, .column-menu:focus-visible { background: var(--bg-hover); }
+
+  .cell.frozen { position: sticky; z-index: 1; background: var(--row-bg, var(--bg)); }
+  .head .cell.frozen { position: sticky; z-index: 2; background: var(--bg-subtle); }
 
   .cell.num {
     position: sticky;

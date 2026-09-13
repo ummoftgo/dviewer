@@ -486,6 +486,8 @@ export const en: Messages = {
   "markdown.code.search": "Search languages",
   "markdown.code.failed": "Could not change syntax highlighting.",
   "grid.hideColumn": "Hide this column",
+  "grid.freezeThrough": "Freeze through this column",
+  "grid.unfreeze": "Unfreeze columns",
   "grid.moveLeft": "Move left",
   "grid.moveRight": "Move right",
   "grid.resetColumnView": "Reset column layout",

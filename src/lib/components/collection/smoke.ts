@@ -22,13 +22,14 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
   await waitFor(() => !!picker() && settled(), 'collection did not finish its first page');
   const saved = { widthMode: settings.tableWidthMode, font: settings.docFontPx, scale: settings.uiScale,
     tabWidthMode: tab.tableWidthMode, collection: tab.collection, widths: [...tab.columnWidths], ratios: tab.tableFillRatios,
-    columnOrder: [...tab.columnOrder], hiddenColumns: [...tab.hiddenColumns], revealedColumn: tab.revealedColumn };
+    columnOrder: [...tab.columnOrder], hiddenColumns: [...tab.hiddenColumns], revealedColumn: tab.revealedColumn, frozenCount: tab.frozenCount };
   const select = async (name: string) => {
     const control = picker();
     if (!control || control.disabled) throw new Error('collection picker is not ready');
     control.value = name;
     control.dispatchEvent(new Event('change', { bubbles: true }));
     if (tab.columnWidths.length || tab.tableFillRatios !== null) throw new Error('collection switch retained previous widths or ratios');
+    if (tab.columnOrder.length || tab.hiddenColumns.length || tab.frozenCount) throw new Error('collection switch retained column configuration');
     await tick();
     await waitFor(() => tab.collection === name && settled(), 'selected collection did not finish layout: ' + name);
   };
@@ -67,6 +68,8 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
     await tick();
     for (const item of tab.collections.slice(0, 2)) {
       tab.tableFillRatios = tab.columnWidths.map((_, i) => i === 0 ? 99 : 1);
+      tab.columnOrder = Array.from({ length: tab.gridStats!.columnCount }, (_, i) => i).reverse();
+      tab.hiddenColumns = [0]; tab.frozenCount = 1;
       await select(item.name);
       const host = grid()!;
       const head = host.querySelector<HTMLElement>('.head')!;
@@ -140,6 +143,15 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
     if (!grid()!.querySelector('.head [data-column="0"]') || !document.activeElement?.closest('[role="columnheader"]')) {
       throw new Error('reset did not restore columns and header focus');
     }
+    grid()!.querySelectorAll<HTMLButtonElement>('.head .column-menu')[1].click();
+    await menuAction('grid.freezeThrough');
+    await waitFor(() => grid()?.dataset.frozenCount === '2' && grid()?.dataset.fitted === 'true', 'frozen columns did not settle');
+    if (grid()!.querySelectorAll('.head .cell.frozen').length !== 2 || !grid()!.querySelector('.body .cell.frozen')) {
+      throw new Error('frozen column markers are missing');
+    }
+    grid()!.querySelector<HTMLButtonElement>('.head .column-menu')!.click();
+    await menuAction('grid.resetColumnView');
+    await waitFor(() => grid()?.dataset.frozenCount === '0' && grid()?.dataset.fitted === 'true', 'frozen reset did not settle');
   } finally {
     try {
       settings.tableWidthMode = saved.widthMode; settings.docFontPx = saved.font; settings.uiScale = saved.scale;
@@ -149,6 +161,7 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
     } finally {
       tab.columnWidths = saved.widths; tab.tableFillRatios = saved.ratios;
       tab.columnOrder = saved.columnOrder; tab.hiddenColumns = saved.hiddenColumns; tab.revealedColumn = saved.revealedColumn;
+      tab.frozenCount = saved.frozenCount;
       if (saveDescriptor) Object.defineProperty(settings, 'save', saveDescriptor);
       else Reflect.deleteProperty(settings, 'save');
       await tick();

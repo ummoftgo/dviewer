@@ -486,6 +486,8 @@ export const ja: Messages = {
   "markdown.code.search": "言語を検索",
   "markdown.code.failed": "構文強調を変更できませんでした。",
   "grid.hideColumn": "この列を非表示",
+  "grid.freezeThrough": "この列まで固定",
+  "grid.unfreeze": "列の固定を解除",
   "grid.moveLeft": "左へ移動",
   "grid.moveRight": "右へ移動",
   "grid.resetColumnView": "列の構成をリセット",
