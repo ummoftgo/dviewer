@@ -128,6 +128,7 @@ The technical documentation lives in `doc/` (Korean).
 ## Known limits
 
 - Text/log source search queries are limited to 8MiB of UTF-8. Queries exceeding the search engine's compilation limit also report an error.
+- A source range refused by the size limit is not requested again until the requested range key changes.
 
 - Text/log source is limited to `u32::MAX` bytes (just under 4GiB) and 50 million lines. A request returns at most 2,000 lines; a range exceeding 8MiB of decoded strings is refused, including a single oversized line. Find uses Unicode case-insensitive literal matching within each line, without regular expressions. Highlighting shows the first 2,000 matches per rendered line. Copy uses browser selection within the currently rendered range only. A final newline keeps its empty line; CRLF is displayed and copied as LF. Existing encoding conversion limits still apply.
 

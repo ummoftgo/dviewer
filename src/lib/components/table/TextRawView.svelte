@@ -5,7 +5,7 @@
   import type { DocTab } from '../../state/docs.svelte';
   import { settings } from '../../state/settings.svelte';
   import { anchorRow, isCompressed, rowTop, scrollTopForRow, spacerHeight } from '../../virtual';
-  import { containsLines, rawHighlights, rawWindow, visibleLines } from '../../textRaw';
+  import { containsLines, rawHighlights, rawWindow, visibleLines, RawRequests } from '../../textRaw';
   import Icon from '../Icon.svelte';
 
   interface Props { tab: DocTab; focusSearch?: (() => void) | null }
@@ -28,7 +28,7 @@
   let jumpLine = $state<number>();
   let request = 0;
   let searchRequest = 0;
-  let pending = '';
+  const requests = new RawRequests();
   let restored = false;
   const rowHeight = $derived(Math.max(18, Math.round(settings.docFontPx * settings.uiScale * 1.7)));
   const metrics = $derived({ rowHeight, totalRows: total, viewportHeight });
@@ -90,7 +90,7 @@
     if (!current() || !viewport || !total) return;
     const visible = visibleLines(metrics, scrollTop);
     if (containsLines(start, rows.length, visible)) {
-      pending = '';
+      requests.pending = '';
       const seq = ++request;
       await tick();
       if (current() && seq === request) range = `${start}-${start + rows.length - 1}`;
@@ -98,8 +98,7 @@
     }
     const window = rawWindow(metrics, scrollTop);
     const key = `${window.start}:${window.count}`;
-    if (key === pending) return;
-    pending = key;
+    if (!requests.begin(key)) return;
     range = undefined;
     error = null;
     const seq = ++request;
@@ -111,9 +110,13 @@
       await tick();
       if (current() && seq === request) range = `${start}-${start + rows.length - 1}`;
     } catch (err) {
-      if (current() && seq === request) { rows = []; error = errorMessage(err); }
+      if (current() && seq === request) {
+        requests.finish(key, err);
+        rows = [];
+        error = errorMessage(err);
+      }
     } finally {
-      if (current() && seq === request) pending = '';
+      if (current() && seq === request) requests.finish(key);
     }
   }
 

@@ -21,6 +21,25 @@ export function containsLines(start: number, count: number, visible: { start: nu
   return count > 0 && start <= visible.start && start + count >= visible.end;
 }
 
+/** In-flight requests and size refusals both suppress the same range. */
+export class RawRequests {
+  pending = '';
+  rejected = '';
+
+  begin(key: string) {
+    if (key === this.pending || key === this.rejected) return false;
+    this.pending = key;
+    this.rejected = '';
+    return true;
+  }
+
+  finish(key: string, error?: unknown) {
+    if (key !== this.pending) return;
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'tooLarge') this.rejected = key;
+    this.pending = '';
+  }
+}
+
 /** Literal Unicode highlighting shares the existing /giu matcher and its cap. */
 export function rawHighlights(text: string, query: string) {
   const parts: { text: string; matched: boolean }[] = [];

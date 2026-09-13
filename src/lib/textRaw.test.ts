@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { containsLines, rawHighlights, rawWindow, visibleLines } from './textRaw';
+import { containsLines, rawHighlights, rawWindow, visibleLines, RawRequests } from './textRaw';
 import { scrollTopForRow } from './virtual';
 
 const metrics = { rowHeight: 20, viewportHeight: 200, totalRows: 1000 };
@@ -17,6 +17,28 @@ describe('the raw window and its single cached range', () => {
     expect(containsLines(76, 59, visibleLines(metrics, 2500))).toBe(false);
     expect(containsLines(76, 59, visibleLines(metrics, 1500))).toBe(false);
     expect(containsLines(0, 0, { start: 0, end: 0 })).toBe(false);
+  });
+  test('a size-refused empty window stays blocked after finally until its key changes', () => {
+    const requests = new RawRequests();
+    const keyAt = (top: number) => {
+      const window = rawWindow(metrics, top);
+      return `${window.start}:${window.count}`;
+    };
+    const key = keyAt(2000);
+    expect(requests.begin(key)).toBe(true);
+    requests.finish(key, { code: 'tooLarge', params: { limitMb: 8 } });
+    requests.finish(key); // The component's finally runs after catch.
+    expect(requests.pending).toBe('');
+    expect(containsLines(0, 0, visibleLines(metrics, 2001))).toBe(false);
+    for (const top of [2000, 2001, 2019]) expect(requests.begin(keyAt(top))).toBe(false);
+    const next = keyAt(2020);
+    expect(requests.begin(next)).toBe(true);
+    requests.finish(key, { code: 'tooLarge' }); // A stale completion cannot refuse the new range.
+    expect(requests.pending).toBe(next);
+    requests.finish(next, { code: 'io' });
+    expect(requests.begin(next)).toBe(true); // Transient errors remain retryable.
+    requests.finish(next);
+    expect(requests.begin(key)).toBe(true);
   });
   test('reaches the last source line beyond the browser height ceiling', () => {
     const large = { ...metrics, totalRows: 50_000_000 };
