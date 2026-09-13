@@ -121,7 +121,6 @@ export function startResize(event: PointerEvent, tab: DocTab, column: number, la
   event.preventDefault();
   event.stopPropagation();
   const handle = event.currentTarget as HTMLElement;
-  handle.focus();
   const startX = event.clientX;
   const widths = [...(layout?.widths ?? tab.columnWidths)];
   const mode = layout?.mode ?? "scroll";
