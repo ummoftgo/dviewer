@@ -89,6 +89,7 @@ export function fitColumn(tab: DocTab, sample: TableRow[], column: number, fontP
   if (layout?.mode === 'fill' && content <= layout.widths.reduce((sum, width) => sum + width, 0)) {
     resizeColumn(tab, layout.widths, column, content - layout.widths[column], 'fill');
   } else {
+    if (layout) tab.columnWidths = [...layout.widths];
     tab.tableFillRatios = null;
     tab.columnWidths[column] = content;
   }

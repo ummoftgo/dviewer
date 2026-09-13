@@ -180,11 +180,24 @@ test('content fit keeps fill and the neighbor minimum, overflowing only for cont
   fit(140); // 894 fits the viewport, but its neighbor must retain 64.
   expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill')).toEqual({ widths: [expect.closeTo(836), expect.closeTo(64)], mode: 'fill' });
   fit(150); // 956 exceeds the 900px available width.
-  expect(tab.columnWidths).toEqual([956, 200]); expect(tab.tableFillRatios).toBeNull();
+  expect(tab.columnWidths).toEqual([956, 600]); expect(tab.tableFillRatios).toBeNull();
   expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill').mode).toBe('scroll');
-  fitColumn(tab, [row('x'.repeat(60))], 0, 10, '', MAX_FIT_COLUMN, { widths: [956, 200], mode: 'scroll' });
-  expect(tab.columnWidths).toEqual([398, 200]);
+  fitColumn(tab, [row('x'.repeat(60))], 0, 10, '', MAX_FIT_COLUMN, { widths: [956, 600], mode: 'scroll' });
+  expect(tab.columnWidths).toEqual([398, 600]);
   const single = { columnWidths: [100], tableFillRatios: null } as unknown as DocTab;
   fitColumn(single, [row('x'.repeat(60))], 0, 10, '', MAX_FIT_COLUMN, { widths: [900], mode: 'fill' });
   expect(layoutColumns(single.columnWidths, single.tableFillRatios, 944, 44, 'fill').widths).toEqual([900]);
+});
+
+
+test('overflowing fit preserves every displayed neighbor without mutating the layout snapshot', () => {
+  const baseline = [100, 200];
+  const displayed = [300, 600];
+  const tab = { columnWidths: baseline, tableFillRatios: [1, 2] } as unknown as DocTab;
+  fitColumn(tab, [row('x'.repeat(150))], 0, 10, '', MAX_FIT_COLUMN, { widths: displayed, mode: 'fill' });
+  expect(tab.columnWidths).toEqual([956, 600]);
+  expect(tab.tableFillRatios).toBeNull();
+  expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill').mode).toBe('scroll');
+  expect(baseline).toEqual([100, 200]);
+  expect(displayed).toEqual([300, 600]);
 });
