@@ -132,6 +132,7 @@ export const ja: Messages = {
   "toolbar.encoding.guessed": "{encoding} と推測しました。文字化けする場合は変更してください。",
   "toolbar.scale": "インターフェース倍率 (Ctrl + / Ctrl -)",
   "toolbar.settings": "表示設定",
+  "toolbar.tableWidth": "表の幅",
 
   // --- 설정 / settings -----------------------------------------------------
   "settings.close": "設定を閉じる",
@@ -285,7 +286,7 @@ export const ja: Messages = {
   "table.copyValue": "値をコピー",
   "table.copyRow": "行をコピー",
   "table.copyColumn": "列名をコピー",
-  "table.resize": "ドラッグで幅を調整 · ダブルクリックで自動調整",
+  "table.resize": "ドラッグまたは左右の矢印で調整します。ダブルクリックまたはEnterで内容に合わせます。",
   "table.status.size": "{rows}行 × {columns}列",
   "table.status.delimiter": "区切り文字 {name}",
   "table.status.index": "インデックス {size}",

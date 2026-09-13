@@ -1,4 +1,5 @@
 import { scrollTranslate } from './stickyHead';
+import { waitSearch } from './searchSmoke';
 import { indexText } from './searchDom';
 import { cleanCopyDom } from './copy';
 
@@ -23,6 +24,9 @@ function waitTable(wrap: HTMLElement, scroller: HTMLElement, predicate: () => bo
 }
 
 export async function checkStickyTables(): Promise<void> {
+  // HTML arrives before the asynchronous table enhancement creates these nodes.
+  await waitSearch(() => !!document.querySelector('article.markdown-body .table-wrap .table-head-clone'),
+    'sticky table enhancement did not finish', 60_000);
   const root = document.querySelector<HTMLElement>('article.markdown-body')!;
   const scroller = root.closest<HTMLElement>('.scroller')!;
   const wrap = root.querySelector<HTMLElement>('.table-wrap')!;

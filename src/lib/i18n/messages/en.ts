@@ -132,6 +132,7 @@ export const en: Messages = {
   "toolbar.encoding.guessed": "Guessed {encoding}. Change it if the text looks wrong.",
   "toolbar.scale": "Interface scale (Ctrl + / Ctrl -)",
   "toolbar.settings": "Display settings",
+  "toolbar.tableWidth": "Table width",
 
   // --- 설정 / settings -----------------------------------------------------
   "settings.close": "Close settings",
@@ -285,7 +286,7 @@ export const en: Messages = {
   "table.copyValue": "Copy value",
   "table.copyRow": "Copy row",
   "table.copyColumn": "Copy column name",
-  "table.resize": "Drag to resize · double-click to fit",
+  "table.resize": "Drag or use the left and right arrows to resize. Double-click or press Enter to fit the content.",
   "table.status.size": "{rows} rows × {columns} columns",
   "table.status.delimiter": "delimiter {name}",
   "table.status.index": "index {size}",

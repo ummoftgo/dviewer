@@ -164,3 +164,17 @@ test('table widths default to fill, reject invalid settings, and round-trip scro
   saved.save(); expect(setValue).toHaveBeenLastCalledWith('settings', expect.objectContaining({ tableWidthMode: 'scroll' }));
   saved.reset(); expect(saved.tableWidthMode).toBe('fill');
 });
+
+
+test('the toolbar changes only its tab and persists the new default', () => {
+  const settings = new Settings();
+  const current = { tableWidthMode: settings.tableWidthMode };
+  const other = { tableWidthMode: settings.tableWidthMode };
+  settings.applyTableWidthMode(current, 'scroll');
+  expect([current.tableWidthMode, settings.tableWidthMode, other.tableWidthMode]).toEqual(['scroll', 'scroll', 'fill']);
+  expect(setValue).toHaveBeenCalledExactlyOnceWith('settings', expect.objectContaining({ tableWidthMode: 'scroll' }));
+  settings.applyTableWidthMode(current, 'fill');
+  expect([current.tableWidthMode, settings.tableWidthMode]).toEqual(['fill', 'fill']);
+  expect(setValue).toHaveBeenCalledTimes(2);
+  expect(setValue).toHaveBeenLastCalledWith('settings', expect.objectContaining({ tableWidthMode: 'fill' }));
+});

@@ -42,6 +42,7 @@ export async function checkTextReading(tab: DocTab): Promise<void> {
     await choose('grid.resetWidths');
     if (tab.columnWidths[0] > 420 || Math.abs(head.getBoundingClientRect().width - grid.clientWidth) > 1) throw new Error('width reset did not restore automatic fill');
     const expected = await docSourceText(tab.id);
+    if (!document.querySelector('[data-action="table-width"]')) throw new Error('text table width menu missing');
     const raw = document.querySelector<HTMLButtonElement>('[data-action="view-raw"]');
     if (!raw) throw new Error('text toolbar has no raw switch');
     raw.click();
@@ -49,6 +50,7 @@ export async function checkTextReading(tab: DocTab): Promise<void> {
     await waitFor(() => document.querySelector<HTMLElement>('.text-raw-view')?.dataset.total === String(expectedLines.length),
       'text raw source did not finish loading');
     const actual = [...document.querySelectorAll('.text-raw-view .line-text')].map(line => line.textContent);
+    if (document.querySelector('[data-action="table-width"]')) throw new Error('table width menu appeared in raw mode');
     const numbers = [...document.querySelectorAll('.text-raw-view .line-number')].map(line => line.textContent);
     if (JSON.stringify(actual) !== JSON.stringify(expectedLines)) throw new Error('text raw source lines changed');
     if (numbers.length !== expectedLines.length || numbers.at(-1) !== String(expectedLines.length)) throw new Error('text raw line numbers changed');

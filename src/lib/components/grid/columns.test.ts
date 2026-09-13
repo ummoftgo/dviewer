@@ -7,9 +7,12 @@
  * each, and a table of them came out with columns twice the width they needed.
  */
 import { describe, expect, test } from "vitest";
-import { MAX_AUTO_COLUMN, MAX_FIT_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength, layoutColumns, resizeColumn, resetColumns } from "./columns";
+import { MAX_AUTO_COLUMN, MAX_FIT_COLUMN, MIN_COLUMN, fitColumn, measureColumns, visualLength, layoutColumns, resizeColumn, resetColumns, automaticColumnLimit, resizeColumnKey } from "./columns";
 import type { DocTab } from "../../state/docs.svelte";
 import type { TableRow } from "../../ipc";
+
+const row = (...cells: string[]): TableRow =>
+  ({ cells: cells.map((text) => ({ text, truncated: false })) }) as unknown as TableRow;
 
 describe("counting columns rather than characters", () => {
   test("Latin text is one column each", () => {
@@ -49,8 +52,6 @@ describe("guessing a width from one page", () => {
     return { header, columnWidths: [] } as unknown as DocTab;
   }
 
-  const row = (...cells: string[]): TableRow =>
-    ({ cells: cells.map((text) => ({ text, truncated: false })) }) as unknown as TableRow;
 
   test("the widest of the header and the sampled rows decides", () => {
     const narrow = tabWith(["id"]);
@@ -142,4 +143,48 @@ test('switching collections discards both widths and drag ratios before the next
   expect(tab.columnWidths).toEqual([]);
   expect(tab.tableFillRatios).toBeNull();
   expect(tab.tableWidthMode).toBe('fill');
+});
+
+
+test('automatic scroll widths use the preview up to 4000 and switching back to fill restores 420', () => {
+  const tab = { columnWidths: [], tableFillRatios: [90, 10] } as unknown as DocTab;
+  const sample = [row('x'.repeat(100), 'x'.repeat(500))];
+  for (const mode of ['scroll', 'fill', 'scroll'] as const) {
+    measureColumns(tab, sample, 2, 15, () => '', automaticColumnLimit(mode));
+    expect(tab.columnWidths).toEqual(mode === 'scroll' ? [956, 4000] : [420, 420]);
+    expect(tab.tableFillRatios).toBeNull();
+  }
+});
+
+
+test('keyboard resize uses 8 or 24 pixels and keeps fill compensation separate from scroll baselines', () => {
+  const tab = { columnWidths: [100, 200], tableFillRatios: null } as unknown as DocTab;
+  expect(resizeColumnKey(tab, { widths: [300, 600], mode: 'fill' }, 0, 'ArrowRight')).toBe(true);
+  expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill').widths).toEqual([expect.closeTo(308), expect.closeTo(592)]);
+  expect(tab.columnWidths).toEqual([100, 200]);
+  resizeColumnKey(tab, { widths: [308, 592], mode: 'fill' }, 0, 'ArrowLeft', true);
+  expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill').widths).toEqual([expect.closeTo(284), expect.closeTo(616)]);
+  resizeColumnKey(tab, { widths: [100, 200], mode: 'scroll' }, 0, 'ArrowRight', true);
+  expect(tab.columnWidths).toEqual([124, 200]); expect(tab.tableFillRatios).toBeNull();
+  resizeColumnKey(tab, { widths: [70, 200], mode: 'scroll' }, 0, 'ArrowLeft');
+  expect(tab.columnWidths).toEqual([64, 200]);
+  expect(resizeColumnKey(tab, { widths: [64, 200], mode: 'scroll' }, 0, 'Tab')).toBe(false);
+});
+
+test('content fit keeps fill and the neighbor minimum, overflowing only for content wider than the viewport', () => {
+  const tab = { columnWidths: [100, 200], tableFillRatios: null } as unknown as DocTab;
+  const fit = (contentLength: number, widths = [300, 600]) => fitColumn(tab, [row('x'.repeat(contentLength))], 0, 10, '', MAX_FIT_COLUMN, { widths, mode: 'fill' });
+  fit(60); // 60 * 6.2 + 26 = 398
+  expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill')).toEqual({ widths: [expect.closeTo(398), expect.closeTo(502)], mode: 'fill' });
+  expect(tab.columnWidths).toEqual([100, 200]);
+  fit(140); // 894 fits the viewport, but its neighbor must retain 64.
+  expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill')).toEqual({ widths: [expect.closeTo(836), expect.closeTo(64)], mode: 'fill' });
+  fit(150); // 956 exceeds the 900px available width.
+  expect(tab.columnWidths).toEqual([956, 200]); expect(tab.tableFillRatios).toBeNull();
+  expect(layoutColumns(tab.columnWidths, tab.tableFillRatios, 944, 44, 'fill').mode).toBe('scroll');
+  fitColumn(tab, [row('x'.repeat(60))], 0, 10, '', MAX_FIT_COLUMN, { widths: [956, 200], mode: 'scroll' });
+  expect(tab.columnWidths).toEqual([398, 200]);
+  const single = { columnWidths: [100], tableFillRatios: null } as unknown as DocTab;
+  fitColumn(single, [row('x'.repeat(60))], 0, 10, '', MAX_FIT_COLUMN, { widths: [900], mode: 'fill' });
+  expect(layoutColumns(single.columnWidths, single.tableFillRatios, 944, 44, 'fill').widths).toEqual([900]);
 });

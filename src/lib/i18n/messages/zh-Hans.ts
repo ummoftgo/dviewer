@@ -132,6 +132,7 @@ export const zhHans: Messages = {
   "toolbar.encoding.guessed": "推测为 {encoding}。若文字显示异常请更改。",
   "toolbar.scale": "界面缩放 (Ctrl + / Ctrl -)",
   "toolbar.settings": "显示设置",
+  "toolbar.tableWidth": "表格宽度",
 
   // --- 설정 / settings -----------------------------------------------------
   "settings.close": "关闭设置",
@@ -285,7 +286,7 @@ export const zhHans: Messages = {
   "table.copyValue": "复制值",
   "table.copyRow": "复制行",
   "table.copyColumn": "复制列名",
-  "table.resize": "拖动调整宽度 · 双击自动适应",
+  "table.resize": "拖动或使用左右方向键调整宽度。双击或按 Enter 可适应内容。",
   "table.status.size": "{rows} 行 × {columns} 列",
   "table.status.delimiter": "分隔符 {name}",
   "table.status.index": "索引 {size}",

@@ -19,6 +19,7 @@ export function resetColumns(tab: Pick<DocTab, "columnWidths" | "tableFillRatios
 export const MIN_COLUMN = 64;
 export const MAX_AUTO_COLUMN = 420;
 export const MAX_FIT_COLUMN = 4000;
+export const automaticColumnLimit = (mode?: TableMode): number => mode === "scroll" ? MAX_FIT_COLUMN : MAX_AUTO_COLUMN;
 /** Used until a page has arrived and the real widths can be measured. */
 const FALLBACK_COLUMN = 140;
 
@@ -83,9 +84,14 @@ function measuredWidth(sample: TableRow[], column: number, fontPx: number, name:
   return Math.round(Math.min(maximum, Math.max(MIN_COLUMN, widest * char + 26)));
 }
 
-export function fitColumn(tab: DocTab, sample: TableRow[], column: number, fontPx: number, name: string, maximum = MAX_AUTO_COLUMN): void {
-  tab.tableFillRatios = null;
-  tab.columnWidths[column] = measuredWidth(sample, column, fontPx, name, maximum);
+export function fitColumn(tab: DocTab, sample: TableRow[], column: number, fontPx: number, name: string, maximum = MAX_AUTO_COLUMN, layout?: ColumnLayout): void {
+  const content = measuredWidth(sample, column, fontPx, name, maximum);
+  if (layout?.mode === 'fill' && content <= layout.widths.reduce((sum, width) => sum + width, 0)) {
+    resizeColumn(tab, layout.widths, column, content - layout.widths[column], 'fill');
+  } else {
+    tab.tableFillRatios = null;
+    tab.columnWidths[column] = content;
+  }
 }
 
 export function columnWidth(tab: Pick<DocTab, 'columnWidths'>, column: number): number {
@@ -115,6 +121,7 @@ export function startResize(event: PointerEvent, tab: DocTab, column: number, la
   event.preventDefault();
   event.stopPropagation();
   const handle = event.currentTarget as HTMLElement;
+  handle.focus();
   const startX = event.clientX;
   const widths = [...(layout?.widths ?? tab.columnWidths)];
   const mode = layout?.mode ?? "scroll";
@@ -153,4 +160,12 @@ export function resizeColumn(tab: DocTab, widths: readonly number[], column: num
   const next = resizeWidths(widths, column, delta, mode, MIN_COLUMN);
   if (mode === 'fill') tab.tableFillRatios = widthRatios(next);
   else { tab.columnWidths = next; tab.tableFillRatios = null; }
+}
+
+
+export function resizeColumnKey(tab: DocTab, layout: ColumnLayout, column: number, key: string, shift = false): boolean {
+  if (key !== 'ArrowLeft' && key !== 'ArrowRight') return false;
+  const step = shift ? 24 : 8;
+  resizeColumn(tab, layout.widths, column, key === 'ArrowLeft' ? -step : step, layout.mode);
+  return true;
 }

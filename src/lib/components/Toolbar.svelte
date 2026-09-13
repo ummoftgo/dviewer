@@ -31,11 +31,20 @@
   $effect(() => {
     void tab.id;
     void tab.mode;
+    void tab.view;
     widthAt = null;
     copyTarget = null;
   });
 
+  const gridWidth = $derived(tab.view === 'table' || tab.view === 'collection');
+
   function widthItems(): MenuItem[] {
+    if (gridWidth) return (['fill', 'scroll'] as const).map(mode => ({
+      key: mode,
+      label: t(mode === 'fill' ? 'settings.tableWidth.fill' : 'settings.tableWidth.scroll'),
+      checked: tab.tableWidthMode === mode,
+      action: () => settings.applyTableWidthMode(tab, mode),
+    }));
     return pageWidthOptions(settings.markdownPageWidth).map((option) => ({
       key: String(option.width),
       label: t(option.label, { width: option.width }),
@@ -56,7 +65,7 @@
    * A BOM, valid UTF-8, or the reader's own choice are all settled facts.
    */
   const encodingUncertain = $derived(tab.meta.encoding.source === "guessed");
-  const pageWidthTitle = $derived(t("markdown.width.current", { width: pageWidthLabel(settings.markdownPageWidth) }));
+  const widthTitle = $derived(gridWidth ? t("toolbar.tableWidth") : t("markdown.width.current", { width: pageWidthLabel(settings.markdownPageWidth) }));
 
   const encodingHint = $derived.by(() => {
     const encoding = tab.meta.encoding;
@@ -115,17 +124,18 @@
           <Icon name="list" />
         </button>
       {/if}
-      {#if tab.mode === "rendered"}
-        <button class="icon-btn page-width" bind:this={widthButton} data-action="page-width"
-          title={pageWidthTitle} aria-label={pageWidthTitle} aria-haspopup="menu" aria-expanded={widthAt !== null}
-          onclick={(event) => {
-            const box = event.currentTarget.getBoundingClientRect();
-            widthAt = { x: box.left, y: box.bottom };
-          }}>
-          <Icon name="fit-width" />
-          <Icon name="chevron-down" size={10} />
-        </button>
-      {/if}
+    {/if}
+
+    {#if tab.mode === "rendered" && (tab.view === "prose" || gridWidth)}
+      <button class="icon-btn page-width" bind:this={widthButton} data-action={gridWidth ? 'table-width' : 'page-width'}
+        title={widthTitle} aria-label={widthTitle} aria-haspopup="menu" aria-expanded={widthAt !== null}
+        onclick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          widthAt = { x: box.left, y: box.bottom };
+        }}>
+        <Icon name="fit-width" />
+        <Icon name="chevron-down" size={10} />
+      </button>
     {/if}
 
     <!-- Neither control is shown for a format that is not read as bytes. The

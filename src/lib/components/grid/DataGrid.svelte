@@ -43,6 +43,10 @@
     layoutColumns,
     MAX_AUTO_COLUMN,
     MAX_FIT_COLUMN,
+    automaticColumnLimit,
+    resetColumns,
+    resizeColumnKey,
+    MIN_COLUMN,
   } from "./columns";
   import { copyText } from "../../clipboard";
   import { toasts } from "../../state/toast.svelte";
@@ -101,6 +105,17 @@
   const layout = $derived(layoutColumns(tab.columnWidths, tab.tableFillRatios, viewportWidth, numberWidth, widthMode ?? 'scroll'));
   const presentation = $derived({ columnWidths: layout.widths });
   const totalWidth = $derived(totalOf(presentation, numberWidth));
+  let measuredMode = untrack(() => widthMode);
+
+  $effect(() => {
+    const mode = widthMode;
+    if (mode === measuredMode || !current()) return;
+    measuredMode = mode;
+    untrack(() => {
+      resetColumns(tab);
+      if (rows.length || rowCount === 0) measureColumns(rows);
+    });
+  });
 
   $effect(() => {
     const host = viewport;
@@ -246,15 +261,15 @@
   // --- columns ------------------------------------------------------------
 
   function measureColumns(sample: TableRow[]) {
-    autoWidths(tab, sample, columnCount, settings.docFontPx * settings.uiScale, columnName);
+    autoWidths(tab, sample, columnCount, settings.docFontPx * settings.uiScale, columnName, automaticColumnLimit(widthMode));
   }
 
   function fitColumn(column: number) {
-    fitWidth(tab, rows, column, settings.docFontPx * settings.uiScale, columnName(column), widthMode === undefined ? MAX_AUTO_COLUMN : MAX_FIT_COLUMN);
+    fitWidth(tab, rows, column, settings.docFontPx * settings.uiScale, columnName(column), widthMode === undefined ? MAX_AUTO_COLUMN : MAX_FIT_COLUMN, layout);
   }
 
   function resetWidths(recommend: boolean) {
-    autoWidths(tab, rows, columnCount, settings.docFontPx * settings.uiScale, columnName, recommend ? MAX_FIT_COLUMN : MAX_AUTO_COLUMN);
+    autoWidths(tab, rows, columnCount, settings.docFontPx * settings.uiScale, columnName, recommend ? MAX_FIT_COLUMN : automaticColumnLimit(widthMode));
   }
 
   function columnWidth(column: number) {
@@ -273,6 +288,17 @@
 
   function startResize(event: PointerEvent, column: number) {
     beginResize(event, tab, column, widthMode === undefined ? undefined : layout);
+  }
+
+  function onResizeKey(event: KeyboardEvent, column: number) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      fitColumn(column);
+    } else if (resizeColumnKey(tab, layout, column, event.key, event.shiftKey)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }
 
   // --- copying ------------------------------------------------------------
@@ -460,9 +486,15 @@
           onclick={() => { if (sortAvailable && !tab.order.running) onsort?.(column); }} title={sortAvailable ? columnName(column) : t("grid.sortUnavailable")}>
           {columnName(column)}{tab.order.sort?.column === column ? (tab.order.sort.descending ? " ▼" : " ▲") : ""}
         </button>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- A focusable value-bearing separator, as in Splitter.svelte. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
         <span
-          class="grip"
+          class="grip" role="separator" tabindex="0" aria-orientation="vertical"
+          aria-label={t('markdown.table.resize', { column: column + 1 })}
+          aria-valuemin={MIN_COLUMN} aria-valuenow={Math.round(columnWidth(column))}
+          aria-valuemax={layout.mode === 'fill' ? Math.round(columnCount === 1 ? columnWidth(column)
+            : columnWidth(column) + columnWidth(column === columnCount - 1 ? column - 1 : column + 1) - MIN_COLUMN) : undefined}
+          onkeydown={(event) => onResizeKey(event, column)}
           onpointerdown={(e) => startResize(e, column)}
           ondblclick={() => fitColumn(column)}
           title={t("table.resize")}
@@ -646,7 +678,7 @@
     touch-action: none;
   }
 
-  .grip:hover {
+  .grip:hover, .grip:focus-visible {
     background: var(--accent);
   }
 </style>

@@ -137,6 +137,7 @@ export const ko = {
   "toolbar.encoding.guessed": "{encoding} 로 추측했습니다. 글자가 깨져 보이면 바꿔 보세요.",
   "toolbar.scale": "인터페이스 배율 (Ctrl + / Ctrl -)",
   "toolbar.settings": "표시 설정",
+  "toolbar.tableWidth": "표 너비",
 
   // --- 설정 / settings -----------------------------------------------------
   "settings.close": "설정 닫기",
@@ -290,7 +291,7 @@ export const ko = {
   "table.copyValue": "값 복사",
   "table.copyRow": "행 복사",
   "table.copyColumn": "열 이름 복사",
-  "table.resize": "드래그해서 너비 조절 · 두 번 눌러 자동 맞춤",
+  "table.resize": "드래그하거나 좌우 화살표로 조절합니다. 두 번 누르거나 Enter로 내용에 맞춥니다.",
   "table.status.size": "{rows}행 × {columns}열",
   "table.status.delimiter": "구분자 {name}",
   "table.status.index": "색인 {size}",

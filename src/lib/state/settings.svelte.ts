@@ -135,6 +135,13 @@ export class Settings {
     }
   }
 
+  /** A toolbar choice changes this tab and the default for future tabs. */
+  applyTableWidthMode(tab: { tableWidthMode: TableMode }, mode: TableMode) {
+    tab.tableWidthMode = mode;
+    this.tableWidthMode = mode;
+    this.save();
+  }
+
   save() {
     void setValue(STORE_KEY, {
       locale: this.locale,
