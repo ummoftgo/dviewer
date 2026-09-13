@@ -33,17 +33,21 @@ pub fn decode_key(bytes: &[u8], node: &Node) -> String {
 
 /// Display text for a scalar, plus whether it was cut short.
 pub fn decode_scalar(bytes: &[u8], node: &Node) -> (String, bool) {
+    decode_scalar_limit(bytes, node, VALUE_PREVIEW_CHARS)
+}
+
+pub(crate) fn decode_scalar_limit(bytes: &[u8], node: &Node, max_chars: usize) -> (String, bool) {
     let raw = slice(bytes, node.val_start, node.val_len);
     match node.kind {
         // Strip the surrounding quotes before unescaping.
         Kind::String => {
             let inner = raw.get(1..raw.len().saturating_sub(1)).unwrap_or_default();
-            unescape(inner, VALUE_PREVIEW_CHARS, Rendering::Display)
+            unescape(inner, max_chars, Rendering::Display)
         }
         // XML carries entities where JSON carries backslash escapes, so the
         // two need different readers over the same span.
-        kind if kind.is_xml_text() => unescape_xml(raw, VALUE_PREVIEW_CHARS, Rendering::Display),
-        _ => truncate_chars(&String::from_utf8_lossy(raw), VALUE_PREVIEW_CHARS),
+        kind if kind.is_xml_text() => unescape_xml(raw, max_chars, Rendering::Display),
+        _ => truncate_chars(&String::from_utf8_lossy(raw), max_chars),
     }
 }
 

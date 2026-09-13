@@ -18,7 +18,7 @@ export function resetColumns(tab: Pick<DocTab, "columnWidths" | "tableFillRatios
 
 export const MIN_COLUMN = 64;
 export const MAX_AUTO_COLUMN = 420;
-export const MAX_FIT_COLUMN = 4000;
+export const MAX_FIT_COLUMN = 8000;
 export const automaticColumnLimit = (mode?: TableMode): number => mode === "scroll" ? MAX_FIT_COLUMN : MAX_AUTO_COLUMN;
 /** Used until a page has arrived and the real widths can be measured. */
 const FALLBACK_COLUMN = 140;

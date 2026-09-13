@@ -14,6 +14,7 @@
    * at the Rust boundary and both draw through `DataGrid`.
    */
   import DataGrid from "../grid/DataGrid.svelte";
+  import { previewBadge, cellTitle } from "../grid/preview";
   import { resetColumns } from "../grid/columns";
   import SearchBar from "../grid/SearchBar.svelte";
   import GridControls from "../grid/GridControls.svelte";
@@ -282,6 +283,8 @@
             column: columnName(tab.selectedCell.column),
           })}
         </span>
+        {@const badge = previewBadge(tab.selectedCell.preview)}
+        {#if badge}<span class="warn preview-badge" title={cellTitle(tab.selectedCell.preview, tab.kind)}>{badge}</span>{/if}
       {/if}
     </div>
   {/if}

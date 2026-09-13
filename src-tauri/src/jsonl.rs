@@ -224,7 +224,7 @@ pub fn cells(bytes: &[u8], start: u32, end: u32, layout: &JsonlLayout) -> Vec<Ta
     let empty = || TableCell {
         text: String::new(),
         truncated: false,
-        null: false,
+        null: false, preview_bytes: None,
     };
 
     let Some(nodes) = object_nodes(line) else {
@@ -234,7 +234,7 @@ pub fn cells(bytes: &[u8], start: u32, end: u32, layout: &JsonlLayout) -> Vec<Ta
             *first = TableCell {
                 text,
                 truncated,
-                null: false,
+                null: false, preview_bytes: None,
             };
         }
         return cells;
@@ -259,9 +259,9 @@ pub(crate) fn node_cell(bytes: &[u8], node: &Node) -> TableCell {
     let (text, truncated) = if node.kind.is_container() {
         source_text(bytes, node, CELL_PREVIEW_CHARS)
     } else {
-        text::decode_scalar(bytes, node)
+        text::decode_scalar_limit(bytes, node, CELL_PREVIEW_CHARS)
     };
-    TableCell { text, truncated, null: false }
+    TableCell { text, truncated, null: false, preview_bytes: None }
 }
 
 /// A container's JSON, as the file wrote it.
@@ -402,4 +402,19 @@ mod tests {
     fn empty_objects_make_no_columns() {
         assert!(detect(b"{}\n{}\n{}\n").is_none());
     }
+
+    #[test]
+    fn grid_scalars_use_the_cell_budget_without_changing_tree_previews() {
+        for size in [999, 1_000, 1_001] {
+            let raw = serde_json::json!({"value": "😀".repeat(size)}).to_string();
+            let layout = JsonlLayout { columns: vec!["value".into()] };
+            let shown = super::cells(raw.as_bytes(), 0, raw.len() as u32, &layout);
+            assert_eq!(shown[0].text.chars().count(), size.min(1_000));
+            assert_eq!(shown[0].truncated, size > 1_000);
+            let nodes = object_nodes(raw.as_bytes()).unwrap();
+            let scalar = nodes.iter().find(|node| node.kind == Kind::String).unwrap();
+            assert_eq!(text::decode_scalar(raw.as_bytes(), scalar).0.chars().count(), 500);
+        }
+    }
+
 }

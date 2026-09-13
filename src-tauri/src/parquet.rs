@@ -345,7 +345,7 @@ fn empty() -> TableCell {
     TableCell {
         text: String::new(),
         truncated: false,
-        null: false,
+        null: false, preview_bytes: None,
     }
 }
 
@@ -355,7 +355,7 @@ fn cell_of(field: &Field) -> TableCell {
         return TableCell {
             text: String::new(),
             truncated: false,
-            null: true,
+            null: true, preview_bytes: None,
         };
     }
     if let Field::Bytes(bytes) = field {
@@ -363,7 +363,7 @@ fn cell_of(field: &Field) -> TableCell {
         return TableCell {
             text,
             truncated,
-            null: false,
+            null: false, preview_bytes: Some(crate::grid::BINARY_PREVIEW_BYTES),
         };
     }
 
@@ -375,7 +375,7 @@ fn cell_of(field: &Field) -> TableCell {
             return TableCell {
                 text: out,
                 truncated: true,
-                null: false,
+                null: false, preview_bytes: None,
             };
         }
         // Quotes left alone: a cell is a value, not a quoted string.
@@ -385,7 +385,7 @@ fn cell_of(field: &Field) -> TableCell {
     TableCell {
         text: out,
         truncated: false,
-        null: false,
+        null: false, preview_bytes: None,
     }
 }
 
@@ -646,6 +646,7 @@ mod tests {
         let long = shown(&doc, 1, 5);
         assert!(long.text.ends_with(" (40 B)"), "got {:?}", long.text);
         assert!(long.truncated);
+        assert_eq!(long.preview_bytes, Some(16));
         assert_eq!(text_of(&doc, 1, 5).len(), 40 * 2 + 3, "every byte, no size");
     }
 
@@ -775,4 +776,16 @@ mod tests {
             [(4, 3), (5, 3)]
         );
     }
+
+    #[test]
+    fn text_preview_boundary_preserves_unicode() {
+        for size in [999, 1_000, 1_001] {
+            let value = "😀".repeat(size);
+            let cell = cell_of(&Field::Str(value.clone()));
+            assert_eq!(cell.text.chars().count(), size.min(1_000));
+            assert_eq!(cell.truncated, size > 1_000);
+            assert!(cell.preview_bytes.is_none());
+        }
+    }
+
 }

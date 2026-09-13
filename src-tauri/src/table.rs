@@ -29,7 +29,7 @@ pub const MAX_DOC_BYTES: usize = u32::MAX as usize;
 pub const MAX_RECORDS: usize = 50_000_000;
 
 /// Characters of a cell kept for the on-screen grid.
-pub const CELL_PREVIEW_CHARS: usize = 500;
+pub const CELL_PREVIEW_CHARS: usize = 1_000;
 /// Ceiling on the text handed back for "copy cell".
 pub const MAX_CELL_TEXT_BYTES: usize = 8 * 1024 * 1024;
 /// Past this the hit list stops being something a person steps through.
@@ -160,6 +160,9 @@ pub struct TableRow {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableCell {
+    /// Binary previews have a byte limit instead of the text character limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_bytes: Option<usize>,
     /// Single-line, escaped, and capped at `CELL_PREVIEW_CHARS`.
     pub text: String,
     pub truncated: bool,
@@ -720,7 +723,7 @@ impl TableDoc {
                 TableCell {
                     text,
                     truncated,
-                    null: false,
+                    null: false, preview_bytes: None,
                 }
             })
             .collect();
@@ -728,7 +731,7 @@ impl TableDoc {
         cells.resize_with(self.columns() as usize, || TableCell {
             text: String::new(),
             truncated: false,
-            null: false,
+            null: false, preview_bytes: None,
         });
         cells
     }
@@ -1824,4 +1827,20 @@ mod tests {
             Ok(_) => panic!("a pattern that does not compile must not succeed"),
         }
     }
+
+    #[test]
+    fn preview_boundary_counts_unicode_characters_not_bytes() {
+        assert_eq!(CELL_PREVIEW_CHARS, 1_000);
+        for size in [999, 1_000, 1_001] {
+            let value = "😀".repeat(size);
+            let doc = doc(&format!("value\n{value}\n"), b',');
+            let page = doc.page(0, 1);
+            let cell = &page.rows[0].cells[0];
+            assert_eq!(cell.text.chars().count(), size.min(1_000));
+            assert_eq!(cell.truncated, size > 1_000);
+            assert!(cell.preview_bytes.is_none());
+            assert_eq!(doc.cell_text(0, 0).unwrap().0, value);
+        }
+    }
+
 }

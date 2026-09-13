@@ -22,7 +22,7 @@ use crate::query::Interpretation;
 use crate::table::{CellText, TablePage, TableSearch, MAX_CELL_TEXT_BYTES};
 
 /// Bytes of a binary value shown as hex in the grid.
-const BINARY_PREVIEW_BYTES: usize = 16;
+pub(crate) const BINARY_PREVIEW_BYTES: usize = 16;
 
 /// A run of bytes that is not text, as a cell shows it.
 ///

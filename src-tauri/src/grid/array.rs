@@ -92,7 +92,7 @@ impl Grid for JsonArrayGrid {
             if self.map { cells.push(jsonl::node_cell(&self.tree.bytes, &self.key_node(id))); }
             cells.extend(self.fields(id).into_iter().map(|node| match node {
                 Some(node) => jsonl::node_cell(&self.tree.bytes, node),
-                None => TableCell { text: String::new(), truncated: false, null: false },
+                None => TableCell { text: String::new(), truncated: false, null: false, preview_bytes: None },
             }));
             rows.push(TableRow { index, cells });
         }
@@ -237,4 +237,18 @@ mod tests {
         let hits = grid.search("^a\\nb$", false, Interpretation::Regex, &AtomicBool::new(false)).unwrap().hits;
         assert_eq!((hits[0].row, hits[0].column), (0, 0));
     }
+
+    #[test]
+    fn derived_grid_values_use_the_larger_cell_preview() {
+        for size in [999, 1_000, 1_001] {
+            let value = "😀".repeat(size);
+            let raw = serde_json::json!([value]).to_string();
+            let grid = grid(&raw);
+            let page = grid.page(0, 1).unwrap();
+            assert_eq!(page.rows[0].cells[0].text.chars().count(), size.min(1_000));
+            assert_eq!(page.rows[0].cells[0].truncated, size > 1_000);
+            assert_eq!(grid.cell_text(0, 0).unwrap().text, value);
+        }
+    }
+
 }

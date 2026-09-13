@@ -609,24 +609,24 @@ fn cell_of(row: &rusqlite::Row<'_>, column: usize, max_chars: usize) -> Result<T
         ValueRef::Null => TableCell {
             text: String::new(),
             truncated: false,
-            null: true,
+            null: true, preview_bytes: None,
         },
         ValueRef::Integer(number) => TableCell {
             text: number.to_string(),
             truncated: false,
-            null: false,
+            null: false, preview_bytes: None,
         },
         ValueRef::Real(number) => TableCell {
             text: format_real(number),
             truncated: false,
-            null: false,
+            null: false, preview_bytes: None,
         },
         ValueRef::Text(bytes) => {
             let (text, truncated) = one_line(&String::from_utf8_lossy(bytes), max_chars);
             TableCell {
                 text,
                 truncated,
-                null: false,
+                null: false, preview_bytes: None,
             }
         }
         ValueRef::Blob(bytes) => {
@@ -634,7 +634,7 @@ fn cell_of(row: &rusqlite::Row<'_>, column: usize, max_chars: usize) -> Result<T
             TableCell {
                 text,
                 truncated,
-                null: false,
+                null: false, preview_bytes: Some(crate::grid::BINARY_PREVIEW_BYTES),
             }
         }
     })
@@ -1299,6 +1299,9 @@ lines', 'tab\there', -7, 0.5, x'');",
 
         assert!(cells[1].text.ends_with(" (100 B)"), "got {:?}", cells[1].text);
         assert!(cells[1].truncated);
+        assert_eq!(cells[1].preview_bytes, Some(16));
+        assert_eq!(serde_json::to_value(&cells[1]).unwrap()["previewBytes"], 16);
+        assert!(serde_json::to_value(&cells[0]).unwrap()["previewBytes"].is_number());
         assert_eq!(
             cells[1].text.matches(|c: char| c.is_ascii_hexdigit()).count(),
             16 * 2 + 4,

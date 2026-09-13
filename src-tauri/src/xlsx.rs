@@ -444,7 +444,7 @@ fn preview(text: &str) -> TableCell {
             return TableCell {
                 text: out,
                 truncated: true,
-                null: false,
+                null: false, preview_bytes: None,
             };
         }
         // Quotes are left alone: a cell is a value, not a quoted string, and a
@@ -455,7 +455,7 @@ fn preview(text: &str) -> TableCell {
     TableCell {
         text: out,
         truncated: false,
-        null: false,
+        null: false, preview_bytes: None,
     }
 }
 
@@ -631,4 +631,16 @@ mod tests {
         sheet.set_formulas(true).expect("formulas");
         assert_eq!(text_of(&sheet, 1, 3), "=B2*C2");
     }
+
+    #[test]
+    fn text_preview_boundary_preserves_unicode() {
+        for size in [999, 1_000, 1_001] {
+            let value = "😀".repeat(size);
+            let cell = preview(&value);
+            assert_eq!(cell.text.chars().count(), size.min(1_000));
+            assert_eq!(cell.truncated, size > 1_000);
+            assert!(cell.preview_bytes.is_none());
+        }
+    }
+
 }

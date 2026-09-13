@@ -120,7 +120,7 @@ describe('table width layout', () => {
   test('explicit fit lifts the automatic ceiling only when its caller opts in', () => {
     const tab = { columnWidths: [95, 190, 285], tableFillRatios: null } as unknown as DocTab;
     fitColumn(tab, [], 1, 15, 'x'.repeat(1000), MAX_FIT_COLUMN);
-    expect(tab.columnWidths).toEqual([95, 4000, 285]);
+    expect(tab.columnWidths).toEqual([95, 8000, 285]);
     fitColumn(tab, [], 1, 15, 'x'.repeat(1000));
     expect(tab.columnWidths).toEqual([95, 420, 285]);
   });
@@ -128,7 +128,7 @@ describe('table width layout', () => {
     const tab = { columnWidths: [95, 190], tableFillRatios: [40, 60], tableWidthMode: 'fill' } as unknown as DocTab;
     const names = ['', 'x'.repeat(1000)];
     measureColumns(tab, [], 2, 15, column => names[column], MAX_FIT_COLUMN);
-    expect(tab.columnWidths).toEqual([MIN_COLUMN, 4000]);
+    expect(tab.columnWidths).toEqual([MIN_COLUMN, 8000]);
     expect(tab.tableFillRatios).toBeNull();
     measureColumns(tab, [], 2, 15, column => names[column]);
     expect(tab.columnWidths).toEqual([MIN_COLUMN, 420]);
@@ -146,12 +146,12 @@ test('switching collections discards both widths and drag ratios before the next
 });
 
 
-test('automatic scroll widths use the preview up to 4000 and switching back to fill restores 420', () => {
+test('automatic scroll widths use the preview up to 8000 and switching back to fill restores 420', () => {
   const tab = { columnWidths: [], tableFillRatios: [90, 10] } as unknown as DocTab;
-  const sample = [row('x'.repeat(100), 'x'.repeat(500))];
+  const sample = [row('x'.repeat(100), 'x'.repeat(1000))];
   for (const mode of ['scroll', 'fill', 'scroll'] as const) {
     measureColumns(tab, sample, 2, 15, () => '', automaticColumnLimit(mode));
-    expect(tab.columnWidths).toEqual(mode === 'scroll' ? [956, 4000] : [420, 420]);
+    expect(tab.columnWidths).toEqual(mode === 'scroll' ? [956, 8000] : [420, 420]);
     expect(tab.tableFillRatios).toBeNull();
   }
 });

@@ -1,3 +1,4 @@
+import type { CellSelection } from "../components/grid/preview";
 import { family, mainTabs, subtabLabel } from "../subtabs";
 import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
@@ -233,7 +234,7 @@ export class DocTab {
   header = $state<string[]>([]);
   /** Pixel width per column, resizable by dragging a header edge. */
   columnWidths = $state<number[]>([]);
-  selectedCell = $state<{ row: number; column: number; sourceRow?: number } | null>(null);
+  selectedCell = $state<CellSelection | null>(null);
   tableScrollTop = $state(0);
   /** Cell the grid should jump to; cleared by the view once honoured. */
   pendingCell = $state<{ row: number; column: number } | null>(null);

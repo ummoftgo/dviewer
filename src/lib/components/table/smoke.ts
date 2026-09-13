@@ -27,6 +27,12 @@ export async function checkTextReading(tab: DocTab): Promise<void> {
     const grid = document.querySelector<HTMLElement>('main .grid')!;
     const head = grid.querySelector<HTMLElement>('.head')!;
     if (Math.abs(head.getBoundingClientRect().width - grid.clientWidth) > 1) throw new Error('text grid did not fill its viewport');
+    const cut = grid.querySelector<HTMLElement>('[role="gridcell"][data-truncated="true"]');
+    if (!cut || cut.title !== t('grid.previewText', { chars: 1000 })) throw new Error('truncated text preview did not explain its limit');
+    cut.click(); await tick();
+    if (document.querySelector('.preview-badge')?.textContent !== t('grid.previewChars', { chars: 1000 })) throw new Error('selected text preview did not show its badge');
+    grid.querySelector<HTMLElement>('[role="gridcell"]')!.click(); await tick();
+    if (document.querySelector('.preview-badge')) throw new Error('preview badge survived a complete cell selection');
     const choose = async (key: MessageKey) => {
       head.querySelectorAll<HTMLElement>('[role="columnheader"]')[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }));
       await tick();
@@ -37,7 +43,7 @@ export async function checkTextReading(tab: DocTab): Promise<void> {
     };
     for (const key of ['grid.fitColumn', 'grid.recommendWidths'] as const) {
       await choose(key);
-      if (tab.columnWidths[0] <= 420 || tab.columnWidths[0] > 4000) throw new Error('explicit width did not lift the automatic ceiling');
+      if (tab.columnWidths[0] <= 420 || tab.columnWidths[0] > 8000) throw new Error('explicit width did not lift the automatic ceiling');
     }
     await choose('grid.resetWidths');
     if (tab.columnWidths[0] > 420 || Math.abs(head.getBoundingClientRect().width - grid.clientWidth) > 1) throw new Error('width reset did not restore automatic fill');

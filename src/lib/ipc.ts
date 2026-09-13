@@ -310,6 +310,8 @@ export interface SearchHit {
 }
 
 export interface TableCell {
+  /** Present for binary previews; text uses the shared character limit. */
+  previewBytes?: number;
   /** Already escaped to a single line and capped, like a tree row's value. */
   text: string;
   truncated: boolean;

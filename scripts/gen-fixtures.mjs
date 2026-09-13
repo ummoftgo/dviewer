@@ -140,7 +140,7 @@ if (wantHuge) {
 }
 
 
-await writeFile(path.join(OUT, "reading.txt"), "First line\n\nA long line: " + "reading ".repeat(80) + "\r\nLast line\n");
+await writeFile(path.join(OUT, "reading.txt"), "First line\n\nA long line: " + "reading ".repeat(160) + "\r\nLast line\n");
 console.log("  reading.txt");
 
 // Exactly 17 MiB: fixed 128-byte records, no final newline. The last source

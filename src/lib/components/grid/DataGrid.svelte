@@ -49,6 +49,7 @@
     MIN_COLUMN,
   } from "./columns";
   import { copyText } from "../../clipboard";
+  import { cellTitle, selectedCell } from "./preview";
   import { toasts } from "../../state/toast.svelte";
   import type { MenuItem } from "../menu";
   import type { DocTab } from "../../state/docs.svelte";
@@ -384,7 +385,7 @@
   }
 
   function selectCell(row: number, column: number) {
-    tab.selectedCell = { row, column, sourceRow: rows[row - windowStart]?.index };
+    tab.selectedCell = selectedCell(tab.selectedCell, row, column, rows[row - windowStart]);
   }
 
   async function sourceRow(displayRow: number): Promise<number> {
@@ -521,7 +522,8 @@
             style="width: {columnWidth(column)}px"
             role="gridcell"
             tabindex="-1"
-            title={cell?.null ? "NULL" : (cell?.text ?? "")}
+            data-truncated={cell?.truncated ? "true" : undefined}
+            title={cellTitle(cell, tab.kind)}
             onclick={() => selectCell(displayRow, column)}
             oncontextmenu={(e) => openMenu(e, displayRow, column)}
           >
@@ -533,7 +535,7 @@
             {:else}
               <EscapedText text={cell?.text ?? ""} />{#if cell?.truncated}<span
                   class="ellipsis"
-                  title={t("tree.truncated")}>…</span
+                  title={cellTitle(cell, tab.kind)}>…</span
                 >{/if}
             {/if}
           </div>
@@ -667,6 +669,8 @@
     font-style: italic;
     font-size: 0.85em;
   }
+
+  .ellipsis { color: var(--warning); text-decoration: underline dotted; }
 
   .grip {
     position: absolute;
