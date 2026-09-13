@@ -415,6 +415,7 @@ export const en: Messages = {
   "error.fileTooLarge": "The file is too large ({gigabytes}GB). Up to {limitGb}GB can be opened.",
   "error.tooLarge": "Too large: {subject}, {megabytes}MB. Up to {limitMb}MB is supported.",
   "error.tooManyNodes": "Too many nodes (limit {limit}). Try splitting the file.",
+  "error.tooManyLines": "Too many source lines (limit {limit}). Try splitting the file.",
   "error.groupTooLarge": "One row group in this file holds {rows} rows, more than can be decoded at once (limit {limit}). Rewriting the file with smaller row groups opens it.",
   "error.tooDeep": "Nested too deeply: {subject}, limit {limit}.",
   "error.notReady": "Still reading the {subject}.",

@@ -102,6 +102,7 @@ pub enum Error {
         limit_mb: usize,
     },
     TooManyNodes { limit: u32 },
+    TooManyLines { limit: u32 },
     /// One row group of a columnar file holds more rows than may be decoded at
     /// once. The group is the unit the format is written in, so there is no
     /// half of it to show.
@@ -210,6 +211,7 @@ impl Error {
             Error::FileTooLarge { .. } => "fileTooLarge",
             Error::TooLarge { .. } => "tooLarge",
             Error::TooManyNodes { .. } => "tooManyNodes",
+            Error::TooManyLines { .. } => "tooManyLines",
             Error::GroupTooLarge { .. } => "groupTooLarge",
             Error::TooDeep { .. } => "tooDeep",
             Error::NotReady { .. } => "notReady",
@@ -259,7 +261,7 @@ impl std::fmt::Display for Error {
                 megabytes,
                 limit_mb,
             } => write!(f, ": {subject:?} {megabytes}MB (max {limit_mb}MB)"),
-            Error::TooManyNodes { limit } => write!(f, ": max {limit}"),
+            Error::TooManyNodes { limit } | Error::TooManyLines { limit } => write!(f, ": max {limit}"),
             Error::GroupTooLarge { rows, limit } => write!(f, ": {rows} rows (max {limit})"),
             Error::TooDeep { subject, limit } => write!(f, ": {subject:?} max {limit}"),
             Error::NotReady { subject } | Error::WrongView { subject } | Error::NotUtf8 { subject } => {

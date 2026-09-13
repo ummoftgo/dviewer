@@ -415,6 +415,7 @@ export const ja: Messages = {
   "error.fileTooLarge": "ファイルが大きすぎます ({gigabytes}GB)。最大 {limitGb}GB まで開けます。",
   "error.tooLarge": "{subject} — 大きすぎます ({megabytes}MB)。{limitMb}MB まで対応します。",
   "error.tooManyNodes": "ノードが多すぎます (最大 {limit})。ファイルを分けて開いてください。",
+  "error.tooManyLines": "原文の行が多すぎます (最大 {limit} 行)。ファイルを分けて開いてください。",
   "error.groupTooLarge": "このファイルの行グループひとつが{rows}行あり、一度に展開できません(上限{limit}行)。行グループを小さく分けて書き直せば開けます。",
   "error.tooDeep": "{subject} のネストが深すぎます (最大 {limit})。",
   "error.notReady": "まだ{subject}を読み込んでいます。",

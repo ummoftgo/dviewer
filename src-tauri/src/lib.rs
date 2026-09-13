@@ -11,6 +11,7 @@ pub mod highlight;
 pub mod grid;
 pub mod jsonl;
 pub mod log;
+pub mod lines;
 pub mod parquet;
 pub mod query;
 pub mod sqlite;
@@ -187,6 +188,8 @@ pub fn run() {
             commands::open_panel,
             commands::panel_info,
             commands::doc_source_text,
+            commands::doc_lines,
+            commands::doc_lines_find,
             commands::render_markdown,
             commands::highlight_css,
             commands::highlight_languages,

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 
 use crate::bytes::DocBytes;
@@ -223,6 +223,7 @@ pub struct Document {
     /// applied later without going back to the disk — and because for a UTF-8
     /// document this is the same allocation the rest of the app reads.
     inner: RwLock<DocInner>,
+    line_build: Mutex<()>,
 }
 
 pub struct DocumentSnapshot {
@@ -252,6 +253,8 @@ struct DocInner {
     /// never both.
     tree: Option<Arc<TreeDoc>>,
     table: Option<Arc<TableDoc>>,
+    lines: Option<Arc<crate::lines::Lines>>,
+    line_cancel: Arc<AtomicBool>,
     /// An open database, for the one format that is not bytes.
     database: Option<Arc<crate::sqlite::SqliteDoc>>,
     workbook: Option<Arc<crate::xlsx::XlsxDoc>>,
@@ -282,6 +285,7 @@ impl Document {
             title,
             source,
             base_dir,
+            line_build: Mutex::new(()),
             inner: RwLock::new(DocInner {
                 source_bytes,
                 kind,
@@ -297,6 +301,8 @@ impl Document {
                 encoding_warning: decoded.warning,
                 tree: None,
                 table: None,
+                lines: None,
+                line_cancel: Arc::new(AtomicBool::new(false)),
                 database: None,
                 collection: None,
                 workbook: None,
@@ -337,6 +343,7 @@ impl Document {
         inner.encoding_warning = decoded.warning;
         inner.kind = kind;
         inner.generation += 1;
+        Self::invalidate_lines(&mut inner);
         inner.tree = None;
         inner.table = None;
         inner.tree_table = None;
@@ -361,6 +368,7 @@ impl Document {
         inner.encoding = decoded.encoding;
         inner.encoding_source = decoded.source;
         inner.encoding_warning = decoded.warning;
+        Self::invalidate_lines(&mut inner);
         inner.tree = None;
         inner.table = None;
         inner.generation += 1;
@@ -378,6 +386,7 @@ impl Document {
         if inner.kind != kind {
             Self::invalidate_order(&mut inner);
             inner.kind = kind;
+            Self::invalidate_lines(&mut inner);
             inner.tree = None;
             inner.table = None;
             inner.generation += 1;
@@ -386,6 +395,46 @@ impl Document {
 
     pub fn tree(&self) -> Option<Arc<TreeDoc>> {
         self.inner.read().tree.clone()
+    }
+
+    fn invalidate_lines(inner: &mut DocInner) {
+        inner.line_cancel.store(true, Ordering::Relaxed);
+        inner.line_cancel = Arc::new(AtomicBool::new(false));
+        inner.lines = None;
+    }
+
+    pub fn cancel_lines(&self) {
+        let mut inner = self.inner.write();
+        inner.line_cancel.store(true, Ordering::Relaxed);
+        inner.line_cancel = Arc::new(AtomicBool::new(false));
+    }
+
+    pub fn line_token(&self) -> Arc<AtomicBool> { self.inner.read().line_cancel.clone() }
+
+    pub fn set_lines(&self, generation: u32, lines: Arc<crate::lines::Lines>) -> Result<()> {
+        let mut inner = self.inner.write();
+        if inner.generation != generation { return Err(Error::Cancelled); }
+        inner.lines = Some(lines);
+        Ok(())
+    }
+
+    /// Concurrent page requests share one build. No document lock is held
+    /// during the scan, so reload and close can cancel it immediately.
+    pub fn line_index(&self, generation: u32, request_cancel: &AtomicBool) -> Result<Arc<crate::lines::Lines>> {
+        let _build = self.line_build.lock();
+        if request_cancel.load(Ordering::Relaxed) { return Err(Error::Cancelled); }
+        let (bytes, cancel) = {
+            let inner = self.inner.read();
+            if inner.generation != generation { return Err(Error::Cancelled); }
+            if inner.kind != DocKind::Text { return Err(Error::WrongView { subject: crate::error::Subject::Source }); }
+            if let Some(lines) = &inner.lines { return Ok(lines.clone()); }
+            (inner.bytes.clone(), inner.line_cancel.clone())
+        };
+        let stop = || cancel.load(Ordering::Relaxed) || request_cancel.load(Ordering::Relaxed);
+        let lines = Arc::new(crate::lines::Lines::build(bytes, &stop)?);
+        if stop() { return Err(Error::Cancelled); }
+        self.set_lines(generation, lines.clone())?;
+        Ok(lines)
     }
 
     pub fn tree_table(&self) -> Option<Arc<crate::grid::array::JsonArrayGrid>> {
@@ -908,7 +957,7 @@ impl AppState {
     }
 
     pub fn cancel_jobs(&self, id: DocId) {
-        if let Ok(doc) = self.get(id) { doc.clear_order(); }
+        if let Ok(doc) = self.get(id) { doc.clear_order(); doc.cancel_lines(); }
         let mut jobs = self.jobs.write();
         for flag in [jobs.index.remove(&id), jobs.search.remove(&id)]
             .into_iter()
@@ -1230,5 +1279,31 @@ mod tests {
         doc.change_table(|table| table.set_has_header(true)).unwrap();
         assert!(doc.order().is_none());
         assert!(matches!(doc.finish_order(pending, None), Err(Error::Cancelled)));
+    }
+
+    #[test]
+    fn raw_lines_are_shared_and_invalidated_by_encoding_and_kind() {
+        let raw = Arc::new(DocBytes::from(b"\xff\xfeA\0\n\0B\0".to_vec()));
+        let doc = Document::new(1, "text".into(), DocSource::Text, None, DocKind::Text, raw.clone(), encoding::decode(raw));
+        let generation = doc.generation();
+        let token = doc.line_token();
+        let first = doc.line_index(generation, &token).unwrap();
+        assert!(Arc::ptr_eq(&first, &doc.line_index(generation, &token).unwrap()));
+        assert_eq!(first.page(0, 10, &|| false).unwrap().lines, ["A", "B"]);
+        doc.set_encoding(encoding_rs::UTF_8);
+        assert!(matches!(doc.set_lines(generation, first.clone()), Err(Error::Cancelled)));
+        let second = doc.line_index(doc.generation(), &doc.line_token()).unwrap();
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert_ne!(second.page(0, 10, &|| false).unwrap().lines, ["A", "B"]);
+        let generation = doc.generation();
+        doc.set_kind(DocKind::Markdown);
+        assert!(matches!(doc.set_lines(generation, second), Err(Error::Cancelled)));
+        assert!(matches!(doc.line_index(doc.generation(), &doc.line_token()), Err(Error::WrongView { .. })));
+        doc.set_kind(DocKind::Text);
+        assert!(doc.inner.read().lines.is_none());
+        assert_eq!(first.page(0, 10, &|| false).unwrap().lines, ["A", "B"]);
+        let queued = doc.line_token();
+        doc.cancel_lines();
+        assert!(matches!(doc.line_index(doc.generation(), &queued), Err(Error::Cancelled)));
     }
 }

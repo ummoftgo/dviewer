@@ -420,6 +420,7 @@ export const ko = {
   "error.fileTooLarge": "파일이 너무 큽니다 ({gigabytes}GB). 최대 {limitGb}GB까지 열 수 있습니다.",
   "error.tooLarge": "{subject} — 너무 큽니다 ({megabytes}MB). {limitMb}MB까지 지원합니다.",
   "error.tooManyNodes": "노드가 너무 많습니다 (최대 {limit}개). 파일을 나눠서 열어 주세요.",
+  "error.tooManyLines": "원문 줄이 너무 많습니다 (최대 {limit}줄). 파일을 나눠서 열어 주세요.",
   "error.groupTooLarge": "이 파일의 행 그룹 하나가 {rows}행이라 한 번에 펼칠 수 없습니다 (최대 {limit}행). 행 그룹을 더 잘게 나눠 다시 쓰면 열립니다.",
   "error.tooDeep": "{subject} — 중첩이 너무 깊습니다 (최대 {limit}단계).",
   "error.notReady": "{subject} — 아직 읽는 중입니다.",

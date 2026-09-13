@@ -143,6 +143,8 @@ mod tests {
             encoding::decode(old.clone()),
         );
         let snapshot = doc.snapshot();
+        let lines = Arc::new(crate::lines::Lines::build(old.clone(), &|| false).unwrap());
+        doc.set_lines(snapshot.generation, lines.clone()).unwrap();
         let tree = Arc::new(
             TreeDoc::build(
                 old.clone(),
@@ -171,6 +173,8 @@ mod tests {
             doc.set_table(snapshot.generation, table),
             Err(Error::Cancelled)
         ));
+        assert!(matches!(doc.set_lines(snapshot.generation, lines), Err(Error::Cancelled)));
+        assert_eq!(doc.line_index(doc.generation(), &doc.line_token()).unwrap().page(0, 10, &|| false).unwrap().lines, ["new", ""]);
         assert!(matches!(
             doc.clear_order_at(snapshot.generation),
             Err(Error::Cancelled)

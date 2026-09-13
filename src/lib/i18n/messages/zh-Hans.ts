@@ -415,6 +415,7 @@ export const zhHans: Messages = {
   "error.fileTooLarge": "文件过大（{gigabytes}GB）。最多可打开 {limitGb}GB。",
   "error.tooLarge": "{subject} — 过大（{megabytes}MB）。最多支持 {limitMb}MB。",
   "error.tooManyNodes": "节点过多（上限 {limit}）。请将文件拆分后打开。",
+  "error.tooManyLines": "原文行数过多（上限 {limit} 行）。请将文件拆分后打开。",
   "error.groupTooLarge": "该文件的某个行组有 {rows} 行，无法一次解码（上限 {limit} 行）。以更小的行组重写后即可打开。",
   "error.tooDeep": "{subject} 嵌套过深（上限 {limit}）。",
   "error.notReady": "仍在读取{subject}。",
