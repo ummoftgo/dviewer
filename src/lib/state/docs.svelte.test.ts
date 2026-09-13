@@ -790,12 +790,14 @@ test('HTML frame metadata resets on reload while its search stays local to the v
   tab.frameReady = true; tab.frameToc = [{id:'a',level:1,text:'A'}]; tab.frameScroll = 0.6;
   tab.frameBlocked = 3; tab.frameProbe = 'absent';
   tab.frameError = 'old error'; tab.frameUrlPort = '43123'; tab.frameLoaded = true;
+  tab.frameServed = {html:1, agent:1, resource:2}; tab.frameCsp = ['frame-src port 43123']; tab.frameAgentStarted = true;
   tab.frameSearch = {open:true,query:'find',n:3,index:2,request:7};
   tab.mode = 'raw';
   expect(tab.frameScroll).toBe(0.6);
   tab.invalidate();
   expect([tab.frameReady,tab.frameToc,tab.frameScroll,tab.frameBlocked,tab.frameProbe]).toEqual([false,[],0,0,null]);
   expect([tab.frameError,tab.frameUrlPort,tab.frameLoaded]).toEqual([null,null,false]);
+  expect([tab.frameServed,tab.frameCsp,tab.frameAgentStarted]).toEqual([null,[],false]);
   expect(tab.frameSearch).toEqual({open:false,query:'',n:0,index:0,request:0});
 });
 

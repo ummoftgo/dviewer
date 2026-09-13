@@ -194,6 +194,9 @@ export class DocTab {
   frameError = $state<string | null>(null);
   frameUrlPort = $state<string | null>(null);
   frameLoaded = $state(false);
+  frameServed = $state<ipc.FrameServed | null>(null);
+  frameCsp = $state<string[]>([]);
+  frameAgentStarted = $state(false);
   frameToc = $state<ipc.TocEntry[]>([]);
   frameScroll = $state(0);
   frameBlocked = $state(0);
@@ -344,6 +347,7 @@ export class DocTab {
     this.frameReady = false; this.frameToc = []; this.frameScroll = 0;
     this.frameBlocked = 0; this.frameProbe = null;
     this.frameError = null; this.frameUrlPort = null; this.frameLoaded = false;
+    this.frameServed = null; this.frameCsp = []; this.frameAgentStarted = false;
     this.frameSearch = {open:false,query:"",n:0,index:0,request:0};
     this.markdownSearch.open = false;
     this.markdownSearch.query = '';

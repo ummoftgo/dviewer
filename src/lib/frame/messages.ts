@@ -1,6 +1,7 @@
 import type { TocEntry } from '../ipc';
 
 export type FrameMessage =
+  | { type: 'agentStart' }
   | { type: 'ready'; title: string; headings: TocEntry[] }
   | { type: 'scroll'; ratio: number }
   | { type: 'blocked'; n: number }
@@ -22,6 +23,7 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
   switch (v.type) {
+    case 'agentStart': return {type:'agentStart'};
     case 'ready': {
       if (!text(v.title,4096) || !Array.isArray(v.headings) || v.headings.length > 10000) return null;
       const headings: TocEntry[] = [], ids = new Set<string>();

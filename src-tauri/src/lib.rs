@@ -173,6 +173,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             docserve::frame_url,
+            docserve::frame_served,
             update::service::update_status,
             update::service::update_check,
             update::service::update_set_check,

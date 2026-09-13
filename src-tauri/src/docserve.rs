@@ -1,5 +1,5 @@
 //! A bounded, document-scoped loopback origin for active document content.
-use std::{collections::HashMap, io::{Cursor, Read}, net::Ipv4Addr, path::{Component, Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, Ordering}}, thread::JoinHandle, time::Duration};
+use std::{collections::HashMap, io::{Cursor, Read}, net::Ipv4Addr, path::{Component, Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}}, thread::JoinHandle, time::Duration};
 use parking_lot::Mutex;
 use tauri::Manager;
 use subtle::ConstantTimeEq;
@@ -10,9 +10,25 @@ const AGENT: &str = include_str!("../../src/lib/frame/agent.js");
 const POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; worker-src 'self' blob:";
 type Response = tiny_http::Response<Box<dyn Read + Send>>;
 
+#[derive(Default)]
+struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64 }
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+pub struct FrameServed { html: u64, agent: u64, resource: u64 }
+
+#[derive(Clone)]
+struct Route { id: DocId, served: Arc<Served> }
+
+impl Route {
+    fn new(id: DocId) -> Self { Self { id, served: Arc::new(Served::default()) } }
+    fn counts(&self) -> FrameServed {
+        FrameServed { html: self.served.html.load(Ordering::Relaxed), agent: self.served.agent.load(Ordering::Relaxed), resource: self.served.resource.load(Ordering::Relaxed) }
+    }
+}
+
 pub struct DocServer {
     host: String,
-    tokens: Arc<Mutex<HashMap<String, DocId>>>,
+    tokens: Arc<Mutex<HashMap<String, Route>>>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -46,18 +62,22 @@ impl DocServer {
 
     pub fn url(&self, id: DocId) -> Result<String> {
         let mut tokens = self.tokens.lock();
-        if let Some((token, _)) = tokens.iter().find(|(_, doc)| **doc == id) {
+        if let Some((token, _)) = tokens.iter().find(|(_, doc)| doc.id == id) {
             return Ok(format!("http://{}/{token}/", self.host));
         }
         let mut random = [0u8; 32];
         getrandom::fill(&mut random).map_err(Error::internal)?;
         let token = random.iter().map(|b| format!("{b:02x}")).collect::<String>();
         let url = format!("http://{}/{token}/", self.host);
-        tokens.insert(token, id);
+        tokens.insert(token, Route::new(id));
         Ok(url)
     }
 
-    pub fn revoke(&self, id: DocId) { self.tokens.lock().retain(|_, doc| *doc != id); }
+    pub fn revoke(&self, id: DocId) { self.tokens.lock().retain(|_, doc| doc.id != id); }
+
+    fn served(&self, id: DocId) -> Result<FrameServed> {
+        self.tokens.lock().values().find(|route| route.id == id).map(Route::counts).ok_or(Error::NoSuchDoc { id })
+    }
 }
 
 impl Drop for DocServer {
@@ -73,6 +93,12 @@ pub fn frame_url(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<Str
     if doc.kind() != DocKind::Html { return Err(Error::WrongView { subject: Subject::Source }); }
     check_size(doc.bytes().len())?;
     state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.url(doc_id)
+}
+
+#[tauri::command]
+pub fn frame_served(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<FrameServed> {
+    state.get(doc_id)?;
+    state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.served(doc_id)
 }
 
 fn check_size(len: usize) -> Result<()> {
@@ -98,14 +124,18 @@ fn not_found() -> Response {
     reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", false, false).with_status_code(404)
 }
 
-fn serve(state: &AppState, tokens: &Mutex<HashMap<String, DocId>>, url: &str, smoke: bool) -> Option<Response> {
+fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool) -> Option<Response> {
     let (path, query) = url.split_once('?').unwrap_or((url, ""));
     let (token, relative) = path.strip_prefix('/')?.split_once('/')?;
     // Compare the secret in constant time; the small registry follows open HTML tabs.
-    let id = tokens.lock().iter().find_map(|(key, id)| bool::from(key.as_bytes().ct_eq(token.as_bytes())).then_some(*id))?;
-    let doc = state.get(id).ok()?;
+    let route = tokens.lock().iter().find_map(|(key, route)| bool::from(key.as_bytes().ct_eq(token.as_bytes())).then(|| route.clone()))?;
+    let doc = state.get(route.id).ok()?;
     let snapshot = doc.snapshot();
     if snapshot.kind != DocKind::Html { return None; }
+    // Count authenticated requests, not successful delivery or script execution.
+    let counter = if relative.is_empty() { &route.served.html }
+        else if relative == "_/agent.js" { &route.served.agent } else { &route.served.resource };
+    counter.fetch_add(1, Ordering::Relaxed);
     let probe = smoke && query.split('&').any(|part| part == "probe=1");
     if relative == "_/agent.js" {
         return Some(reply(Box::new(Cursor::new(AGENT.as_bytes())), AGENT.len(), "text/javascript; charset=utf-8", false, false));

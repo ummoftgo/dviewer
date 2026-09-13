@@ -1,12 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { errorMessage, frameUrl } from '../../ipc';
+  import { errorMessage, frameServed, frameUrl } from '../../ipc';
   import { t } from '../../i18n';
   import { workspace, type DocTab } from '../../state/docs.svelte';
   import { settings } from '../../state/settings.svelte';
   import { toasts } from '../../state/toast.svelte';
   import { frameMessage } from '../../frame/messages';
+  import { parentCspViolation } from '../../frame/diagnostics';
   import Toc from '../markdown/Toc.svelte';
   import FrameSearchBar from './FrameSearchBar.svelte';
   interface Props { tab: DocTab; showToc: boolean; probe?: boolean; focusSearch?: (() => void) | null }
@@ -23,14 +24,28 @@
     let live = true;
     target.frameReady = false; target.frameBlocked = 0; target.frameProbe = null;
     target.frameError = null; target.frameUrlPort = null; target.frameLoaded = false;
+    target.frameServed = null; target.frameCsp = []; target.frameAgentStarted = false;
+    const cspViolation = (event: SecurityPolicyViolationEvent) => {
+      const entry = parentCspViolation(event.effectiveDirective, event.blockedURI);
+      if (!target.frameCsp.includes(entry) && target.frameCsp.length < 4) target.frameCsp.push(entry);
+    };
+    document.addEventListener('securitypolicyviolation', cspViolation);
     broken = false;
     void frameUrl(target.id).then(url => {
       if (!live) return;
       target.frameUrlPort = new URL(url).port;
       src = `${url}?g=${generation}${testing ? '&probe=1' : ''}`;
-      deadline = setTimeout(() => { if (live && !target.frameReady) target.frameError = t('frame.failed'); }, 30000);
+      deadline = setTimeout(() => {
+        if (!live || target.frameReady) return;
+        target.frameError = t('frame.failed');
+        void frameServed(target.id).then(value => { if (live) target.frameServed = value; })
+          .catch(() => { /* An unavailable counter stays unknown, never zero. */ });
+      }, 30000);
     }).catch(cause => { if (live) target.frameError = errorMessage(cause); });
-    return () => { live = false; clearTimeout(deadline); target.frameReady = false; };
+    return () => {
+      live = false; clearTimeout(deadline); target.frameReady = false;
+      document.removeEventListener('securitypolicyviolation', cspViolation);
+    };
   });
   $effect(() => {
     if (!tab.frameReady) return;
@@ -50,6 +65,7 @@
     const message = frameMessage(event, iframe?.contentWindow ?? null);
     if (!message) return;
     switch (message.type) {
+      case 'agentStart': tab.frameAgentStarted = true; break;
       case 'ready':
         clearTimeout(deadline); tab.frameToc = message.headings; tab.frameReady = true;
         if (!tab.pendingAnchor) post({type:'goto',ratio:tab.frameScroll});
