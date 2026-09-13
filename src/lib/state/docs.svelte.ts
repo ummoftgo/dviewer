@@ -191,6 +191,9 @@ export class DocTab {
   markdownRevision = $state(0);
   pendingAnchor = $state<string | null>(null);
   frameReady = $state(false);
+  frameError = $state<string | null>(null);
+  frameUrlPort = $state<string | null>(null);
+  frameLoaded = $state(false);
   frameToc = $state<ipc.TocEntry[]>([]);
   frameScroll = $state(0);
   frameBlocked = $state(0);
@@ -340,6 +343,7 @@ export class DocTab {
     this.pendingAnchor = null;
     this.frameReady = false; this.frameToc = []; this.frameScroll = 0;
     this.frameBlocked = 0; this.frameProbe = null;
+    this.frameError = null; this.frameUrlPort = null; this.frameLoaded = false;
     this.frameSearch = {open:false,query:"",n:0,index:0,request:0};
     this.markdownSearch.open = false;
     this.markdownSearch.query = '';

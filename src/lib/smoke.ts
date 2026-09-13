@@ -14,6 +14,7 @@
  */
 import * as ipc from "./ipc";
 import { checkHtmlFrame } from "./components/frame/smoke";
+import { frameDiagnostic } from './frame/diagnostics';
 import { checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
 import { checkCollectionWidths } from "./components/collection/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
@@ -91,7 +92,7 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
     }
     await sleep(POLL_MS);
   }
-  return { ok: false, stage: "timeout" };
+  return { ok: false, stage: "timeout", ...(tab.view === 'frame' ? {error:frameDiagnostic(tab)} : {}) };
 }
 
 /**
