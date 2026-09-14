@@ -1,4 +1,5 @@
 import type { CellSelection } from "../components/grid/preview";
+import { compatiblePosition, type Position } from '../position';
 import { family, mainTabs, subtabLabel } from "../subtabs";
 import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
@@ -191,6 +192,29 @@ export class DocTab {
   markdownRevision = $state(0);
   pendingAnchor = $state<string | null>(null);
   frameReady = $state(false);
+  frameContentLoaded = $state(false);
+  position = $state<Position>();
+  rawPosition = $state<Position>();
+  pendingPosition = $state<Position>();
+  positionRestoredAt = $state(0);
+
+  rememberPosition(pos: Position) {
+    if (this.pendingPosition) return;
+    const previous = pos.kind === 'raw' ? this.rawPosition : this.position;
+    if (previous && Object.keys(pos).every(key => Reflect.get(previous, key) === Reflect.get(pos, key))
+      && Object.keys(previous).length === Object.keys(pos).length) return;
+    if (pos.kind === 'raw') this.rawPosition = pos;
+    else this.position = pos;
+  }
+
+  get savedPosition() {
+    return compatiblePosition(this.pendingPosition ?? (this.mode === 'raw' ? this.rawPosition : this.position), this.view, this.mode === 'raw');
+  }
+
+  finishPosition(moved: boolean) {
+    this.pendingPosition = undefined;
+    if (moved) this.positionRestoredAt = Date.now();
+  }
   frameError = $state<string | null>(null);
   frameUrlPort = $state<string | null>(null);
   frameLoaded = $state(false);

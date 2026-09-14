@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { DocMeta, DocSource } from '../ipc';
 import { getValue, setValue } from '../persist';
 import { DocTab, workspace } from './docs.svelte';
@@ -14,6 +14,43 @@ function tab(source: DocSource) {
 }
 const file = (path: string): DocSource => ({ type: 'file', path });
 beforeEach(() => { vi.restoreAllMocks(); vi.mocked(getValue).mockReset(); vi.mocked(setValue).mockClear(); id = 0; });
+afterEach(() => vi.useRealTimers());
+
+test('positions round trip and broken positions preserve the source tab', () => {
+  const page = tab(file('/position.md'));
+  page.rememberPosition({kind:'prose',heading:'section',ratio:0.4});
+  expect(readSession(captureSession([page],page.id)).tabs[0].pos).toEqual({kind:'prose',heading:'section',ratio:0.4});
+  for (const pos of [{kind:'raw',line:'bad'}, {kind:'frame',ratio:Infinity}, {kind:'tree',path:null}]) {
+    expect(readSession({tabs:[{source:page.meta.source,pos}]}).tabs).toEqual([{source:page.meta.source,mode:'rendered'}]);
+  }
+  page.pendingPosition = {kind:'prose',heading:'later',ratio:0.6};
+  page.rememberPosition({kind:'prose',ratio:0});
+  expect(captureSession([page],page.id).tabs[0].pos).toEqual(page.pendingPosition);
+  page.mode = 'raw'; page.pendingPosition = undefined;
+  page.rememberPosition({kind:'raw',line:99});
+  expect(captureSession([page],page.id).tabs[0].pos).toEqual({kind:'raw',line:99});
+});
+
+test('position writes debounce but tab switches and closes flush immediately', async () => {
+  vi.useFakeTimers();
+  const first = tab(file('/a')), second = tab(file('/b'));
+  const target = {tabs:[first,second],activeId:first.id} as typeof workspace;
+  const session = new Session(target); session.ready = true;
+  session.watch(); await vi.advanceTimersByTimeAsync(0);
+  vi.mocked(setValue).mockClear();
+  first.rememberPosition({kind:'prose',ratio:0.3}); session.watch();
+  await vi.advanceTimersByTimeAsync(999); expect(setValue).not.toHaveBeenCalled();
+  first.rememberPosition({kind:'prose',ratio:0.4}); session.watch();
+  await vi.advanceTimersByTimeAsync(999); expect(setValue).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1); expect(setValue).toHaveBeenCalledTimes(1);
+  first.rememberPosition({kind:'prose',ratio:0.5}); session.watch();
+  target.activeId = second.id; session.watch(); await vi.advanceTimersByTimeAsync(0);
+  expect(setValue).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(setValue).mock.calls[1][1]).toMatchObject({tabs:[{pos:{ratio:0.5}},{}],active:second.meta.source});
+  target.tabs = [second]; session.watch(); await vi.advanceTimersByTimeAsync(0);
+  expect(setValue).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(2000); expect(setValue).toHaveBeenCalledTimes(3);
+});
 
 test('only ready restorable sources are saved, with root archives deduplicated and active source retained', () => {
   const first = tab(file('/first.md')); first.mode = 'raw';

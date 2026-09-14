@@ -103,7 +103,10 @@
       .then((result) => {
         if (!current()) return;
         target.collections = result.items;
-        if (result.items.length > 0) select(result.items[0].name);
+        const pos = target.pendingPosition;
+        const saved = pos?.kind === 'grid' ? result.items.find(item => item.name === pos.collection) : undefined;
+        if (pos?.kind === 'grid' && !saved) target.finishPosition(false);
+        if (result.items.length > 0) select((saved ?? result.items[0]).name);
       })
       .catch((err) => {
         if (current()) target.error = errorMessage(err);

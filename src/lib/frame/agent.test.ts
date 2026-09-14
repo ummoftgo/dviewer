@@ -29,3 +29,21 @@ test('the real frame agent forwards focus/Escape but leaves consumed keys and Ct
   press('f', { ctrlKey: true }); press('e', { ctrlKey: true });
   expect(postMessage.mock.calls.slice(-2).map(call => call[0].key)).toEqual(['find', 'raw']);
 });
+
+test('loaded is sent only after window load and font readiness', async () => {
+  const listeners = new Map<string, () => void>();
+  const postMessage = vi.fn();
+  const load = '?g=0&x=1';
+  let finish!: () => void;
+  const ready = new Promise<void>(resolve => {finish = resolve;});
+  runInNewContext(readFileSync(new URL('./agent.js', import.meta.url),'utf8'), {
+    location:{search:load},
+    parent:{postMessage}, innerHeight:100, document:{readyState:'loading',fonts:{ready},documentElement:{scrollHeight:1000},addEventListener(){},currentScript:null},
+    addEventListener(type:string, listener:() => void) {listeners.set(type,listener);},
+  });
+  expect(postMessage.mock.calls.some(([message]) => message.type === 'loaded')).toBe(false);
+  listeners.get('load')!(); await Promise.resolve();
+  expect(postMessage.mock.calls.some(([message]) => message.type === 'loaded')).toBe(false);
+  finish(); await ready; await Promise.resolve();
+  expect(postMessage).toHaveBeenLastCalledWith({type:'loaded',scrollable:true,load},'*');
+});

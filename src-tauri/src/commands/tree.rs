@@ -262,6 +262,20 @@ pub fn tree_path(state: State<'_, AppState>, doc_id: DocId, node_id: u32) -> Res
         .ok_or(Error::NoSuchNode)
 }
 
+#[tauri::command]
+pub fn tree_position_path(state: State<'_, AppState>, doc_id: DocId, node_id: u32) -> Result<Option<String>> {
+    Ok(tree_doc(&state, doc_id)?.position_path(node_id))
+}
+
+#[tauri::command]
+pub async fn tree_position_resolve(state: State<'_, AppState>, doc_id: DocId, path: String) -> Result<Option<u32>> {
+    let tree = tree_doc(&state, doc_id)?;
+    // This token is cancelled on document reload/close, independently of searches.
+    let cancel = state.get(doc_id)?.line_token();
+    tauri::async_runtime::spawn_blocking(move || tree.position_resolve(&path, &cancel))
+        .await.map_err(Error::internal)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeText {

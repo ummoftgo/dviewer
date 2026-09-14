@@ -214,6 +214,8 @@ pub fn run() {
             commands::tree_reveal,
             commands::tree_row_of,
             commands::tree_path,
+            commands::tree_position_path,
+            commands::tree_position_resolve,
             commands::tree_node_text,
             commands::tree_search,
             commands::tree_search_cancel,

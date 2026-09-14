@@ -6,7 +6,8 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
-  "settings.restoreSession": "시작할 때 이전 문서 열기",
+  "settings.restoreSession": "시작할 때 이전 문서와 읽던 위치 복원",
+  "session.positionRestored": "읽던 위치로 복원됨",
   "session.failed": "이전 문서 {count}개를 열지 못했습니다",
   "settings.autoReload": "파일이 바뀌면 다시 읽기",
   "doc.changed": "파일이 바뀌었습니다",

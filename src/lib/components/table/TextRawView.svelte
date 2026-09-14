@@ -41,7 +41,10 @@
   $effect(() => {
     const target = tab;
     void docLines(target.id, 0, 0).then(page => {
-      if (current()) total = page.total;
+      if (current()) {
+        total = page.total;
+        if (total === 0 && target.pendingPosition) target.finishPosition(false);
+      }
     }).catch(err => { if (current()) error = errorMessage(err); });
     return () => {
       live = false; request++; searchRequest++;
@@ -55,8 +58,16 @@
       if (!viewport || !total) return;
       if (!restored) {
         restored = true;
-        viewport.scrollTop = tab.rawScrollTop;
-        scrollTop = viewport.scrollTop;
+        void tick().then(() => {
+          if (!current() || !viewport) return;
+          const pos = tab.pendingPosition;
+          viewport.scrollTop = pos?.kind === 'raw' ? scrollTopForRow(metrics,pos.line < total ? pos.line : 0) : tab.rawScrollTop;
+          scrollTop = viewport.scrollTop;
+          tab.rawScrollTop = scrollTop;
+          if (pos) tab.finishPosition(scrollTop > 0);
+          tab.rememberPosition({kind:'raw',line:Math.floor(anchorRow(metrics,scrollTop))});
+          void ensureWindow();
+        });
       }
       void ensureWindow();
     });
@@ -124,6 +135,7 @@
     if (!viewport) return;
     scrollTop = viewport.scrollTop;
     tab.rawScrollTop = scrollTop;
+    tab.rememberPosition({kind:'raw',line:Math.floor(anchorRow(metrics,scrollTop))});
   }
 
   async function goTo(row: number) {

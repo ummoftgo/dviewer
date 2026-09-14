@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { formatBytes } from "../../format";
   import { shortcutKey } from "../../keys";
   import Icon from "../Icon.svelte";
@@ -16,6 +16,9 @@
     treeRows,
     treeToggle,
     treeRowOf,
+    treePositionPath,
+    treePositionResolve,
+    treeReveal,
     kindLabel,
     openPanel,
     type TreeRow,
@@ -36,7 +39,8 @@
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
   const generation = untrack(() => tab.meta.generation ?? 0);
-  const current = () => (tab.meta.generation ?? 0) === generation;
+  let live = true;
+  const current = () => live && (tab.meta.generation ?? 0) === generation;
   let searchBar = $state<ReturnType<typeof TreeSearchBar>>();
 
   $effect(() => {
@@ -79,7 +83,7 @@
   // Switching tabs tears this view down, and a timer already ticking would
   // otherwise wake up in a component that no longer exists — asking Rust for a
   // path nobody is waiting for, then writing to state nobody reads.
-  onMount(() => () => clearTimeout(hoverTimer));
+  onMount(() => () => { live = false; clearTimeout(hoverTimer); });
 
   // Row height is computed here rather than read from CSS so the spacer maths
   // and the rendered rows can never drift apart.
@@ -141,6 +145,16 @@
     if (current() && selected) tab.selectedNode = selected.id;
   });
 
+  // Keep a durable path even when the selected row has scrolled out of the window.
+  $effect(() => {
+    const node = tab.selectedNode;
+    if (node === null) return;
+    const target = tab;
+    void treePositionPath(target.id,node).then(path => {
+      if (current() && target.selectedNode === node && path) target.rememberPosition({kind:'tree',path});
+    }).catch(() => {});
+  });
+
   // Every landing place goes on the history, wherever it came from: the tree,
   // the key/value table, a search hit. Recording it here rather than at each of
   // those is what keeps them from disagreeing — and `visit` ignores the node it
@@ -190,6 +204,26 @@
   $effect(() => {
     if (restored || !viewport || !tab.treeStats) return;
     restored = true;
+    const pos = untrack(() => tab.pendingPosition);
+    if (pos?.kind === 'tree') {
+      const target = tab;
+      void treePositionResolve(target.id,pos.path).then(async node => {
+        if (!current()) return;
+        if (node === null) { target.finishPosition(false); return; }
+        const result = await treeReveal(target.id,node);
+        if (!current()) return;
+        target.treeStats = result.stats;
+        await tick();
+        if (!current() || !viewport) return;
+        target.selectedNode = node; selectedRow = result.row;
+        viewport.scrollTop = scrollTopForRow(metrics,result.row ?? 0);
+        target.treeScrollTop = viewport.scrollTop;
+        target.finishPosition(viewport.scrollTop > 0);
+        target.rememberPosition(pos);
+        void ensureWindow(true);
+      }).catch(() => { if (current()) target.finishPosition(false); });
+      return;
+    }
     viewport.scrollTop = tab.treeScrollTop;
     untrack(() => void ensureWindow(true));
 

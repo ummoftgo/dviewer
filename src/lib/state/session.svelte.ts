@@ -3,12 +3,13 @@ import { getValue, setValue } from '../persist';
 import { t } from '../i18n';
 import { toasts } from './toast.svelte';
 import { workspace, type DocTab } from './docs.svelte';
+import { compatiblePosition, readPosition, type Position } from '../position';
 
 // The default toast expired at startup before the reader could notice it.
 const RESTORE_FAILURE_MS = 6000;
 
 type Source = Extract<DocSource, { type: 'file' | 'url' }>;
-type Item = { source: Source; mode: 'rendered' | 'raw' };
+type Item = { source: Source; mode: 'rendered' | 'raw'; pos?: Position };
 export type SessionSnapshot = { tabs: Item[]; active: Source | null };
 const key = (source: Source) => JSON.stringify(source);
 
@@ -32,7 +33,9 @@ export function captureSession(tabs: readonly DocTab[], activeId: number | null)
     if (tab.id === selectedId) active = source;
     if (seen.has(key(source))) continue;
     seen.add(key(source));
-    saved.push({ source, mode: tab.meta.source.type === 'archiveEntry' ? 'rendered' : tab.mode });
+    const pos = tab.meta.source.type === 'archiveEntry' ? undefined : tab.savedPosition;
+    saved.push({ source, mode: tab.meta.source.type === 'archiveEntry' ? 'rendered' : tab.mode,
+      ...(pos ? {pos:{...pos}} : {}) });
   }
   return { tabs: saved, active: active ?? saved[0]?.source ?? null };
 }
@@ -53,7 +56,8 @@ export function readSession(value: unknown): SessionSnapshot {
     const source = readSource(item?.source);
     if (!source || seen.has(key(source))) continue;
     seen.add(key(source));
-    tabs.push({ source, mode: item.mode === 'raw' ? 'raw' : 'rendered' });
+    const pos = readPosition(item.pos);
+    tabs.push({ source, mode: item.mode === 'raw' ? 'raw' : 'rendered', ...(pos ? {pos} : {}) });
   }
   const active = readSource(saved?.active);
   return { tabs, active: active && seen.has(key(active)) ? active : tabs[0]?.source ?? null };
@@ -65,6 +69,10 @@ export class Session {
   private started = false;
   private requests: LaunchRequest[] = [];
   private draining: Promise<void> | null = null;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private structure = '';
+  private snapshot = '';
+  private writing = Promise.resolve();
 
   constructor(private target = workspace) {}
 
@@ -93,7 +101,11 @@ export class Session {
       for (const item of saved.tabs) {
         const tab = item.source.type === 'file'
           ? await this.target.openPath(item.source.path) : await this.target.openUrl(item.source.url);
-        if (tab) { tab.mode = item.mode; opened.set(key(item.source), tab.id); }
+        if (tab) {
+          tab.mode = item.mode;
+          tab.pendingPosition = compatiblePosition(item.pos,tab.view,tab.mode === 'raw');
+          opened.set(key(item.source), tab.id);
+        }
         else failed++;
       }
       if (saved.active) {
@@ -108,9 +120,25 @@ export class Session {
     this.ready = save;
   }
 
-  save(): void {
-    if (this.ready) void setValue('session', captureSession(this.target.tabs, this.target.activeId))
+  watch(): void {
+    if (!this.ready) return;
+    const saved = captureSession(this.target.tabs, this.target.activeId);
+    const structure = JSON.stringify({tabs:saved.tabs.map(({source,mode}) => ({source,mode})),active:saved.active});
+    const snapshot = JSON.stringify(saved);
+    if (snapshot === this.snapshot) return;
+    const immediate = structure !== this.structure;
+    this.structure = structure; this.snapshot = snapshot;
+    clearTimeout(this.timer);
+    if (immediate) void this.save(saved);
+    else this.timer = setTimeout(() => { void this.save(); }, 1000);
+  }
+
+  save(saved = captureSession(this.target.tabs, this.target.activeId)): Promise<void> {
+    clearTimeout(this.timer);
+    if (!this.ready) return Promise.resolve();
+    this.writing = this.writing.then(() => setValue('session', saved))
       .catch(error => console.warn('[dviewer] could not save session:', error));
+    return this.writing;
   }
 }
 

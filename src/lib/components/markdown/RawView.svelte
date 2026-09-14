@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { t } from "../../i18n";
   import type { DocTab } from "../../state/docs.svelte";
   import { errorMessage } from "../../ipc";
@@ -46,10 +46,27 @@
    * the value it already had.
    */
   let restored = false;
+  function capture() {
+    if (!scroller || !source || tab.raw === null) return;
+    const height = parseFloat(getComputedStyle(source).lineHeight);
+    const inset = source.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    tab.rawScrollTop = scroller.scrollTop;
+    tab.rememberPosition({kind:'raw',line:Math.max(0,Math.min(lines.length - 1,Math.floor((scroller.scrollTop - inset + 1) / height)))});
+  }
   $effect(() => {
-    if (restored || tab.raw === null || !scroller) return;
+    if (restored || tab.raw === null || !scroller || !source) return;
     restored = true;
-    scroller.scrollTop = untrack(() => tab.rawScrollTop);
+    let live = true;
+    void tick().then(() => {
+      if (!live || !scroller || !source) return;
+      const pos = untrack(() => tab.pendingPosition);
+      const height = parseFloat(getComputedStyle(source).lineHeight);
+      const inset = source.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      scroller.scrollTop = pos?.kind === 'raw' ? (pos.line > 0 && pos.line < lines.length ? inset + pos.line * height : 0) : untrack(() => tab.rawScrollTop);
+      if (pos) tab.finishPosition(scroller.scrollTop > 0);
+      capture();
+    });
+    return () => { live = false; };
   });
 </script>
 
@@ -59,7 +76,7 @@
   class="scroller"
   tabindex="-1"
   bind:this={scroller}
-  onscroll={(e) => (tab.rawScrollTop = e.currentTarget.scrollTop)}
+  onscroll={capture}
 >
   {#if error}
     <p class="status error" role="alert">{error}</p>

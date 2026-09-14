@@ -101,6 +101,11 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, {once:true});
   else ready();
+  const loaded = () => {
+    Promise.resolve(document.fonts?.ready).then(() => send({type:'loaded',scrollable:document.documentElement.scrollHeight > innerHeight}));
+  };
+  if (document.readyState === 'complete') loaded();
+  else addEventListener('load',loaded,{once:true});
   // This marker is emitted by the server only for an authorized smoke response.
   if (document.currentScript?.hasAttribute('data-probe')) {
     const internals = window.__TAURI_INTERNALS__;

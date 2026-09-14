@@ -20,6 +20,7 @@
   const post = (message: unknown) => iframe?.contentWindow?.postMessage(message, '*');
   $effect(() => {
     const target = tab, query = tab.frameQuery;
+    target.frameContentLoaded = false;
     const testing = probe;
     let live = true;
     target.frameReady = false; target.frameReadyLoad = ''; target.frameBlocked = 0; target.frameProbe = null;
@@ -53,7 +54,7 @@
   });
   $effect(() => {
     const id = tab.pendingAnchor;
-    if (!id || !tab.frameReady) return;
+    if (!id || !tab.frameContentLoaded) return;
     untrack(() => { post({type:'goto',id}); activeId = id; tab.pendingAnchor = null; });
   });
   function find(dir: 1 | -1) {
@@ -69,10 +70,22 @@
       case 'agentStart': tab.frameAgentStarted = true; break;
       case 'ready':
         clearTimeout(deadline); tab.frameToc = message.headings; tab.frameReadyLoad = load; tab.frameReady = true;
-        if (!tab.pendingAnchor) post({type:'goto',ratio:tab.frameScroll});
         if (tab.frameSearch.query) find(1);
         break;
-      case 'scroll': tab.frameScroll = message.ratio; break;
+      case 'loaded': {
+        tab.frameContentLoaded = true;
+        const pos = tab.pendingPosition;
+        const ratio = message.scrollable ? (pos?.kind === 'frame' ? pos.ratio : tab.frameScroll) : 0;
+        tab.frameScroll = ratio;
+        if (!tab.pendingAnchor) post({type:'goto',ratio});
+        if (pos) tab.finishPosition(ratio > 0 && message.scrollable && !tab.pendingAnchor);
+        tab.rememberPosition({kind:'frame',ratio});
+        break;
+      }
+      case 'scroll':
+        tab.frameScroll = message.ratio;
+        if (tab.frameContentLoaded) tab.rememberPosition({kind:'frame',ratio:message.ratio});
+        break;
       case 'blocked': tab.frameBlocked = message.n; break;
       case 'probe': if (probe) tab.frameProbe = message.invoke; break;
       case 'isolationBroken':

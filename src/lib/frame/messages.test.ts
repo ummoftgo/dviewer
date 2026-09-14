@@ -2,6 +2,12 @@ import {expect, test} from 'vitest';
 import {frameMessage, linkKind, parseFrameMessage} from './messages';
 
 test('headings become the existing TOC shape, without untrusted extra fields', () => {
+  expect(parseFrameMessage({type:'loaded',scrollable:true,extra:1})).toEqual({type:'loaded',scrollable:true});
+  expect(parseFrameMessage({type:'loaded'})).toBeNull();
+  const frame = {} as Window;
+  const loaded = {type:'loaded',scrollable:true,load:'?g=0&x=1'};
+  expect(frameMessage({source:frame,data:loaded},frame,'?g=0&x=1')).toEqual({type:'loaded',scrollable:true});
+  expect(frameMessage({source:frame,data:loaded},frame,'?g=0&x=2')).toBeNull();
   expect(parseFrameMessage({type:'ready', title:'문서', headings:[{id:'part',level:2,text:'둘째',onclick:'bad'}]}))
     .toEqual({type:'ready',title:'문서',headings:[{id:'part',level:2,text:'둘째'}]});
 });

@@ -61,6 +61,7 @@
   import type { DocTab } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
   import { anchorRow, rowTop, scrollTopForRow, spacerHeight } from "../../virtual";
+  import { originalRow } from '../../position';
 
   interface Props {
     tab: DocTab;
@@ -161,11 +162,24 @@
    * (`{#key active.id}` in App.svelte), so this runs again for the next one.
    */
   let restored = false;
+  function capturePosition() {
+    if (!viewport) return;
+    const row = originalRow(rows,windowStart,Math.max(0,Math.floor(anchorRow(metrics,viewport.scrollTop))));
+    if (row !== undefined) tab.rememberPosition({kind:'grid',row,...(tab.collection === null ? {} : {collection:tab.collection})});
+  }
   $effect(() => {
-    if (restored || !viewport || rowCount === 0) return;
+    if (viewport && rowCount === 0 && (tab.tableStats || tab.gridStats)) {
+      untrack(() => { if (tab.pendingPosition) tab.finishPosition(false); });
+    }
+    if (restored || !viewport || rowCount === 0 || (widthMode !== undefined && !fitted)) return;
     restored = true;
-    viewport.scrollTop = tab.tableScrollTop;
-    untrack(() => void ensureWindow(true));
+    untrack(() => {
+      const pos = tab.pendingPosition;
+      viewport!.scrollTop = pos?.kind === 'grid' ? scrollTopForRow(metrics,pos.row < rowCount ? pos.row : 0) : tab.tableScrollTop;
+      tab.tableScrollTop = viewport!.scrollTop;
+      if (pos) tab.finishPosition(viewport!.scrollTop > 0);
+      void ensureWindow(true);
+    });
   });
 
   // Anything that changes the grid's shape invalidates the cached window. The
@@ -242,6 +256,7 @@
       if (!current() || seq !== requestSeq) return;
       windowStart = start;
       rows = page.rows;
+      capturePosition();
       if (tab.selectedCell) selectCell(tab.selectedCell.row, tab.selectedCell.column);
       if (tab.columnWidths.length !== columnCount) measureColumns(page.rows);
     } catch (err) {
@@ -269,6 +284,7 @@
     measure();
     menu = null;
     void ensureWindow();
+    capturePosition();
   }
 
   // --- columns ------------------------------------------------------------

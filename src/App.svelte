@@ -82,7 +82,17 @@
     await session.start(request, save && settings.restoreSession, save);
   }
 
-  $effect(() => { session.save(); });
+  $effect(() => { session.watch(); });
+  let positionRestored = $state(false);
+  $effect(() => {
+    const at = active?.positionRestoredAt ?? 0;
+    const remaining = at + 3000 - Date.now();
+    positionRestored = at > 0 && remaining > 0;
+    if (positionRestored) {
+      const timer = setTimeout(() => { positionRestored = false; }, remaining);
+      return () => clearTimeout(timer);
+    }
+  });
 
   // --- backend events -----------------------------------------------------
   //
@@ -368,6 +378,7 @@
       {/key}
     {/if}
   </main>
+  {#if positionRestored}<div class="position-status" role="status">{t('session.positionRestored')}</div>{/if}
 
   {#if dropActive}
     <div class="dropzone">
@@ -392,6 +403,7 @@
 {#if updates.dialogOpen && updates.status?.available}<UpdateDialog />{/if}
 
 <style>
+  .position-status { flex: none; padding: 0.2rem 0.75rem; color: var(--text-muted); background: var(--bg); font-size: 0.8rem; }
   :global(body[data-focus] [data-focus-chrome]) { display: none !important; }
   :global(body[data-focus] [data-focus-toc]) { grid-template-columns: minmax(0, 1fr) !important; }
   .focus-chrome { display: contents; }

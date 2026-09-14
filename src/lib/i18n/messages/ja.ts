@@ -1,7 +1,8 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
-  "settings.restoreSession": "起動時に前回のドキュメントを開く",
+  "settings.restoreSession": "起動時に前回のドキュメントと読んでいた位置を復元する",
+  "session.positionRestored": "読んでいた位置を復元しました",
   "session.failed": "前回のドキュメントを{count}件開けませんでした",
   "settings.autoReload": "ファイルが変更されたら再読み込みする",
   "doc.changed": "ファイルが変更されました",

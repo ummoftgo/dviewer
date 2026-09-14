@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
+  import { prosePosition, proseTop } from '../../position';
   import { i18n, t } from "../../i18n";
   import { errorMessage, renderMarkdown, highlightLanguages, type HighlightLanguage } from "../../ipc";
   import { workspace, type DocTab } from "../../state/docs.svelte";
@@ -17,7 +18,7 @@
   import { copyText } from '../../clipboard';
   import { toasts } from '../../state/toast.svelte';
   import Toc from "./Toc.svelte";
-  import { trackHeading } from './toc';
+  import { headingPositions, trackHeading } from './toc';
   import MarkdownSearchBar from './MarkdownSearchBar.svelte';
   import { enhanceTables, interceptLinks, renderMath, renderMermaid, rewriteImages, type EnhancedTables } from "./enhance";
 
@@ -45,8 +46,9 @@
 
   $effect(() => {
     void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody, settings.fontBodyFallback];
-    if (!article || !scroller || enhancing || !showToc) return;
-    return trackHeading(article, scroller, tab.toc.map(entry => entry.id), id => { activeId = id; });
+    if (!article || !scroller || enhancing) return;
+    return trackHeading(article, scroller, tab.toc.map(entry => entry.id), id => { activeId = id; },
+      (headings,top,max) => tab.rememberPosition(prosePosition(headings,top,max)));
   });
 
   // The HTML is sanitised in Rust before it reaches us — see markdown.rs.
@@ -86,14 +88,25 @@
     enhancing = true;
     Promise.all([renderMermaid(host, dark), renderMath(host)])
       .catch((err) => console.warn("[dviewer] post-processing failed:", err))
-      .finally(() => {
+      .finally(async () => {
         if (cancelled) return;
         tables = enhanceTables(host, target.tables, target.markdownTableMode);
         controls = enhanceBlocks(host, openCopy);
         codeControls = enhanceCode(host, target, openLanguage);
+        const explicitAnchor = untrack(() => target.pendingAnchor);
         enhancing = false;
+        if (untrack(() => target.pendingPosition)) await tick();
+        if (cancelled) return;
         // Restore the reading position only once the layout has settled.
-        if (scroller) scroller.scrollTop = tab.scrollTop;
+        if (scroller) {
+          const pos = untrack(() => tab.pendingPosition);
+          const headings = headingPositions(host,scroller,target.toc.map(entry => entry.id));
+          const max = Math.max(0,scroller.scrollHeight - scroller.clientHeight);
+          if (!explicitAnchor) scroller.scrollTop = pos?.kind === 'prose' ? proseTop(pos,headings,max) : tab.scrollTop;
+          tab.scrollTop = scroller.scrollTop;
+          if (pos) tab.finishPosition(!explicitAnchor && scroller.scrollTop > 0);
+          tab.rememberPosition(prosePosition(headings,scroller.scrollTop,max));
+        }
       });
 
     return () => {
@@ -204,7 +217,7 @@
   }
 </script>
 
-<div class="layout" data-focus-toc class:with-toc={showToc && tab.toc.length > 1} class:with-search={tab.markdownSearch.open}>
+<div class="layout" data-position-ready={tab.html !== null && !enhancing ? 'true' : undefined} data-focus-toc class:with-toc={showToc && tab.toc.length > 1} class:with-search={tab.markdownSearch.open}>
   <MarkdownSearchBar {tab} root={article} {scroller} ready={tab.html !== null && !enhancing} bind:focusSearch />
   <div
     class="scroller"

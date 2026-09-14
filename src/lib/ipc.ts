@@ -521,6 +521,10 @@ export const treeReveal = (docId: number, nodeId: number) =>
   invoke<RevealResult>("tree_reveal", { docId, nodeId });
 export const treePath = (docId: number, nodeId: number) =>
   invoke<string>("tree_path", { docId, nodeId });
+export const treePositionPath = (docId: number, nodeId: number) =>
+  invoke<string | null>('tree_position_path', {docId,nodeId});
+export const treePositionResolve = (docId: number, path: string) =>
+  invoke<number | null>('tree_position_resolve', {docId,path});
 export const treeNodeText = (docId: number, nodeId: number) =>
   invoke<NodeText>("tree_node_text", { docId, nodeId });
 export const treeSearch = (docId: number, options: SearchOptions) =>
