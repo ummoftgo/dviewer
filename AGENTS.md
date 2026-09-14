@@ -29,6 +29,9 @@ dviewer 는 개발자·기획자가 **다양한 형식의 문서를 확인하는
 
 ## 3. 검증 — 세 층, 그리고 두 가지 관례
 
+- 마일스톤은 세 OS(Windows 로컬 스모크·warm 잡의 Linux·macOS 스모크) 초록으로만 완료다.
+- 엔진 민감 변경(CSP·sandbox·iframe·파일 감시·프로세스)은 계획의 검증 절에 '세 OS 에서 확인'을 명시한다.
+
 ```bash
 cd src-tauri && cargo test                 # Rust 단위·통합 (현재 479개)
 npm test                                   # vitest — 프론트 순수 모듈과 runes 상태 (144개)

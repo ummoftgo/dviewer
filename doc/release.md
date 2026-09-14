@@ -6,14 +6,14 @@
 
 | 계기 | 하는 일 |
 | --- | --- |
-| main 푸시 | 세 OS 테스트와 `warm`을 병렬 실행. warm은 번들 없이 release 앱을 빌드해 캐시를 예열하고, Linux에서 release 스모크도 실행 |
+| main 푸시 | 세 OS 테스트와 `warm`을 병렬 실행. warm은 번들 없이 release 앱을 빌드해 캐시를 예열하고, Linux·macOS에서 release 스모크도 실행 |
 | PR | 테스트만. 세 러너에서 픽스처를 만든 뒤 `cargo test`(부재를 실패로 치는 `DVIEWER_FIXTURES=required` 로), 타입 체크와 프런트엔드 빌드는 Linux에서 한 번 |
 | `v*` 태그 | 테스트와 세 OS 번들을 병렬 실행하고, 둘 다 성공하면 산출물을 **초안 릴리스**에 붙임 |
 | 수동 실행 | 기본은 테스트만. `bundle` 입력을 켜면 릴리스 없이 번들만 만들어 아티팩트로 남김 |
 
-잡 그래프는 main에서 `test ∥ warm`, 태그에서 `test ∥ bundle → release`입니다. warm을 기다리는 잡은 없습니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. bundle의 Parquet 단계도 세 OS에서 `--features custom-protocol`을 사용하고 `MACOSX_DEPLOYMENT_TARGET`을 tauri build와 같은 값으로 맞춰 기능·환경 차이에 따른 의존 크레이트 재컴파일을 피합니다. 현재 값은 Tauri 기본값인 `10.13`이며 `bundle.macOS.minimumSystemVersion` 또는 Tauri 기본값이 바뀌면 워크플로의 값도 함께 갱신합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행해 WebKit 검사를 태그 전에 확인하는 자리입니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
+잡 그래프는 main에서 `test ∥ warm`, 태그에서 `test ∥ bundle → release`입니다. warm을 기다리는 잡은 없지만, 태그 전에는 대상 main 커밋의 warm 성공과 번들 리허설(`gh workflow run build.yml --ref main -f bundle=true`) 초록이 필수입니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. 스모크용 Parquet 생성은 두 잡 모두 `--features custom-protocol`을 사용하고 `MACOSX_DEPLOYMENT_TARGET`을 tauri build와 같은 값으로 맞춰 기능·환경 차이에 따른 의존 크레이트 재컴파일을 피합니다. 현재 값은 Tauri 기본값인 `10.13`이며 `bundle.macOS.minimumSystemVersion` 또는 Tauri 기본값이 바뀌면 워크플로의 값도 함께 갱신합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행하고 macOS는 universal 바이너리를 디스플레이 래퍼 없이 실행해 WebKit 검사를 태그 전에 확인합니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
 
-Parquet 예제를 위한 별도 예열 빌드는 하지 않습니다. 현재 rust-cache 설정은 워크스페이스 크레이트 산출물을 저장하지 않으므로, dviewer와 예제를 반복 컴파일하는 비용에 비해 추가 개발 의존성인 minisign 등의 예열 실익이 작다고 판단했습니다. Linux는 스모크용 픽스처를 만들 때 예제와 개발 의존성도 빌드합니다. macOS·Windows에서는 이 개발 의존성의 빌드 비용 일부가 bundle의 Parquet 단계로 옮겨갈 수 있습니다.
+Parquet 예제를 위한 별도 예열 빌드는 하지 않습니다. 현재 rust-cache 설정은 워크스페이스 크레이트 산출물을 저장하지 않으므로, dviewer와 예제를 반복 컴파일하는 비용에 비해 추가 개발 의존성인 minisign 등의 예열 실익이 작다고 판단했습니다. Linux·macOS는 스모크용 픽스처를 만들 때 예제와 개발 의존성도 빌드합니다. macOS 앱은 universal이며 예제는 실행 호스트인 `aarch64-apple-darwin`으로 빌드합니다. Windows에서는 이 개발 의존성의 빌드 비용 일부가 bundle의 Parquet 단계로 옮겨갈 수 있습니다.
 
 main에서 번들을 만들지 않는 대신 테스트는 세 OS 모두에서 돌립니다. Linux에서만 돌리면 Windows나 macOS에서만 깨지는 변경을 태그를 밀 때까지 모릅니다. 픽스처를 거기서 만드는 이유는 [검증](verification.md) 의 CI 절에 있습니다 — 그것 없이는 열한 개가 무언가를 단언하지 않은 채 초록이었습니다.
 
@@ -44,6 +44,10 @@ Linux ARM(aarch64)은 아직 없습니다. 크로스 컴파일보다 ARM 러너�
 문서 경로 구분자는 양쪽을 모두 받고, CSP는 asset 프로토콜의 두 형태(`asset:` 와 `http://asset.localhost`)를 모두 허용하며, 글꼴 열거는 `fontdb`가 OS별 디렉터리를 알아서 찾습니다. 자기 갱신 설치 코드는 실제 시험한 Windows x64 포터블·NSIS에만 있습니다. MSI·macOS·AppImage·deb/rpm은 알림과 릴리스 링크만 제공합니다.
 
 ## 업데이트 릴리스 절차
+
+태그를 만들기 전에 대상 main 커밋의 세 OS 검증과 warm의 Linux·macOS 스모크 성공을 확인하고, `gh workflow run build.yml --ref main -f bundle=true`로 번들 리허설을 실행해 세 OS가 모두 초록인지 확인한다. 확인 뒤 main이 바뀌면 새 대상 커밋으로 다시 확인한다. 이 관문은 운영 절차이며 워크플로가 태그 생성을 자동으로 막는 것은 아니다.
+
+CI 전용 실패는 관측 커밋을 먼저 넣는다. 두 바퀴의 진단·재현 안에 원인이 잡히지 않으면 그 기능을 릴리스에서 빼고 관문을 다시 검증한다.
 
 배포 키 생성·시크릿 등록·공개키 커밋·태그·공개는 사용자가 맡는다. 다음은 PowerShell 명령이며 구현 검증에서 실행한 것은 격리 시험키 생성뿐이다.
 
