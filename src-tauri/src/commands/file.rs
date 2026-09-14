@@ -50,15 +50,14 @@ pub async fn watch_doc(app: AppHandle, window: Window, doc_id: DocId) -> Result<
             *watcher = Some(
                 FileWatch::new(move |id, label| {
                     let _ = emitter.emit_to(label, "doc:changed", Changed { id });
-                })
-                .map_err(Error::internal)?,
+                }),
             );
         }
         watcher
             .as_mut()
             .unwrap()
-            .register(doc_id, path, label)
-            .map_err(Error::internal)
+            .register(doc_id, path, label);
+        Ok(())
     })
     .await
     .map_err(Error::internal)?

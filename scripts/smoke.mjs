@@ -74,7 +74,10 @@ function run(args, timeoutMs) {
   return new Promise((resolve) => {
     const child = spawn(exe, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: false });
     let stderr = "";
-    child.stderr?.on("data", (chunk) => (stderr += chunk));
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+      process.stderr.write(chunk);
+    });
 
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
