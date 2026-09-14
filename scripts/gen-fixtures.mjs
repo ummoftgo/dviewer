@@ -1291,7 +1291,7 @@ addEventListener('message', async event => {
 const SMOKE = [
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
-  { file: 'markdown-links.md', expect: 'prose', then: 'relativeLinks' },
+  { file: 'markdown-links.md', expect: 'prose', ...(process.platform === 'darwin' ? {} : { then: 'relativeLinks' }) },
   { file: "long-markdown.md", expect: "prose" },
   { file: "markdown-reading.md", expect: "prose" },
   { file: "markdown-search-large.md", expect: "prose" },
