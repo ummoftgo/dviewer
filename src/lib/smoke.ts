@@ -13,6 +13,7 @@
  * harness targets are the event loop failing to turn.
  */
 import * as ipc from "./ipc";
+import {checkSessionPosition} from './sessionSmoke';
 import { checkHtmlFrame } from "./components/frame/smoke";
 import { frameDiagnostic } from './frame/diagnostics';
 import { checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
@@ -105,6 +106,7 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === 'sessionPosition') return {ok:true,stage:what,metrics:await checkSessionPosition(tab)};
   if (what === "htmlFrame") { return {ok:true,stage:what,metrics:await checkHtmlFrame(tab)}; }
   if (what === 'relativeLinks') return checkRelativeLinks(tab);
   if (what === "collectionWidths") {

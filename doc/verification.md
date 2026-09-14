@@ -1111,3 +1111,15 @@ Rust에는 문서별 완화 CSP와 프로브 유지, 압축 경로의 루트 이
 M46과 v0.21.0 통합 뒤 Rust 전체 544개(fixtures required, 실패·무시 0)가 통과했다. 압축 경로의 루트 위 차단을 제거한 변형은 `../outside.css` 단언 1개 실패·543개 필터 제외였다. 완화 CSP를 무시하는 변형은 새 debug 빌드 스모크에서 report.html의 외부 허용 단언 1개만 실패했고, 나머지 45개와 왕복 2개는 통과했다. 두 변형 모두 소스를 바이트 단위로 복원했다.
 
 픽스처 재생성 후 정상 debug·release 빌드 스모크가 각각 46개와 왕복 2개를 통과했다(앱 sweep debug 18,621ms·release 17,586ms). 두 빌드의 report.html은 허용 뒤 차단 0·재차단 1, 압축 안 같은 디렉터리 CSS·부모 디렉터리 CSS·이미지 모두 true, 제목 3·찾기 2·원문 22줄, 인라인 스크립트·모듈·폰트 모두 true, 프로브 `rejected:Origin header is not a valid URL`이었다. release는 main의 진행 로그 변경을 rebase한 뒤 실행했으며, 이 rebase는 제품·빌드 입력을 바꾸지 않았다. Windows 실제 실행에 한정하고 Linux·macOS와 사용자 화면 확인은 별도다. clippy와 성능 전후 실측은 실행하지 않았다.
+
+## M44 — 읽던 위치 이어가기
+
+프런트 vitest 352개·33파일과 check 오류0·경고0·4로케일×452키가 통과했다. 변경한 Svelte 컴포넌트 8개의 자동 분석 issues는 모두 0이다. 위치 왕복·손상 pos만 폐기·아직 열리지 않은 탭의 pending 유지, 원본 행 번호, 마크다운 구간 비율, 1초 디바운스와 탭 전환·닫기 즉시 저장, window load와 fonts.ready 뒤의 loaded를 검사한다.
+
+raw 위치의 타입 검사를 제거한 변형은 vitest 2개 실패·9개 통과였다. 원본 바이트 복원 후 전체 352개가 다시 통과했다. 생성기의 session-position.md와 새 sessionPosition 검사를 추가하여 매니페스트는 47개다. 스모크는 자체 세션 스냅샷을 저장하고 실제 Session.start로 문서를 다시 열어 렌더 위치·원문 줄을 확인한 뒤 기존 저장값을 복원하도록 구성했다.
+
+main edaa03c 통합 뒤 Rust 전체 544개(fixtures required, 실패·무시 0)가 통과했다. 정확 트리 경로의 긴/중복 키·재색인·XML 혼합 형제·사라진 경로·상한·취소를 검사한다. 완료 신호 이전에 위치를 소비하는 변형은 sessionPosition 1개 실패·나머지 46개와 왕복 2개 통과였으며 원본 바이트를 복원했다. 첫 변형 실행에서 함께 드러난 기존 목차 회귀는 저장 위치가 없는 테마 교체에도 tick을 기다려 스크롤 복원이 늦어졌기 때문이었다. pendingPosition이 있을 때만 기다리도록 좁힌 뒤 변형·정상 스모크에서 목차도 통과했다.
+
+새 debug·release 빌드로 각각 정상 스모크 47개와 왕복 2개가 통과했다. 앱 sweep은 debug 19,831ms·release 18,594ms다. 두 빌드의 sessionPosition은 렌더 스크롤 8,584.6669921875px로 복원(검사 허용 오차 12px 미만)했고 원문 줄 인덱스 36(화면 37번째 줄)을 유지했다. 목차 200개에서 스크롤 중 제목 사각형 재측정은 0회, 정지 대조군·스크롤 프레임 간격 중앙값은 모두 5.6ms였다. 같은 실행의 대조군이며 변경 전후 성능 비교는 아니다.
+
+HTML은 스크립트·모듈·폰트 true, 제목 3·찾기 2, 프로브 `rejected:Origin header is not a valid URL`이었다. 언마운트 직후와 약 1초 뒤 요청 카운터는 두 빌드 모두 html 1·agent 1·resource 2로 같았다. Windows 실행이며 실제 앱 재시작 후 사용자 화면 확인·다른 OS 검증·clippy는 별도로 남는다. 스모크 종료 로그의 Chrome_WidgetWin_0 등록 해제 오류 1412는 관측됐지만 검사 실패는 없었고 원인은 조사하지 않았다.

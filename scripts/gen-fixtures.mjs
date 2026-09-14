@@ -387,6 +387,11 @@ for (let index = 0; index < 200; index++) {
   if (index % 10 === 0) longMarkdown += '| key | value | note |\n|---|---|---|\n| a | 42 | original text |\n\n';
 }
 await writeFile(path.join(OUT, 'long-markdown.md'), longMarkdown);
+let positionMarkdown = '# Session position\n\n```mermaid\ngraph TD\n A[Read] --> B[Resume]\n```\n\n';
+for (let section = 0; section < 40; section++) {
+  positionMarkdown += `## Reading section ${section}\n\n` + 'A paragraph with enough space to preserve an offset within this section.\n\n'.repeat(8);
+}
+await writeFile(path.join(OUT,'session-position.md'),positionMarkdown);
 
 let readingMarkdown = '# 읽기 기능 조합 확인 😀\n\n';
 readingMarkdown += '## 짧은 열과 긴 문장 — 아주 긴 목차 이름에서도 현재 위치를 구분할 수 있어야 합니다 😀\n\n';
@@ -1314,6 +1319,7 @@ const SMOKE = [
   { file: "sample.md", expect: "prose" },
   { file: 'markdown-links.md', expect: 'prose', then: 'relativeLinks' },
   { file: "long-markdown.md", expect: "prose" },
+  { file: 'session-position.md', expect: 'prose', then: 'sessionPosition' },
   { file: "markdown-reading.md", expect: "prose" },
   { file: "markdown-search-large.md", expect: "prose" },
   { file: "markdown-copy.md", expect: "prose" },
