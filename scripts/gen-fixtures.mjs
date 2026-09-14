@@ -1289,7 +1289,6 @@ addEventListener('message', async event => {
 // holds one that cannot be opened and must fall back to its list (`archive`).
 
 const SMOKE = [
-  { file: "report.html", expect: "frame", then: "htmlFrame" },
   // Every reading, at least once.
   { file: "sample.md", expect: "prose" },
   { file: 'markdown-links.md', expect: 'prose', then: 'relativeLinks' },
@@ -1347,6 +1346,8 @@ const SMOKE = [
   { file: "zip64.zip", expect: "archive" },
   { file: "single.zip", expect: "tree" },
   { file: "single-locked.zip", expect: "archive" },
+  // Keep the isolated HTML frame last while investigating macOS slowdown.
+  { file: "report.html", expect: "frame", then: "htmlFrame" },
 ];
 
 /**

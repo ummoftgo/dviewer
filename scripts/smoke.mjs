@@ -18,7 +18,8 @@
  * and the release one is the point, because that is where the crashes this
  * targets only ever appeared.
  */
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,6 +64,18 @@ const HANDOFF_TIMEOUT_MS = 60_000;
 const READY_TIMEOUT_MS = 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const execFileAsync = promisify(execFile);
+
+async function processStats(pid) {
+  if (!['darwin', 'linux'].includes(process.platform)) return 'process=n/a';
+  try {
+    const { stdout } = await execFileAsync('ps', ['-o', 'time=', '-o', 'pcpu=', '-o', 'rss=', '-p', String(pid)],
+      { timeout: 1000, env: { ...process.env, LC_ALL: 'C' } });
+    const [cpuTime, cpu, rss] = stdout.trim().split(/\s+/);
+    if (!cpuTime || !Number.isFinite(Number(cpu)) || !Number.isFinite(Number(rss))) return 'process=unknown';
+    return `pid=${pid} cpu-time=${cpuTime} cpu=${cpu}% rss=${rss}KiB`;
+  } catch { return 'process=unknown'; }
+}
 
 function fail(message) {
   console.error(`  ✗ ${message}`);
@@ -70,9 +83,10 @@ function fail(message) {
 }
 
 /** Start the app and wait for it to end, or kill it when the clock runs out. */
-function run(args, timeoutMs) {
+function run(args, timeoutMs, onSpawn = () => {}) {
   return new Promise((resolve) => {
     const child = spawn(exe, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: false });
+    onSpawn(child.pid);
     let stderr = "";
     child.stderr?.on("data", (chunk) => {
       stderr += chunk;
@@ -163,19 +177,26 @@ console.log(`스모크 (${release ? "릴리스" : "디버그"} 빌드)`);
   const total = JSON.parse(await readFile(manifest, "utf8")).length;
   const started = performance.now();
   let seen = 0, lastObserved = started;
+  let pid, nextSample = 0, stats = 'process=unknown';
   const progress = async () => {
+    // ps reports only this PID, not separate WebContent processes. Sample at
+    // most once a second so diagnostics do not dominate the 100ms polling loop.
+    if (!ended && pid && performance.now() >= nextSample) {
+      stats = `${await processStats(pid)} sample=${Math.round(performance.now() - started)}ms`;
+      nextSample = performance.now() + 1000;
+    }
     const { lines } = await results(out, true);
     // These are observation times: several fast fixtures can arrive in one poll.
     for (const line of lines.slice(seen)) {
       const now = performance.now();
       console.log(`  · ${line.file} ${line.stage ?? "-"} ${line.ok === false ? "✗" : "ok"} ${line.ms ?? "?"}ms` +
-        ` (wall +${Math.round(now - lastObserved)}ms, elapsed ${Math.round(now - started)}ms)`);
+        ` (wall +${Math.round(now - lastObserved)}ms, elapsed ${Math.round(now - started)}ms; ${stats})`);
       lastObserved = now;
     }
     seen = lines.length;
   };
   let ended;
-  const running = run([`--smoke=${manifest}`, `--smoke-out=${out}`], SWEEP_TIMEOUT_MS).then(value => { ended = value; });
+  const running = run([`--smoke=${manifest}`, `--smoke-out=${out}`], SWEEP_TIMEOUT_MS, value => { pid = value; }).then(value => { ended = value; });
   while (!ended) {
     await progress();
     if (!ended) await sleep(100);
@@ -188,7 +209,7 @@ console.log(`스모크 (${release ? "릴리스" : "디버그"} 빌드)`);
   if (ended.code === 2) fail(`하네스가 시작하지 못했습니다: ${ended.stderr.trim()}`);
   else if (!summary) {
     const last = lines.at(-1);
-    const detail = ` — 마지막 완료: ${last?.file ?? "없음"}, 경과 ${elapsed}ms, 미완료 ${Math.max(0, total - lines.length)}개`;
+    const detail = ` — 마지막 완료: ${last?.file ?? "없음"}, 경과 ${elapsed}ms, 미완료 ${Math.max(0, total - lines.length)}개; ${stats}`;
     fail(
       ended.killed
         ? `${Math.round(SWEEP_TIMEOUT_MS / 1000)}초 안에 끝나지 않았습니다${detail}`

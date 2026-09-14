@@ -1,9 +1,9 @@
 import {tick} from 'svelte';
-import {docLines} from '../../ipc';
+import {docLines, frameServed, type FrameServed} from '../../ipc';
 import type {DocTab} from '../../state/docs.svelte';
 import {waitSearch} from '../markdown/searchSmoke';
 
-export async function checkHtmlFrame(tab: DocTab): Promise<{probe: string | null; headings: number; matches: number; scriptRan: boolean; moduleRan: boolean; fontLoaded: boolean; rawLines: number}> {
+export async function checkHtmlFrame(tab: DocTab): Promise<{probe: string | null; headings: number; matches: number; scriptRan: boolean; moduleRan: boolean; fontLoaded: boolean; rawLines: number; afterUnmount: FrameServed; afterIdle: FrameServed; idleMs: number}> {
   const require = (ok: unknown, why: string) => {if(!ok)throw new Error(why);};
   await waitSearch(() => tab.frameReady && tab.frameProbe !== null && tab.frameBlocked > 0, 'HTML readiness, probe or blocked resource missing', 15000);
   require(tab.frameToc.length === 3,'HTML heading count changed');
@@ -26,9 +26,18 @@ export async function checkHtmlFrame(tab: DocTab): Promise<{probe: string | null
     await waitSearch(() => !!document.querySelector('.text-raw-view .line-text'),'HTML source did not use the line-indexed view');
     const page=await docLines(tab.id,0,5);
     require(page.lines?.some(line=>line.includes('doctype')),'HTML source lines missing');
-    return {probe:tab.frameProbe,headings:tab.frameToc.length,matches:tab.frameSearch.n,scriptRan:!!details?.scriptRan,moduleRan:!!details?.moduleRan,fontLoaded:!!details?.fontLoaded,rawLines:page.total};
+    require(!frame!.isConnected && !document.querySelector('.frame-layout iframe'),'HTML iframe survived source switch');
+    const afterUnmount = await frameServed(tab.id);
+    const started = performance.now();
+    // An observation window for late requests, not a rendering readiness delay.
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const afterIdle = await frameServed(tab.id);
+    const idleMs = Math.round(performance.now() - started);
+    require(afterUnmount.html === afterIdle.html && afterUnmount.agent === afterIdle.agent && afterUnmount.resource === afterIdle.resource,
+      `HTML requests continued after unmount: ${JSON.stringify({afterUnmount, afterIdle, idleMs})}`);
+    return {probe:tab.frameProbe,headings:tab.frameToc.length,matches:tab.frameSearch.n,scriptRan:!!details?.scriptRan,moduleRan:!!details?.moduleRan,fontLoaded:!!details?.fontLoaded,rawLines:page.total,afterUnmount,afterIdle,idleMs};
   } finally {
     removeEventListener('message',receive);
-    tab.mode='rendered';
+    // Leave the smoke document unmounted rather than creating another iframe.
   }
 }
