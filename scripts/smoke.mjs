@@ -97,7 +97,7 @@ function run(args, timeoutMs) {
  *
  * The summary line is the completion mark. Its absence means the process never
  * got to the end, whatever else the file says — and the last line before it is
- * then the document it was working on.
+ * then the last document whose result was completed.
  */
 async function results(file, streaming = false) {
   const text = await readFile(file, "utf8").catch(() => "");
@@ -157,24 +157,44 @@ console.log(`스모크 (${release ? "릴리스" : "디버그"} 빌드)`);
 // 1 — every fixture, through the ordinary open pipeline.
 {
   const out = path.join(work, "sweep.jsonl");
-  const started = Date.now();
-  const ended = await run([`--smoke=${manifest}`, `--smoke-out=${out}`], SWEEP_TIMEOUT_MS);
-  const { lines, summary } = await results(out);
+  const total = JSON.parse(await readFile(manifest, "utf8")).length;
+  const started = performance.now();
+  let seen = 0, lastObserved = started;
+  const progress = async () => {
+    const { lines } = await results(out, true);
+    // These are observation times: several fast fixtures can arrive in one poll.
+    for (const line of lines.slice(seen)) {
+      const now = performance.now();
+      console.log(`  · ${line.file} ${line.stage ?? "-"} ${line.ok === false ? "✗" : "ok"} ${line.ms ?? "?"}ms` +
+        ` (wall +${Math.round(now - lastObserved)}ms, elapsed ${Math.round(now - started)}ms)`);
+      lastObserved = now;
+    }
+    seen = lines.length;
+  };
+  let ended;
+  const running = run([`--smoke=${manifest}`, `--smoke-out=${out}`], SWEEP_TIMEOUT_MS).then(value => { ended = value; });
+  while (!ended) {
+    await progress();
+    if (!ended) await sleep(100);
+  }
+  await running;
+  await progress(); // Drain rows written between the final poll and process exit.
+  const { lines, summary } = await results(out, true);
+  const elapsed = Math.round(performance.now() - started);
 
   if (ended.code === 2) fail(`하네스가 시작하지 못했습니다: ${ended.stderr.trim()}`);
   else if (!summary) {
     const last = lines.at(-1);
+    const detail = ` — 마지막 완료: ${last?.file ?? "없음"}, 경과 ${elapsed}ms, 미완료 ${Math.max(0, total - lines.length)}개`;
     fail(
       ended.killed
-        ? `${Math.round(SWEEP_TIMEOUT_MS / 1000)}초 안에 끝나지 않았습니다` +
-            (last ? ` — 마지막으로 연 것: ${last.file}` : " — 아무것도 열지 못했습니다")
-        : `끝까지 가지 못했습니다 (종료 코드 ${ended.code})` +
-            (last ? ` — 마지막으로 연 것: ${last.file}` : ""),
+        ? `${Math.round(SWEEP_TIMEOUT_MS / 1000)}초 안에 끝나지 않았습니다${detail}`
+        : `끝까지 가지 못했습니다 (종료 코드 ${ended.code})${detail}`,
     );
   } else {
     report(lines);
     if (summary.failed > 0) fail(`${summary.total}개 중 ${summary.failed}개 실패`);
-    else console.log(`  ✓ 픽스처 ${summary.total}개, ${Math.round((Date.now() - started) / 1000)}초`);
+    else console.log(`  ✓ 픽스처 ${summary.total}개, ${Math.round(elapsed / 1000)}초`);
   }
 }
 
