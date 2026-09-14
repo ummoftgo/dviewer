@@ -104,7 +104,7 @@ Both the manifest and update file are authenticated with the embedded public key
 | `Ctrl Tab` / `Ctrl Shift Tab` | Cycle main tabs |
 | `Ctrl PageDown` / `Ctrl PageUp` | Cycle the active document’s subtabs |
 | `Ctrl E` | Toggle Markdown/HTML/text source and document view |
-| `F11` | Toggle focus mode — hide only tabs, subtabs, the top toolbar and TOC |
+| `F11` | Toggle focus mode — also enter with the four-corner arrow button in the top toolbar and exit with the top-right “Focus mode · Esc” pill. Hides only tabs, subtabs, the top toolbar and TOC |
 | `Esc` | The view handles Escape first; an unhandled Escape exits focus mode |
 | `Enter` / `Shift Enter` | Next / previous search hit |
 | `Ctrl F` | Tree search (all / keys / values / paths), table search, HTML search, rendered/source Markdown search |

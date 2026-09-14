@@ -18,9 +18,11 @@
     onToggleToc: () => void;
     onOpenSettings: () => void;
     onSearch: () => void;
+    focusMode: boolean;
+    onToggleFocus: () => void;
   }
 
-  let { tab, showToc, onToggleToc, onOpenSettings, onSearch }: Props = $props();
+  let { tab, showToc, onToggleToc, onOpenSettings, onSearch, focusMode, onToggleFocus }: Props = $props();
 
   let copyTarget = $state<{ tab: DocTab; revision: number } | null>(null);
   let copyButton = $state<HTMLButtonElement>();
@@ -191,6 +193,10 @@
       {Math.round(settings.uiScale * 100)}%
     </span>
 
+    <button class="icon-btn" data-action="focus" onclick={onToggleFocus} aria-pressed={focusMode}
+      title={t('focus.toggle')} aria-label={t('focus.toggle')}>
+      <Icon name="focus" />
+    </button>
     <button class="icon-btn" onclick={onOpenSettings} title={t("toolbar.settings")}
       aria-label={t("toolbar.settings")}>
       <Icon name="settings" />

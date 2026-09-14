@@ -496,4 +496,6 @@ export const zhHans: Messages = {
   "grid.visibleCopy": "仅可见列",
   "grid.revealedColumn": "已重新显示搜索结果所在的 {column} 列。",
   "focus.exitHint": "按 Esc 退出专注模式。",
+  "focus.toggle": "专注模式 (F11)",
+  "focus.exitLabel": "专注模式 · Esc",
 };

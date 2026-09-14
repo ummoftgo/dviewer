@@ -496,4 +496,6 @@ export const ja: Messages = {
   "grid.visibleCopy": "表示中の列のみ",
   "grid.revealedColumn": "検索結果の列 {column} を再表示しました。",
   "focus.exitHint": "Escで集中モードを終了します。",
+  "focus.toggle": "集中モード (F11)",
+  "focus.exitLabel": "集中モード · Esc",
 };

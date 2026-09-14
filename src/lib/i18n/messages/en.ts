@@ -496,4 +496,6 @@ export const en: Messages = {
   "grid.visibleCopy": "Visible columns only",
   "grid.revealedColumn": "Revealed column {column} for the search result.",
   "focus.exitHint": "Press Esc to leave focus mode.",
+  "focus.toggle": "Focus mode (F11)",
+  "focus.exitLabel": "Focus mode · Esc",
 };

@@ -2,6 +2,23 @@
 
 ← [README](../README.md)
 
+## M46b — 집중 모드의 입구와 출구
+
+상단 툴바의 집중 모드 버튼과 집중 중 오른쪽 위 종료 알약을 추가했다. 기존 sample.md 집중 스모크에 버튼 클릭→body[data-focus]·알약 표시→알약 초점·클릭→해제·초점 복원을 추가했다. CSS 표시와 동기 속성을 확인하며 고정 프레임 대기나 저장 설정을 사용하지 않는다. 기존 키보드·검색 Esc·메뉴 복원 검사도 유지한다.
+
+| 검사 | 결과 |
+|---|---|
+| vitest | 346통과·32파일 |
+| check | 오류0·경고0·4로케일×451키 |
+| Svelte 분석 | App·Toolbar·Icon issues 없음 |
+| 빌드·debug 스모크 | 새 프런트·custom-protocol debug 빌드 성공, 46개·왕복2 통과 |
+| Rust·clippy | 이번 후속 변경에서 미실행, Rust 변경 없음 |
+| release 스모크 | 병합 뒤 계획 세션이 실행 |
+
+debug 스모크는 승인 뒤 한 번 실행했으며 앱 sweep은 18,553ms였다. 결과 JSONL은 `.agent-works/m46b-debug-{sweep,handoff,new}.jsonl`에 보존했다. dev incremental 제거와 `cargo clean -p dviewer --profile dev`로 정리하고 기존 release 산출물은 보존했다.
+
+추가 변형·성능 실측은 이 후속 과제에 지정되지 않았다. 화면에서는 모든 문서 보기의 툴바 아이콘과 툴팁, 집중 모드의 알약 가독성·본문 가림 정도·Tab 접근·클릭 종료를 확인한다. M46의 실제 키보드 동작은 사용자 화면 확인을 통과했다. M46b의 새 버튼은 별도 화면 확인이 남아 있다.
+
 ## M46 — 집중 모드
 
 | 최초 구현 검증 | 결과 |

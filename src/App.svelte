@@ -213,6 +213,8 @@
     } else {
       if (returnFocus?.element.isConnected && returnFocus.tab === workspace.activeId) {
         returnFocus.element.focus({ preventScroll: true });
+      } else if (focused instanceof HTMLElement && focused.matches('[data-action="focus-exit"]')) {
+        main?.focus({ preventScroll: true });
       }
       returnFocus = null;
     }
@@ -318,6 +320,8 @@
     <Toolbar
       tab={active}
       {showToc}
+      {focusMode}
+      onToggleFocus={() => changeFocus('F11')}
       onToggleToc={() => (showToc = !showToc)}
       onOpenSettings={() => (settingsOpen = true)}
       onSearch={() => searchBarFocus?.()}
@@ -375,6 +379,11 @@
   {/if}
 </div>
 
+<button class="focus-exit" data-action="focus-exit" onclick={() => changeFocus('Escape')}
+  title={t('focus.exitHint')}>
+  <Icon name="close" size={12} />{t('focus.exitLabel')}
+</button>
+
 {#if settingsOpen}
   <SettingsPanel onClose={() => (settingsOpen = false)} />
 {/if}
@@ -386,6 +395,26 @@
   :global(body[data-focus] [data-focus-chrome]) { display: none !important; }
   :global(body[data-focus] [data-focus-toc]) { grid-template-columns: minmax(0, 1fr) !important; }
   .focus-chrome { display: contents; }
+  .focus-exit {
+    display: none;
+    position: fixed;
+    top: 0.5rem;
+    right: 0.75rem;
+    z-index: 20;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 2rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+    color: var(--text);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  :global(body[data-focus]) .focus-exit { display: inline-flex; }
+  .focus-exit:hover, .focus-exit:focus-visible { background: var(--bg-elevated); }
+  .focus-exit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .app {
     position: relative;
     display: flex;

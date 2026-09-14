@@ -293,6 +293,17 @@ async function checkFocusMode(tab: DocTab): Promise<void> {
   const toolbar = document.querySelector<HTMLButtonElement>('[data-focus-chrome] .toolbar button')!;
   try {
     if (focused()) press('F11');
+    const focusButton = document.querySelector<HTMLButtonElement>('[data-action="focus"]')!;
+    const exitButton = document.querySelector<HTMLButtonElement>('[data-action="focus-exit"]')!;
+    focusButton.focus();
+    focusButton.click();
+    if (!focused() || !exitButton.getClientRects().length) throw new Error('focus button did not reveal the exit button');
+    exitButton.focus();
+    if (document.activeElement !== exitButton) throw new Error('focus exit button is not focusable');
+    exitButton.click();
+    if (focused() || exitButton.getClientRects().length || document.activeElement !== focusButton) {
+      throw new Error('focus exit button did not exit or restore focus');
+    }
     toolbar.focus();
     press('F11');
     if (!focused() || document.activeElement?.closest('[data-focus-chrome]')) throw new Error('focus entry or focus transfer failed');
