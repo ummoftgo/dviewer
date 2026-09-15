@@ -56,6 +56,8 @@ cd src-tauri && cargo audit     # cargo install cargo-audit
 
 ### PDF.js 공식 뷰어
 
+Windows에서는 셸과 PATH에 무관하게 `%SystemRoot%\System32\tar.exe` 내장 bsdtar를 절대 경로로 호출하며, 없으면 명확한 오류로 중단한다.
+
 [Mozilla PDF.js 6.3.289](https://github.com/mozilla/pdf.js/releases/tag/v6.3.289)의 공식 dist ZIP을 사용한다. npm pdfjs-dist에는 완성형 viewer.html이 없어 scripts/prepare-pdfjs.mjs가 ZIP 버전과 SHA-256을 고정한다. SHA-256: 98c5832ffe7af4edd59853476a478c0d4d4d76dd49c1701f4c86f7182725cdf9. 최초 개발·빌드는 네트워크와 Windows tar 또는 Unix unzip이 필요하며 이후 해시 확인된 로컬 사본을 재사용한다.
 
 PDF.js는 Apache-2.0이다. 배포물의 LICENSE와 cmaps·standard_fonts·wasm·iccs에 동봉된 개별 LICENSE도 함께 포함한다. PDF 렌더러·워커·스크립팅 모듈, viewer, 이미지, CMap, 표준 글꼴, WASM·ICC와 en-US·ko·ja·zh-CN 로케일을 내장한다. npm/Rust 의존성은 추가하지 않는다. 소스맵·샘플 PDF·다른 로케일은 제외하며 실행 시 CDN을 사용하지 않는다.

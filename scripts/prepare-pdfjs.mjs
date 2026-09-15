@@ -1,6 +1,7 @@
 // The viewer is absent from npm's pdfjs-dist. Use Mozilla's immutable release.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -22,7 +23,11 @@ if (!bytes) {
 if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw new Error('PDF.js SHA-256 mismatch');
 await writeFile(archive, bytes);
 // Native ZIP tools; only the hash-verified release is ever extracted.
-if (process.platform === 'win32') execFileSync('tar', ['-xf', archive, '-C', extracted]);
+if (process.platform === 'win32') {
+  const tar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  if (!existsSync(tar)) throw new Error(`Windows built-in bsdtar was not found: ${tar}`);
+  execFileSync(tar, ['-xf', archive, '-C', extracted]);
+}
 else execFileSync('unzip', ['-oq', archive, '-d', extracted]);
 const locales = ['en-US', 'ko', 'ja', 'zh-CN'];
 const exact = new Set(['LICENSE', 'build/pdf.mjs', 'build/pdf.worker.mjs', 'build/pdf.sandbox.mjs',
