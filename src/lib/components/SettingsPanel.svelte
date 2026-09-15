@@ -3,6 +3,7 @@
   import { errorMessage } from "../ipc";
   import FontPicker from "./FontPicker.svelte";
   import Icon from "./Icon.svelte";
+  import { bookmarks } from '../state/bookmarks.svelte';
   import { i18n, LOCALES, localeLabel, t, type LocaleSetting, type MessageKey } from "../i18n";
   import {
     nearestScaleStep,
@@ -17,6 +18,7 @@
   }
 
   let { onClose }: Props = $props();
+  let confirmBookmarks: HTMLDialogElement;
 
   const THEMES: { value: ThemeMode; label: MessageKey; icon: "auto" | "sun" | "moon" }[] = [
     { value: "auto", label: "settings.theme.auto", icon: "auto" },
@@ -61,6 +63,11 @@
   </header>
 
   <div class="body">
+    <section>
+      <button class="btn" disabled={!bookmarks.ready || !bookmarks.entries.length} onclick={() => confirmBookmarks.showModal()}>
+        {t('bookmarks.clear')}
+      </button>
+    </section>
     <section>
       <label><input type="checkbox" checked={settings.restoreSession}
         onchange={(event) => { settings.restoreSession = event.currentTarget.checked; settings.save(); }} />
@@ -232,7 +239,20 @@
   </div>
 </aside>
 
+<dialog bind:this={confirmBookmarks} aria-labelledby="bookmarks-clear-title">
+  <h2 id="bookmarks-clear-title">{t('bookmarks.clearQuestion')}</h2>
+  <p>{t('bookmarks.clearHint')}</p>
+  <form method="dialog" class="actions">
+    <button class="btn" value="cancel">{t('bookmarks.cancel')}</button>
+    <button class="btn" value="clear" onclick={() => bookmarks.clear()}>{t('bookmarks.clear')}</button>
+  </form>
+</dialog>
+
 <style>
+  dialog { max-width:calc(100vw - 3rem); padding:1.5rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg); color:var(--text); }
+  dialog::backdrop { background:rgb(0 0 0 / 0.35); }
+  dialog h2 { font-size:1.1rem; margin-top:0; }
+  .actions { display:flex; flex-wrap:wrap; gap:0.5rem; }
   .table-mode { display: flex; align-items: center; gap: 0.4rem; margin: 0.4rem 0; }
   .scrim {
     position: fixed;

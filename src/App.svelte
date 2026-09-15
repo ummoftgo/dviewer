@@ -218,7 +218,7 @@
 
   function toggleBookmarks() {
     bookmarksOpen = !bookmarksOpen;
-    if (!bookmarksOpen) bookmarkDraft = null;
+    if (!bookmarksOpen) { bookmarkDraft = null; main?.focus(); }
   }
 
   function changeFocus(key: 'F11' | 'Escape', handled = false) {
@@ -351,7 +351,7 @@
   {#if active && active.status !== "blank" && active.status !== 'error'}
     <Toolbar
       tab={active}
-      {showToc}
+      showToc={showToc && !bookmarksOpen}
       {focusMode}
       {bookmarksOpen}
       onAddBookmark={addBookmark}
@@ -365,6 +365,10 @@
 
   </div>
   <div class="workspace">
+  {#if !active || active.status === 'blank' || active.status === 'error'}
+    <button class="empty-bookmarks btn" data-focus-chrome onclick={toggleBookmarks} aria-pressed={bookmarksOpen}
+      title={t('bookmarks.toggle')}><Icon name="bookmark" />{t('bookmarks.title')}</button>
+  {/if}
   <main bind:this={main} tabindex="-1">
     {#if !active || active.status === "blank"}
       <StartPane onOpenSettings={() => (settingsOpen = true)} />
@@ -474,7 +478,8 @@
     min-height: 0;
     min-width: 0;
   }
-  .workspace { display:flex; flex:1; min-height:0; }
+  .workspace { position:relative; display:flex; flex:1; min-height:0; }
+  .empty-bookmarks { position:absolute; top:0.5rem; left:0.75rem; z-index:1; }
 
   .dropzone {
     position: absolute;

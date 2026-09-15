@@ -72,6 +72,38 @@ export class Bookmarks {
     tab.mode = 'rendered';
   }
 
+  rename(id: string, label: string): boolean {
+    const current = this.entries.find(item => item.id === id);
+    if (!this.ready || !current) return false;
+    const renamed = readBookmarks([{...current,label:label.trim()}])[0];
+    if (!renamed) return false;
+    this.entries = this.entries.map(item => item.id === id ? renamed : item);
+    void this.save(); return true;
+  }
+
+  remove(id: string) {
+    if (!this.ready || !this.entries.some(item => item.id === id)) return;
+    this.entries = this.entries.filter(item => item.id !== id);
+    delete this.results[id];
+    void this.save();
+  }
+
+  reassign(id: string, target: {source:BookmarkSource; anchor:BookmarkAnchor}): boolean {
+    const current = this.entries.find(item => item.id === id);
+    if (!this.ready || !current || !sameSource(current.source,target.source)) return false;
+    const updated = readBookmarks([{...current,anchor:target.anchor}])[0];
+    if (!updated) return false;
+    this.entries = this.entries.map(item => item.id === id ? updated : item);
+    this.results[id] = true;
+    void this.save(); return true;
+  }
+
+  clear() {
+    if (!this.ready) return;
+    this.entries = []; this.results = {};
+    void this.save();
+  }
+
   complete(tab: DocTab, jump: BookmarkJump, found: boolean) {
     if (tab.pendingBookmark?.request !== jump.request) return;
     const item = this.entries.find(item => item.id === jump.id);

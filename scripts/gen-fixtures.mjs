@@ -394,6 +394,15 @@ for (let section = 0; section < 40; section++) {
 }
 await writeFile(path.join(OUT,'session-position.md'),positionMarkdown);
 
+const bookmarkParagraphs = 'A paragraph long enough to keep this heading away from the next section.\n\n'.repeat(35);
+await writeFile(path.join(OUT,'bookmarks.md'), `# Bookmarks\n\n${bookmarkParagraphs}## Current section\n\n${bookmarkParagraphs}## A very long heading for checking labels and document ordering\n\n${bookmarkParagraphs}`);
+await writeFile(path.join(OUT,'bookmarks-top.md'), 'A document without headings.\n\n'.repeat(60));
+await writeFile(path.join(OUT,'bookmarks-a-very-long-document-name-for-filter-and-layout.md'), `# Long document name\n\n${bookmarkParagraphs}## Another section\n\n${bookmarkParagraphs}`);
+await writeFile(path.join(OUT,'bookmarks.html'), `<!doctype html><meta charset="utf-8"><title>Bookmark headings</title><style>section { min-height: 100vh; }</style>
+<section><h1 id="first">First section</h1><p>Bookmark this heading, then rename or remove it to check recovery.</p></section>
+<section><h2 id="second">Second section</h2><p>Scroll here and press Ctrl+D inside the HTML frame.</p></section>
+<section><h2 id="third">A very long heading for checking labels and document ordering</h2></section>`);
+
 let readingMarkdown = '# 읽기 기능 조합 확인 😀\n\n';
 readingMarkdown += '## 짧은 열과 긴 문장 — 아주 긴 목차 이름에서도 현재 위치를 구분할 수 있어야 합니다 😀\n\n';
 readingMarkdown += '| ID | 설명 | 낱말 |\n|---|---|---|\n';
@@ -1322,6 +1331,7 @@ const SMOKE = [
   { file: 'markdown-links.md', expect: 'prose', then: 'relativeLinks' },
   { file: "long-markdown.md", expect: "prose" },
   { file: 'session-position.md', expect: 'prose', then: 'sessionPosition' },
+  { file: 'bookmarks.md', expect: 'prose', then: 'bookmarks' },
   { file: "markdown-reading.md", expect: "prose" },
   { file: "markdown-search-large.md", expect: "prose" },
   { file: "markdown-copy.md", expect: "prose" },

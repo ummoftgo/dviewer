@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { currentAnchor, readBookmarks, resolveAnchor } from './bookmarks';
+import { bookmarkDocument, currentAnchor, readBookmarks, resolveAnchor, selectBookmarks, type Bookmark } from './bookmarks';
 
 const item = {id:'saved',label:'why',source:{type:'file',path:'/doc.md'},anchor:{id:'part',text:'Section'},created:123};
 const headings = [{id:'first',text:'First',level:1},{id:'part',text:'Section',level:2}];
@@ -26,4 +26,22 @@ test('navigation resolves by id then exact text and distinguishes missing from d
   expect(resolveAnchor({id:'renamed-id',text:'Section'},headings)).toEqual(item.anchor);
   expect(resolveAnchor({id:'removed',text:'Gone'},headings)).toBeNull();
   expect(resolveAnchor({id:'',text:''},[])).toEqual({id:'',text:''});
+});
+
+test('current documents sort by heading order including text fallback and top; all sorts by recency without changing storage', () => {
+  const entries: Bookmark[] = [
+    {...item,id:'second',created:20},
+    {...item,id:'first',anchor:{id:'changed',text:'First'},created:30},
+    {...item,id:'top',anchor:{id:'',text:''},created:40},
+    {...item,id:'gone',anchor:{id:'gone',text:'Gone'},created:50},
+    {...item,id:'closed',source:{type:'url',url:'https://example.com/Closed%20file.md'},created:60},
+  ] as Bookmark[];
+  const original = JSON.stringify(entries);
+  expect(selectBookmarks(entries,{type:'file',path:'\\doc.md'},headings,false,'').map(item => item.id)).toEqual(['top','first','second','gone']);
+  expect(selectBookmarks(entries,null,[],true,'').map(item => item.id)).toEqual(['closed','gone','top','first','second']);
+  expect(selectBookmarks(entries,null,[],true,'CLOSED FILE').map(item => item.id)).toEqual(['closed']);
+  expect(selectBookmarks(entries,null,[],true,'why')).toHaveLength(5);
+  expect(selectBookmarks(entries,null,[],false,'')).toEqual([]);
+  expect(JSON.stringify(entries)).toBe(original);
+  expect(bookmarkDocument({type:'file',path:'C:\\Docs\\Report.md'})).toBe('Report.md');
 });

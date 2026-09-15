@@ -14,6 +14,7 @@
  */
 import * as ipc from "./ipc";
 import {checkSessionPosition} from './sessionSmoke';
+import {checkBookmarks} from './bookmarksSmoke';
 import { checkHtmlFrame } from "./components/frame/smoke";
 import {checkPdfFrame} from './components/frame/pdfSmoke';
 import { frameDiagnostic } from './frame/diagnostics';
@@ -107,6 +108,7 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === 'bookmarks') return {ok:true,stage:what,metrics:await checkBookmarks(tab)};
   if (what === 'sessionPosition') return {ok:true,stage:what,metrics:await checkSessionPosition(tab)};
   if (what === "htmlFrame") { return {ok:true,stage:what,metrics:await checkHtmlFrame(tab)}; }
   if (what === 'pdfFrame') { return {ok:true,stage:what,metrics:await checkPdfFrame(tab)}; }

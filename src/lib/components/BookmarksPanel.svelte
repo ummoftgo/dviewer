@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { tick } from 'svelte';
-  import type { BookmarkAnchor, BookmarkSource } from '../bookmarks';
+  import { onMount, tick } from 'svelte';
+  import { bookmarkDocument, selectBookmarks, type Bookmark, type BookmarkAnchor, type BookmarkSource } from '../bookmarks';
   import { t } from '../i18n';
   import { sameSource } from '../source';
-  import { bookmarks } from '../state/bookmarks.svelte';
+  import { bookmarks, bookmarkTarget } from '../state/bookmarks.svelte';
   import type { DocTab } from '../state/docs.svelte';
   import Icon from './Icon.svelte';
+  import ContextMenu from './ContextMenu.svelte';
+  import type { MenuItem } from './menu';
 
   interface Props {
     tab: DocTab | null;
@@ -14,13 +16,27 @@
     onClose: () => void;
   }
   let {tab, draft, onDone, onClose}: Props = $props();
-  let label = $derived(draft ? draft.anchor.text || t('bookmarks.top') : '');
+  let label = $derived(draft ? (draft.anchor.id === '' ? t('bookmarks.top') : draft.anchor.text) : '');
   let input = $state<HTMLInputElement>();
   let panel: HTMLElement;
-  const entries = $derived(bookmarks.entries.filter(item => tab && sameSource(item.source, tab.meta.source)));
+  onMount(() => panel.focus());
+  let all = $state(false);
+  let query = $state('');
+  let editing = $state<{id:string; label:string} | null>(null);
+  let renameInput = $state<HTMLInputElement>();
+  let menu = $state<{item:Bookmark; x:number; y:number; button:HTMLButtonElement} | null>(null);
+  const headings = $derived(tab?.view === 'frame' ? tab.frameToc : tab?.toc ?? []);
+  const entries = $derived(selectBookmarks(bookmarks.entries,tab?.meta.source ?? null,headings,all,query));
+  const target = $derived(bookmarkTarget(tab));
+
+  $effect(() => {
+    if (!editing?.id) return;
+    void tick().then(() => { renameInput?.focus(); renameInput?.select(); });
+  });
 
   $effect(() => {
     if (!draft) return;
+    all = false; query = ''; editing = null;
     void tick().then(() => { input?.focus(); input?.select(); });
   });
 
@@ -30,21 +46,45 @@
     }
   }
 
+  function rename(item: Bookmark) {
+    onDone(); editing = {id:item.id,label:item.label}; menu = null;
+  }
+
+  function saveName() {
+    if (editing && bookmarks.rename(editing.id, editing.label)) { editing = null; panel.focus(); }
+  }
+
+  function menuItems(item: Bookmark): MenuItem[] {
+    const destination = target;
+    return [
+      {label:t('bookmarks.rename'),hint:'F2',action:() => rename(item)},
+      {label:t('bookmarks.reassign'),disabled:!destination || !sameSource(item.source,destination.source),
+        action:() => { if (destination) bookmarks.reassign(item.id,destination); }},
+    ];
+  }
+
   function keydown(event: KeyboardEvent) {
     if (event.key !== 'Escape' || event.defaultPrevented) return;
     event.preventDefault(); event.stopPropagation();
-    if (draft) { onDone(); panel.focus(); }
+    if (editing) { editing = null; panel.focus(); }
+    else if (draft) { onDone(); panel.focus(); }
     else onClose();
   }
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape is delegated from the panel controls.) -->
+<!-- Escape is delegated from the panel controls. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <aside class="bookmarks-panel" aria-label={t('bookmarks.title')} bind:this={panel} tabindex="-1" onkeydown={keydown}>
   <header>
     <h2>{t('bookmarks.title')}</h2>
     <button class="icon-btn" onclick={onClose} title={t('bookmarks.close')} aria-label={t('bookmarks.close')}><Icon name="close" /></button>
   </header>
   {#if bookmarks.error}<p role="alert">{t('bookmarks.loadFailed')}</p>{/if}
+  <div class="segmented" role="group" aria-label={t('bookmarks.scope')}>
+    <button aria-pressed={!all} onclick={() => { all = false; }}>{t('bookmarks.current')}</button>
+    <button data-action="bookmarks-all" aria-pressed={all} onclick={() => { all = true; }}>{t('bookmarks.all')}</button>
+  </div>
+  <input class="field filter" type="search" bind:value={query} aria-label={t('bookmarks.filter')} placeholder={t('bookmarks.filter')} />
   {#if draft}
     <form onsubmit={event => { event.preventDefault(); save(); }}>
       <label for="bookmark-label">{t('bookmarks.label')}</label>
@@ -58,17 +98,42 @@
   <ul>
     {#each entries as item (item.id)}
       <li data-bookmark={item.id}>
-        <button class="entry" data-action="bookmark-open" onclick={() => bookmarks.open(item)}>
+        {#if editing?.id === item.id}
+          <form onsubmit={event => { event.preventDefault(); saveName(); }}>
+            <input class="field" bind:this={renameInput} bind:value={editing.label} maxlength="65536" aria-label={t('bookmarks.label')} />
+            <div class="actions">
+              <button class="btn" type="submit" disabled={!editing.label.trim()}>{t('bookmarks.save')}</button>
+              <button class="btn" type="button" onclick={() => { editing = null; }}>{t('bookmarks.cancel')}</button>
+            </div>
+          </form>
+        {:else}
+        <div class="row">
+        <button class="entry" data-action="bookmark-open" onclick={() => bookmarks.open(item)} ondblclick={() => rename(item)}
+          onkeydown={event => { if (event.key === 'F2') { event.preventDefault(); rename(item); } }}>
           <strong>{item.label}</strong>
-          <span>{item.source.type === 'file' ? item.source.path.split(/[\\/]/).pop() : item.source.url}</span>
-          <span>{item.anchor.text || t('bookmarks.top')}</span>
+          <span title={item.source.type === 'file' ? item.source.path : item.source.url}>{bookmarkDocument(item.source)}</span>
+          <span>{item.anchor.id === '' ? t('bookmarks.top') : item.anchor.text}</span>
           {#if bookmarks.results[item.id] === false}<span class="missing">{t('bookmarks.missing')}</span>{/if}
         </button>
+        <div class="row-actions">
+          <button class="icon-btn" aria-haspopup="menu" title={t('bookmarks.actions')} aria-label={t('bookmarks.actions')}
+            onclick={event => { const box = event.currentTarget.getBoundingClientRect(); menu = {item,x:box.right,y:box.bottom,button:event.currentTarget}; }}>
+            <Icon name="chevron-down" size={12} />
+          </button>
+          <button class="icon-btn" data-action="bookmark-delete" title={t('bookmarks.delete')} aria-label={t('bookmarks.delete')}
+            onclick={() => { bookmarks.remove(item.id); panel.focus(); }}><Icon name="close" size={12} /></button>
+        </div>
+        </div>
+        {/if}
       </li>
     {/each}
   </ul>
   {#if !entries.length && bookmarks.ready}<p>{t('bookmarks.empty')}</p>{/if}
 </aside>
+
+{#if menu}
+  <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => { menu?.button.focus(); menu = null; }} />
+{/if}
 
 <style>
   .bookmarks-panel { width:18rem; max-width:45vw; min-width:0; flex:none; overflow:auto; border-left:1px solid var(--border); padding:0.75rem; }
@@ -81,6 +146,10 @@
   .actions { margin-top:0.4rem; }
   ul { list-style:none; padding:0; margin:0; }
   li + li { border-top:1px solid var(--border); }
+  .filter { margin:0.6rem 0; }
+  .row { display:flex; align-items:flex-start; }
+  .row-actions { display:flex; flex:none; padding-top:0.6rem; }
+  .entry { min-width:0; }
   .entry { display:flex; flex-direction:column; align-items:flex-start; gap:0.2rem; width:100%; padding:0.65rem 0.35rem; border:0; background:transparent; text-align:left; color:var(--text); overflow-wrap:anywhere; }
   .entry:hover { background:var(--bg-hover); }
   span, p { color:var(--text-muted); font-size:0.85em; }

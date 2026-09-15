@@ -51,6 +51,14 @@ Text and logs also offer **Table / Source** in the toolbar. Source view fetches 
 
 CSV, TSV, JSONL, text, log, SQLite, Excel, Parquet, and derived tables fill spare viewport space in proportion to column widths by default, and scroll horizontally when the columns are wider than the viewport. The toolbar’s Table width dropdown applies Fill or Horizontal scrolling to the current tab immediately and saves the default for new tabs. Other open tabs keep their mode; the Settings radios change only the default for new tabs. The dropdown is hidden in Source view. Automatic sizing is capped at 420px in Fill mode and 8000px in Scroll mode. Switching modes recalculates widths and ratios from the current row sample, resetting manual column adjustments. Fit column and Recommend widths use up to 8000px; Reset widths restores automatic sizing for the current mode. Focus a column separator and use the left or right arrow to resize by 8px, or 24px with Shift; Enter and double-click fit its contents. In Fill mode, fitting compensates with the neighboring column while keeping its 64px minimum; content wider than the available width overflows horizontally while the other columns keep their displayed widths. Estimates use 1000-character cell previews from the current row sample. Truncated cells show a dotted underline on the ellipsis and a tooltip for their kind; selecting one adds a limit badge to the status bar. Text cells preview up to 1000 characters; binary previews retain their 16-byte limit, and value copy is capped at 8MiB. Only text and log documents offer Source view in the hint. The text preview character budget doubles when every cell is long. Switching sheets or tables clears the previous widths and fill ratios and sizes columns from a new sample.
 
+## Bookmarks
+
+In rendered Markdown and HTML opened from a file or URL, use the toolbar add button or `Ctrl+D` to label the current heading. The heading text is the default label; Enter saves and Escape cancels. Documents without headings bookmark the top. Open the panel next to the TOC button or with `Ctrl+Shift+B`; it also remains available in focus mode.
+
+Current-document bookmarks follow heading order; All shows newest additions first, including closed documents. Listing and filtering never opens or parses closed documents. Filter labels and document names, rename with double-click, F2 or the row menu, and delete with x. Clicking a row opens its source and locates the heading by id, then by exact text. A failed lookup shows “Not found”; use “Assign current location” in the row menu while viewing the same document to update the anchor without changing its label or creation time.
+
+Bookmarks persist independently of tabs, sessions and recent files. “Clear all bookmarks” in Settings deletes the entire list after confirmation.
+
 ## Requirements
 
 - Node.js 20 or later (developed on 24), npm
@@ -101,6 +109,8 @@ Both the manifest and update file are authenticated with the embedded public key
 | Key | Action |
 |---|---|
 | `Ctrl O` | Open a file |
+| `Ctrl D` | Bookmark the current Markdown/HTML heading |
+| `Ctrl Shift B` | Open or close the bookmarks panel |
 | `Ctrl T` | New tab (start screen) |
 | `Ctrl W` | Close tab |
 | `Ctrl Tab` / `Ctrl Shift Tab` | Cycle main tabs |
@@ -136,6 +146,7 @@ The technical documentation lives in `doc/` (Korean).
 ## Known limits
 
 - PDF support is Windows-only in this release, with a 256 MiB limit. PDF.js provides page navigation, zoom, rotation, search, text selection/copy and outlines; sessions restore the page number. Source view, editing, OCR and password-protected documents are unsupported. Pages without text show a search/copy notice. Searching may read every PDF page and can be expensive on large documents. Opening PDFs on macOS or Linux returns an unsupported-format error. The static file associations still include pdf. WebKit initialization investigation continues for a later release.
+- Bookmarks support rendered Markdown/HTML with a file or URL source. Pasted text, archive entries, tables, trees, PDF and undoing deletion are not supported. Changing both heading id and text requires reassignment; when text matches multiple headings, the first match wins. Closed document names come from the saved path or URL.
 
 - HTML documents and individual local resources are limited to 64MiB. HTML source uses the line index rather than a separate whole-source 16MiB conversion. The app detects or applies the chosen encoding and serves UTF-8; the response charset takes precedence over HTML meta declarations.
 - HTML runs in an opaque sandbox. localStorage, form submission, popups, nested frames and `unsafe-eval` remain unavailable. External resources are blocked by default; allowing them in the status bar enables HTTPS scripts, styles, images, fonts, media and connections. This can disclose that the document was opened and send its contents to external servers. Permission survives reloads and source-view switches within that tab and is discarded when the tab closes.
