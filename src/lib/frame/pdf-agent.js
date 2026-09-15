@@ -3,9 +3,34 @@
   const load = location.search;
   const send = value => parent.postMessage({...value, load}, '*');
   let app, ready = false, failed = false, worker, workerUrl;
+  let pagesLoaded = false, pendingGoto = null, applyingPage = false;
   let request = 0, query = '', textGeneration = 0;
   const destinations = new Map();
-  const error = code => { if (!failed) { failed = true; ready = false; send({type:'error',code}); } };
+  const error = code => { if (!failed) { failed = true; ready = false; pendingGoto = null; send({type:'error',code}); } };
+  function publishPage() {
+    if (!ready || !pagesLoaded || failed || applyingPage || (pendingGoto !== null && app.page !== pendingGoto)) return;
+    pendingGoto = null;
+    send({type:'page',n:app.page});
+    void pageText();
+  }
+  function applyGoto() {
+    if (!ready || !pagesLoaded || failed) return;
+    if (typeof pendingGoto === 'string') {
+      pendingGoto = destinations.get(pendingGoto) ?? null;
+      if (pendingGoto === null) return;
+    }
+    if (pendingGoto !== null) {
+      if (pendingGoto > app.pagesCount) { pendingGoto = null; return; }
+      applyingPage = true;
+      try {
+        app.page = pendingGoto;
+        // Resize restores the cached view location; refresh it after the setter scrolls.
+        app.pdfViewer.update();
+      } finally { applyingPage = false; }
+    }
+    // The setter can dispatch pagechanging synchronously; acknowledge after it returns.
+    publishPage();
+  }
   async function pageText() {
     if (!ready) return;
     const generation = ++textGeneration, page = app.page;
@@ -40,8 +65,7 @@
       if (failed || pdf !== app.pdfDocument) return;
       ready = true;
       send({type:'ready',title:document.title.slice(0,4096),pages:pdf.numPages,headings});
-      send({type:'page',n:app.page});
-      void pageText();
+      applyGoto();
     } catch { error('pdfFailed'); }
   }
   document.addEventListener('webviewerloaded', () => {
@@ -63,10 +87,8 @@
         app.passwordPrompt.open = async () => { error('pdfEncrypted'); await app.close(); };
         app.eventBus.on('documenterror',() => error('pdfFailed'));
         app.eventBus.on('documentinit',() => void documentReady());
-        app.eventBus.on('pagechanging',({pageNumber}) => {
-          if (!ready) return;
-          send({type:'page',n:pageNumber}); void pageText();
-        });
+        app.eventBus.on('pagesloaded',() => { pagesLoaded = true; applyGoto(); });
+        app.eventBus.on('pagechanging',publishPage);
         const found = ({matchesCount}) => {
           if (!ready || !matchesCount || app.findController.state?.query !== query) return;
           send({type:'found',n:Math.min(100000,matchesCount.total),index:Math.min(100000,matchesCount.current),request});
@@ -77,15 +99,16 @@
     } catch { error('pdfFailed'); }
   },{once:true});
   addEventListener('message', event => {
-    if (event.source !== parent || !ready || !event.data || typeof event.data !== 'object') return;
+    if (event.source !== parent || failed || !event.data || typeof event.data !== 'object') return;
     const value = event.data;
     if (value.type === 'goto') {
-      const page = typeof value.id === 'string' ? destinations.get(value.id) : value.page;
-      if (!Number.isSafeInteger(page) || page < 1 || page > app.pagesCount) return;
-      app.page = page;
-      // A same-page restore must acknowledge its completion too.
-      send({type:'page',n:app.page});
-    } else if (value.type === 'find' && typeof value.q === 'string' && value.q.length <= 4096
+      const target = typeof value.id === 'string' ? value.id : value.page;
+      if (typeof target === 'string') {
+        if (!target || target.length > 2048 || (ready && !destinations.has(target))) return;
+      } else if (!Number.isSafeInteger(target) || target < 1 || (app?.pagesCount && target > app.pagesCount)) return;
+      pendingGoto = target;
+      applyGoto();
+    } else if (ready && value.type === 'find' && typeof value.q === 'string' && value.q.length <= 4096
       && [1,-1].includes(value.dir) && Number.isSafeInteger(value.request) && value.request >= 0) {
       const again = query === value.q;
       query = value.q; request = value.request;
@@ -106,7 +129,7 @@
   },true);
   addEventListener('drop',event => { event.preventDefault(); event.stopImmediatePropagation(); },true);
   addEventListener('pagehide',() => {
-    ready = false; failed = true; textGeneration++;
+    ready = false; failed = true; pendingGoto = null; textGeneration++;
     worker?.terminate(); if (workerUrl) URL.revokeObjectURL(workerUrl);
     void app?.close();
   },{once:true});

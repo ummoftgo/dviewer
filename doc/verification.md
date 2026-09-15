@@ -1166,3 +1166,27 @@ HTML은 스크립트·모듈·폰트 true, 제목 3·찾기 2, 프로브 `reject
 두 변형은 원본 바이트로 복원했다. 복원 뒤 Rust 전체553 통과, 정상 debug 재빌드와 release 스모크를 완료했다. PDF는 두 빌드 모두 pages2·page2·headings3·matches2이며, 프로브는 rejected:Origin header is not a valid URL이다. PDF 관측 시간은 debug508ms/release495ms, HTML 대조군은 1,254ms/1,258ms다. HTML은 inline/module/font=true·목차3·검색2, 외부 허용 뒤 차단0/재차단1, ZIP 형제 CSS·이미지 true를 유지했다. 시간은 같은 실행의 관측값이며 변경 전후 성능 실측은 아니다.
 
 FrameView·Toolbar·docs.svelte.ts autofixer issues는 없었다. session.svelte.ts 분석은 도구 내부 Cannot read properties of undefined (reading 'text') 예외로 실패했지만 svelte-check와 세션 테스트는 통과했다. clippy·대형 PDF 메모리 실측·실제 암호 PDF·한글/다단/복사 품질 화면 확인은 실행하지 않았다. image-only.pdf 안내와 실제 재실행 페이지 복원은 사용자 확인으로 남긴다. Linux·macOS warm 스모크도 미확인이므로 Windows 결과만으로 전체 마일스톤 완료를 선언하지 않는다.
+
+### PDF 이동 뒤 크기 변경 경합 재검증 — 2026-09-17
+
+pagesloaded를 기다린 WIP도 release 3회 중 1회 실패했다. 기존 CDP 기록은 goto2가 실제 2쪽에 도달한 뒤 약 3ms 후 1쪽으로 돌아왔음을 보여준다. PDF.js 6.3.289의 페이지 setter는 동기 pagechanging 이후 스크롤을 옮기지만, 크기·배율 변경에 쓰는 위치 기록은 다음 update까지 갱신하지 않는다. 초기 뷰 적용 전이라는 가설과 달리 진단 시 isInitialViewSet은 true였다.
+
+실제 release 뷰어에서 goto2의 setter 반환 직후 폭을 100px 줄이고 resize를 전달하자 같은 PDF goto timeout이 재현됐다(다른 47개 통과). 동일 조건에서 resize 전에 pdfViewer.update()만 호출한 대조 실행은 48개 모두 통과했다. 공통 goto 경로에 이 갱신을 넣어 페이지 번호·목차·세션 복원이 같은 처리를 거치게 했다. 대기 요청은 ready와 pagesloaded 뒤 적용하고 실제 목표 페이지 확인 후 응답한다. 임의 타이머는 추가하지 않았다.
+
+| 검사 | 결과 |
+| --- | --- |
+| DVIEWER_FIXTURES=required cargo test | 553 통과, 실패·무시 0 |
+| npm test | 363 통과, 35파일 |
+| npm run check | 오류0·경고0, 4로케일×459키 |
+| 회귀 테스트: 다음 스크롤 갱신 전 resize | 수정 전 1실패·기존3통과 → 수정 후4통과 |
+| 새 release exe | 31,926,784바이트 |
+
+프런트와 release 바이너리를 새로 빌드한 뒤, 진단 주입 없이 기존 스모크를 연속 실행했다. 스모크 코드와 단언은 수정하지 않았다.
+
+| release 회차 | 픽스처 + 왕복 | PDF | HTML 대조군 | 앱 sweep |
+| --- | --- | --- | --- | --- |
+| 1 | 48 + 2 통과 | 474ms | 1,253ms | 19,149ms |
+| 2 | 48 + 2 통과 | 555ms | 1,243ms | 19,182ms |
+| 3 | 48 + 2 통과 | 559ms | 1,271ms | 19,297ms |
+
+세 회차 모두 PDF pages2·page2·headings3·matches2와 격리 프로브 거부를 확인했다. 시간은 각 실행의 관측값이며 성능 개선 주장은 아니다. 로그는 .agent-works/m43-goto-final-*.log, 원본 결과는 로컬 임시 디렉터리 dviewer-smoke-FQmSNu·Rdu0XM·cr8Cou의 sweep.jsonl이다. 이번에는 debug 스모크·clippy·Linux/macOS·사용자 화면 및 실제 앱 재시작 복원 검증을 실행하지 않았다. 이 결과는 Windows release 검증이다.
