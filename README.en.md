@@ -17,7 +17,7 @@ Fifteen formats, grouped into **six** ways of reading.
 
 - Handles 500MB-class JSON and CSV, and 200MB-class logs, without loading the whole file into memory. The numbers are in [Verification and performance](doc/verification.md).
 - Four ways in — file picker, drag and drop, URL, paste — with multiple documents open in tabs.
-- Relative document links in Markdown open in a new tab or activate an existing path or URL. A Markdown target's `#anchor` is followed after rendering; a failed open shows its cause in a new tab and preserves the original document.
+- Relative document links in Markdown open in a new tab or activate an existing path or URL. A Markdown target's `#anchor` is followed immediately after rendering, without animation; a failed open shows its cause in a new tab and preserves the original document.
 - Hide or move table and collection columns from the header menu. Restore hidden columns from the chip; the last column stays visible. Row copy retains its original format in the default layout and uses visible columns in display order as TSV after layout changes. Navigating to a search hit in a hidden column reveals it and announces this in the status line.
 - “Freeze through this column” in the header menu pins leading columns in display order beside the row numbers during horizontal scrolling. “Unfreeze columns” or “Reset column layout” releases them.
 - The format is decided by extension (text when nothing else matches); the character encoding (UTF-8 · CP949/EUC-KR · UTF-16, …) is detected from the content. Both can be changed from the toolbar at any time.

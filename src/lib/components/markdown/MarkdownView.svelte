@@ -128,7 +128,7 @@
   $effect(() => {
     const anchor = tab.pendingAnchor;
     if (!anchor || !article || tab.html === null || enhancing) return;
-    scrollToAnchor(anchor);
+    scrollToAnchor(anchor, 'instant');
     tab.pendingAnchor = null;
   });
 
@@ -198,9 +198,9 @@
     return items;
   }
 
-  function scrollToAnchor(id: string) {
+  function scrollToAnchor(id: string, behavior: ScrollBehavior = "smooth") {
     const target = article?.querySelector(`#${CSS.escape(id)}`);
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    target?.scrollIntoView({ behavior, block: "start" });
   }
 </script>
 

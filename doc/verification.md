@@ -2,7 +2,19 @@
 
 ← [README](../README.md)
 
-macOS는 상대 링크 스모크를 건너뛴다(원인 조사 중, 2026-09-14). `markdown-links.md` 파일 자체는 계속 연다.
+## M41-mac — 즉시 앵커 이동 후보
+
+`pendingAnchor`로 문서를 여는 경로만 `behavior: 'instant'`로 이동한다. 목차와 문서 내부 앵커 클릭의 기본값은 smooth다. macOS의 relativeLinks 생략을 제거했으며 원래 인코딩 경로·앵커·없는 파일 검사를 유지한다. 이 변경은 고침 후보이며 macOS WebKit의 애니메이션 중 언마운트가 원인인지는 리허설로 확인해야 한다.
+
+| 검사 | 결과 |
+|---|---|
+| vitest | 346통과·32파일 |
+| check | 오류0·경고0·4로케일×451키 |
+| MarkdownView Svelte 분석 | issues 없음 |
+| Darwin 매니페스트 대조 | relativeLinks 활성·원래 앵커 링크·46개 유지 |
+| 프런트·debug 빌드 | 통과 |
+| Windows debug 스모크 | 1회, 46개·왕복2 통과, 앱 sweep 19,979ms |
+| macOS 재현 | 미실행, 세 OS 확인 필요 |
 
 ## M46b — 집중 모드의 입구와 출구
 
