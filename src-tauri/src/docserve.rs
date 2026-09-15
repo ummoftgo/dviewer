@@ -6,9 +6,12 @@ use subtle::ConstantTimeEq;
 use crate::{bytes::SharedBytes, error::{Error, Result, Subject}, state::{AppState, DocId, DocKind, DocSource}};
 
 pub const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PDF_BYTES: usize = 256 * 1024 * 1024;
 const AGENT: &str = include_str!("../../src/lib/frame/agent.js");
 const POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; worker-src 'self' blob:";
 type Response = tiny_http::Response<Box<dyn Read + Send>>;
+mod pdf;
+use pdf::{pdf_asset_path, pdf_file_matches, pdf_policy, pdf_response};
 
 #[derive(Default)]
 struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64 }
@@ -42,6 +45,10 @@ impl DocServer {
         let tokens = Arc::new(Mutex::new(HashMap::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let (routes, stopping, expected_host) = (tokens.clone(), stop.clone(), host.clone());
+        // AssetResolver falls back to the app's index.html for missing files.
+        // Only names produced by the pinned PDF.js preparation may reach it.
+        let pdf_assets: std::collections::HashSet<String> = app.asset_resolver().get("pdfjs/manifest.json".into())
+            .and_then(|asset| serde_json::from_slice(&asset.bytes).ok()).unwrap_or_default();
         let worker = std::thread::spawn(move || {
             while !stopping.load(Ordering::Relaxed) {
                 let request = match server.recv_timeout(Duration::from_millis(100)) {
@@ -53,7 +60,9 @@ impl DocServer {
                 let hosts: Vec<_> = headers.iter().filter(|h| h.field.equiv("Host")).collect();
                 let host_ok = valid_host(&hosts.iter().map(|h| h.value.as_str()).collect::<Vec<_>>(), &expected_host);
                 let response = if host_ok && request.method() == &tiny_http::Method::Get {
-                    serve(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some(), &policy)
+                    let ranges: Vec<_> = headers.iter().filter(|h| h.field.equiv("Range")).map(|h| h.value.as_str()).collect();
+                    serve(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some(), &policy,
+                        &ranges, &|path| if pdf_assets.contains(path) { app.asset_resolver().get(path.to_owned()).map(|asset| asset.bytes) } else { None })
                 } else { None };
                 let _ = request.respond(response.unwrap_or_else(not_found));
             }
@@ -98,10 +107,14 @@ impl Drop for DocServer {
 #[tauri::command]
 pub fn frame_url(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<String> {
     let doc = state.get(doc_id)?;
-    if doc.kind() != DocKind::Html { return Err(Error::WrongView { subject: Subject::Source }); }
-    check_size(doc.bytes().len())?;
+    if !matches!(doc.kind(), DocKind::Html | DocKind::Pdf) { return Err(Error::WrongView { subject: Subject::Source }); }
+    check_document_size(doc.kind(), doc.bytes().len())?;
     let path = document_path(&doc.source).ok_or(Error::WrongView { subject: Subject::Source })?;
     let base = state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.url(doc_id)?;
+    if doc.kind() == DocKind::Pdf {
+        let file = url::Url::parse(&base).map_err(Error::internal)?.path().to_owned();
+        return Ok(format!("{base}_/pdfjs/web/viewer.html?file={}", percent_encoding::utf8_percent_encode(&file, percent_encoding::NON_ALPHANUMERIC)));
+    }
     Ok(format!("{base}{}", encode_path(&path)))
 }
 
@@ -114,7 +127,7 @@ pub fn frame_served(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<
 #[tauri::command]
 pub fn frame_external(state: tauri::State<'_, AppState>, doc_id: DocId, allow: bool) -> Result<()> {
     let doc = state.get(doc_id)?;
-    if doc.kind() != DocKind::Html { return Err(Error::WrongView { subject: Subject::Source }); }
+    if !matches!(doc.kind(), DocKind::Html | DocKind::Pdf) { return Err(Error::WrongView { subject: Subject::Source }); }
     state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.external(doc_id, allow)
 }
 
@@ -125,6 +138,12 @@ fn check_size(len: usize) -> Result<()> {
 
 fn document_policy(host: &str) -> String {
     POLICY.replace("'self'", &format!("http://{host}"))
+}
+
+fn check_document_size(kind: DocKind, len: usize) -> Result<()> {
+    if kind != DocKind::Pdf { return check_size(len); }
+    if len > MAX_PDF_BYTES { return Err(Error::TooLarge { subject: Subject::Source, megabytes: len / 1024 / 1024, limit_mb: 256 }); }
+    Ok(())
 }
 
 fn archive_path(path: &str) -> Option<String> {
@@ -182,14 +201,40 @@ fn not_found() -> Response {
     reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", None, false, false).with_status_code(404)
 }
 
-fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str) -> Option<Response> {
+fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str,
+    ranges: &[&str], asset: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<Response> {
     let (path, query) = url.split_once('?').unwrap_or((url, ""));
     let (token, relative) = path.strip_prefix('/')?.split_once('/')?;
     // Compare the secret in constant time; the small registry follows open HTML tabs.
     let route = tokens.lock().iter().find_map(|(key, route)| bool::from(key.as_bytes().ct_eq(token.as_bytes())).then(|| route.clone()))?;
     let doc = state.get(route.id).ok()?;
     let snapshot = doc.snapshot();
-    if snapshot.kind != DocKind::Html { return None; }
+    if !matches!(snapshot.kind, DocKind::Html | DocKind::Pdf) { return None; }
+    if snapshot.kind == DocKind::Pdf {
+        check_document_size(snapshot.kind, snapshot.bytes.len()).ok()?;
+        let probe = smoke && query.split('&').any(|part| part == "probe=1");
+        if relative.is_empty() {
+            route.served.resource.fetch_add(1, Ordering::Relaxed);
+            return Some(pdf_response(snapshot.bytes.clone(), ranges));
+        }
+        if relative == "_/agent.js" {
+            route.served.agent.fetch_add(1, Ordering::Relaxed);
+            return Some(reply(Box::new(Cursor::new(AGENT.as_bytes())), AGENT.len(), "text/javascript", None, false, false));
+        }
+        let path = pdf_asset_path(relative)?;
+        let viewer = path == "pdfjs/web/viewer.html";
+        if viewer && !pdf_file_matches(query, token) { return None; }
+        let mut bytes = asset(&path)?;
+        if viewer {
+            route.served.html.fetch_add(1, Ordering::Relaxed);
+            let tag = format!("<script src=\"/{token}/_/agent.js\" data-pdf{}></script>", if probe { " data-probe" } else { "" });
+            let at = injection_offset(&bytes);
+            bytes.splice(at..at, tag.bytes());
+        } else { route.served.resource.fetch_add(1, Ordering::Relaxed); }
+        let len = bytes.len();
+        let policy = pdf_policy(policy, route.external, probe);
+        return Some(reply(Box::new(Cursor::new(bytes)), len, mime(Path::new(&path)), viewer.then_some(policy.as_str()), false, false));
+    }
     let entry = matches!(doc.source, DocSource::ArchiveEntry { .. });
     let name = if entry && relative != "_/agent.js" {
         archive_path(&percent_encoding::percent_decode_str(relative).decode_utf8().ok()?)?
@@ -259,7 +304,8 @@ fn mime(path: &Path) -> &'static str {
         "css" => "text/css", "js" | "mjs" => "text/javascript", "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif", "svg" => "image/svg+xml",
         "webp" => "image/webp", "woff2" => "font/woff2", "woff" => "font/woff", "ttf" => "font/ttf",
-        "json" => "application/json", "txt" => "text/plain", _ => "application/octet-stream",
+        "json" => "application/json", "txt" | "ftl" => "text/plain", "pdf" => "application/pdf",
+        "wasm" => "application/wasm", "pfb" => "application/x-font-type1", _ => "application/octet-stream",
     }
 }
 

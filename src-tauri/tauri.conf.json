@@ -36,6 +36,7 @@
   "bundle": {
     "active": true,
     "fileAssociations": [
+      { "ext": ["pdf"], "name": "PDF document", "description": "PDF document", "role": "Viewer", "mimeType": "application/pdf" },
       { "ext": ["html", "htm"], "name": "HTML document", "description": "HTML document", "role": "Viewer", "mimeType": "text/html" },
       { "ext": ["md", "markdown", "mdown", "mkd", "mdx"], "name": "Markdown document", "description": "Markdown document", "role": "Viewer", "mimeType": "text/markdown" },
       { "ext": ["json", "geojson", "har", "jsonc", "jsonl", "ndjson"], "name": "JSON document", "description": "JSON document", "role": "Viewer", "mimeType": "application/json" },

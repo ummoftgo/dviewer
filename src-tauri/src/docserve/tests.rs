@@ -1,6 +1,10 @@
 use super::*;
 use crate::{bytes::DocBytes, encoding, state::{Document, DocSource}};
 
+fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str) -> Option<Response> {
+    super::serve(state, tokens, url, smoke, policy, &[], &|_| None)
+}
+
 fn document(state: &AppState, id: DocId, data: &[u8]) {
     let bytes = Arc::new(DocBytes::Owned(data.to_vec()));
     state.insert("main", Document::new(id, "test.html".into(), DocSource::Text, None, DocKind::Html, bytes.clone(), encoding::decode(bytes)));

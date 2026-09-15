@@ -20,6 +20,7 @@ pub type DocId = u32;
 pub enum DocKind {
     Markdown,
     Html,
+    Pdf,
     Json,
     /// One JSON object per line, read as a table. A kind of its own rather
     /// than a view of `Json`, because it is a different reading of the bytes:
@@ -100,14 +101,14 @@ impl DocKind {
     pub fn reads_bytes(self) -> bool {
         !matches!(
             self,
-            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet | DocKind::Zip | DocKind::TreeTable
+            DocKind::Sqlite | DocKind::Xlsx | DocKind::Parquet | DocKind::Zip | DocKind::TreeTable | DocKind::Pdf
         )
     }
 
     pub fn view(self) -> DocView {
         match self {
             DocKind::Markdown => DocView::Prose,
-            DocKind::Html => DocView::Frame,
+            DocKind::Html | DocKind::Pdf => DocView::Frame,
             DocKind::Json | DocKind::Jsonc | DocKind::Yaml | DocKind::Toml | DocKind::Xml => {
                 DocView::Tree
             }

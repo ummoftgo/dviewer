@@ -12,6 +12,7 @@ import { n, t, type MessageKey } from "./i18n";
 export type DocKind =
   | "markdown"
   | "html"
+  | "pdf"
   | "json"
   | "jsonc"
   | "jsonl"
@@ -63,12 +64,13 @@ export const DOC_KINDS: { kind: DocKind; label: MessageKey }[] = [
  * than shown and refused.
  */
 export function readsBytes(kind: DocKind): boolean {
-  return kind !== "sqlite" && kind !== "xlsx" && kind !== "parquet" && kind !== "zip" && kind !== "treeTable";
+  return kind !== "sqlite" && kind !== "xlsx" && kind !== "parquet" && kind !== "zip" && kind !== "treeTable" && kind !== "pdf";
 }
 
 export function viewOf(kind: DocKind): DocView {
   switch (kind) {
     case "html":
+    case "pdf":
       return "frame";
     case "markdown":
       return "prose";
@@ -90,6 +92,7 @@ export function viewOf(kind: DocKind): DocView {
 }
 
 export function kindLabel(kind: DocKind): string {
+  if (kind === "pdf") return 'PDF';
   if (kind === "sqlite") return t("format.sqlite");
   if (kind === "xlsx") return t("format.xlsx");
   if (kind === "parquet") return t("format.parquet");
@@ -106,6 +109,7 @@ export function kindLabel(kind: DocKind): string {
 const BADGES: Record<DocKind, string> = {
   markdown: "M↓",
   html: "HTML",
+  pdf: "PDF",
   json: "{ }",
   jsonc: "{/}",
   jsonl: "{↵}",

@@ -76,6 +76,7 @@ const BY_EXTENSION: &[(DocKind, &[&str])] = &[
     (DocKind::Jsonc, JSONC_EXTS),
     (DocKind::Markdown, MARKDOWN_EXTS),
     (DocKind::Html, &["html", "htm", "xhtml"]),
+    (DocKind::Pdf, &["pdf"]),
     (DocKind::Yaml, YAML_EXTS),
     (DocKind::Toml, TOML_EXTS),
     (DocKind::Xml, XML_EXTS),
@@ -128,6 +129,7 @@ fn is_parquet(bytes: &[u8]) -> bool {
 }
 
 pub fn detect_kind(name: &str, bytes: &[u8]) -> DocKind {
+    if bytes.starts_with(b"%PDF-") { return DocKind::Pdf; }
     let ext = Path::new(name)
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
@@ -340,11 +342,13 @@ fn title_from_url(url: &url::Url) -> String {
 /// and `application/octet-stream` for everything. Trust it when it is specific,
 /// otherwise fall back to sniffing.
 pub fn kind_from_response(title: &str, content_type: Option<&str>, bytes: &[u8]) -> DocKind {
+    if bytes.starts_with(b"%PDF-") { return DocKind::Pdf; }
     let mime = content_type
         .map(|ct| ct.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
         .unwrap_or_default();
 
     match mime.as_str() {
+        "application/pdf" => DocKind::Pdf,
         "application/json" | "application/ld+json" | "text/json" | "application/x-ndjson"
         | "application/geo+json" => DocKind::Json,
         "text/markdown" | "text/x-markdown" => DocKind::Markdown,
@@ -362,6 +366,16 @@ pub fn kind_from_response(title: &str, content_type: Option<&str>, bytes: &[u8])
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pdf_magic_survives_misleading_names_and_response_types() {
+        use super::*;
+        for name in ["notes.txt", "data.json", "report", "report.pdf"] { assert_eq!(detect_kind(name,b"%PDF-1.7\n"),DocKind::Pdf); }
+        assert_eq!(kind_from_name("report.pdf"),DocKind::Pdf);
+        assert_eq!(kind_from_response("x.json",Some("application/json"),b"%PDF-1.7"),DocKind::Pdf);
+        assert_eq!(kind_from_response("x",Some("application/pdf"),b"broken"),DocKind::Pdf);
+        assert!(!DocKind::Pdf.reads_bytes());
+        assert_eq!(DocKind::Pdf.view(),crate::state::DocView::Frame);
+    }
     /// The magic decides, not the name.
     ///
     /// `.db` names a dozen unrelated formats, so an extension alone must not
