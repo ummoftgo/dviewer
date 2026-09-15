@@ -7,18 +7,35 @@
   const MAX_HEADINGS = 10000, MAX_MATCHES = 100000;
   let blocked = 0, scrollTimer, search = 0;
   let query = '', ranges = [], selected = -1, built = false;
+  let headingNodes = [], headingTops = null;
+  const heading = () => {
+    if (headingTops === null) headingTops = headingNodes.map(node => node.getBoundingClientRect().top + scrollY);
+    let low = 0, high = headingTops.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (headingTops[mid] <= scrollY + 1) low = mid + 1;
+      else high = mid;
+    }
+    send({type:'heading',id:headingNodes[Math.max(0,low - 1)]?.id.slice(0,2048) ?? ''});
+  };
   addEventListener('securitypolicyviolation', () => send({type:'blocked', n:++blocked}));
   addEventListener('keydown', shortcut);
   probe();
   if (pdf) return;
+  addEventListener('resize', () => { headingTops = null; heading(); });
   const currentRatio = () => {
     const max = document.documentElement.scrollHeight - innerHeight;
     return max > 0 ? Math.max(0, Math.min(1, scrollY / max)) : 0;
   };
   addEventListener('scroll', () => {
-    if (!scrollTimer) scrollTimer = setTimeout(() => { scrollTimer = undefined; send({type:'scroll', ratio:currentRatio()}); }, 100);
+    if (!scrollTimer) scrollTimer = setTimeout(() => { scrollTimer = undefined; send({type:'scroll', ratio:currentRatio()}); heading(); }, 100);
   }, {passive:true});
-  const goto = id => { document.getElementById(id)?.scrollIntoView(); };
+  const goto = id => {
+    if (id === '') { scrollTo({top:0,behavior:'instant'}); return true; }
+    const node = document.getElementById(id);
+    node?.scrollIntoView({behavior:'instant'});
+    return !!node;
+  };
   addEventListener('click', event => {
     const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
     if (!link || event.button !== 0 || event.defaultPrevented) return;
@@ -70,7 +87,12 @@
     if (event.source !== parent || !event.data || typeof event.data !== 'object') return;
     const value = event.data;
     if (value.type === 'goto') {
-      if (typeof value.id === 'string') goto(value.id);
+      if (typeof value.id === 'string') {
+        const found = goto(value.id);
+        if (Number.isSafeInteger(value.request) && value.request >= 0) {
+          heading(); send({type:'gone',request:value.request,found});
+        }
+      }
       else if (Number.isFinite(value.ratio)) scrollTo(0, Math.max(0, Math.min(1, value.ratio)) * Math.max(0, document.documentElement.scrollHeight - innerHeight));
     } else if (value.type === 'theme' && typeof value.dark === 'boolean') {
       document.documentElement.dataset.dviewerTheme = value.dark ? 'dark' : 'light';
@@ -78,6 +100,12 @@
       && (value.dir === 1 || value.dir === -1) && Number.isSafeInteger(value.request)) void find(value.q, value.dir, value.request);
   });
   function shortcut(event) {
+    if (!event.defaultPrevented && (event.ctrlKey || event.metaKey) && !event.altKey
+      && ((!pdf && !event.shiftKey && event.key.toLowerCase() === 'd') || (event.shiftKey && event.key.toLowerCase() === 'b'))) {
+      event.preventDefault();
+      if (!event.repeat) { if (!pdf) heading(); send({type:'shortcut',key:event.shiftKey ? 'bookmarks' : 'bookmark'}); }
+      return;
+    }
     if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && ['Escape','F11'].includes(event.key)) {
       if (event.defaultPrevented) return;
       event.preventDefault();
@@ -92,7 +120,8 @@
   function ready() {
     const used = new Set([...document.querySelectorAll('[id]')].map(node => node.id));
     const seen = new Set();
-    const headings = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].slice(0, MAX_HEADINGS).map((node, index) => {
+    headingNodes = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].slice(0, MAX_HEADINGS);
+    const headings = headingNodes.map((node, index) => {
       if (!node.id || seen.has(node.id)) {
         let id = `dv-h-${index}`, suffix = 0;
         while (used.has(id)) id = `dv-h-${index}-${++suffix}`;
@@ -102,11 +131,16 @@
       return {id:node.id.slice(0,2048), level:Number(node.tagName[1]), text:(node.textContent ?? '').trim().slice(0,4096)};
     });
     send({type:'ready', title:document.title.slice(0,4096), headings});
+    const observer = new ResizeObserver(() => { headingTops = null; heading(); });
+    observer.observe(document.body);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, {once:true});
   else ready();
   const loaded = () => {
-    Promise.resolve(document.fonts?.ready).then(() => send({type:'loaded',scrollable:document.documentElement.scrollHeight > innerHeight}));
+    Promise.resolve(document.fonts?.ready).then(() => {
+      headingTops = null; heading();
+      send({type:'loaded',scrollable:document.documentElement.scrollHeight > innerHeight});
+    });
   };
   if (document.readyState === 'complete') loaded();
   else addEventListener('load',loaded,{once:true});

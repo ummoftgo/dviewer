@@ -40,6 +40,11 @@ test('viewer file query coexists with generation and source identity', () => {
 });
 
 test('headings become the existing TOC shape, without untrusted extra fields', () => {
+  expect(parseFrameMessage({type:'heading',id:''})).toEqual({type:'heading',id:''});
+  expect(parseFrameMessage({type:'heading',id:3})).toBeNull();
+  expect(parseFrameMessage({type:'gone',request:2,found:false,extra:true})).toEqual({type:'gone',request:2,found:false});
+  expect(parseFrameMessage({type:'gone',request:-1,found:true})).toBeNull();
+  expect(parseFrameMessage({type:'gone',request:2,found:'yes'})).toBeNull();
   expect(parseFrameMessage({type:'loaded',scrollable:true,extra:1})).toEqual({type:'loaded',scrollable:true});
   expect(parseFrameMessage({type:'loaded'})).toBeNull();
   const frame = {} as Window;
@@ -84,6 +89,8 @@ test('probe timeout remains a failure candidate and execution is a separate mess
   expect(parseFrameMessage({type:'isolationBroken'})).toEqual({type:'isolationBroken'});
 });
 test('only the documented search, source and focus shortcuts cross the frame boundary', () => {
+  expect(parseFrameMessage({type:'shortcut',key:'bookmark'})).toEqual({type:'shortcut',key:'bookmark'});
+  expect(parseFrameMessage({type:'shortcut',key:'bookmarks'})).toEqual({type:'shortcut',key:'bookmarks'});
   expect(parseFrameMessage({type:'shortcut',key:'find'})).toEqual({type:'shortcut',key:'find'});
   expect(parseFrameMessage({type:'shortcut',key:'raw'})).toEqual({type:'shortcut',key:'raw'});
   expect(parseFrameMessage({type:'shortcut',key:'escape'})).toEqual({type:'shortcut',key:'escape'});

@@ -8,9 +8,11 @@
   import { toasts } from '../../state/toast.svelte';
   import { frameLocation, frameMessage } from '../../frame/messages';
   import { parentCspViolation } from '../../frame/diagnostics';
+  import { resolveAnchor } from '../../bookmarks';
+  import { bookmarks } from '../../state/bookmarks.svelte';
   import Toc from '../markdown/Toc.svelte';
   import FrameSearchBar from './FrameSearchBar.svelte';
-  interface Props { tab: DocTab; showToc: boolean; probe?: boolean; focusSearch?: (() => void) | null; onShortcut?: (key: 'escape' | 'focus') => void }
+  interface Props { tab: DocTab; showToc: boolean; probe?: boolean; focusSearch?: (() => void) | null; onShortcut?: (key: 'escape' | 'focus' | 'bookmark' | 'bookmarks') => void }
   let {tab, showToc, probe = false, focusSearch = $bindable(null), onShortcut}: Props = $props();
   let iframe = $state<HTMLIFrameElement>();
   let src = $state<string>();
@@ -18,11 +20,14 @@
   let activeId = $state('');
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let broken = false;
+  let sentBookmark = -1;
   const post = (message: unknown) => iframe?.contentWindow?.postMessage(message, '*');
   $effect(() => {
     const target = tab, query = tab.frameQuery;
     expectedLoad = '';
     target.frameContentLoaded = false;
+    target.bookmarkHeading = null;
+    sentBookmark = -1;
     const testing = probe;
     let live = true;
     target.frameReady = false; target.frameReadyLoad = ''; target.frameBlocked = 0; target.frameProbe = null;
@@ -59,8 +64,16 @@
   });
   $effect(() => {
     const id = tab.pendingAnchor;
-    if (!id || !tab.frameContentLoaded) return;
-    untrack(() => { post({type:'goto',id}); activeId = id; tab.pendingAnchor = null; });
+    const jump = tab.pendingBookmark;
+    if (id === null || !tab.frameContentLoaded) return;
+    untrack(() => {
+      if (!jump) { post({type:'goto',id}); activeId = id; tab.pendingAnchor = null; return; }
+      if (sentBookmark === jump.request) return;
+      const resolved = resolveAnchor(jump.anchor, tab.frameToc);
+      if (!resolved) { bookmarks.complete(tab, jump, false); return; }
+      sentBookmark = jump.request;
+      post({type:'goto',id:resolved.id,request:jump.request});
+    });
   });
   function find(dir: 1 | -1) {
     if (!tab.frameReady) return;
@@ -116,8 +129,8 @@
         const pos = tab.pendingPosition;
         const ratio = message.scrollable ? (pos?.kind === 'frame' ? pos.ratio : tab.frameScroll) : 0;
         tab.frameScroll = ratio;
-        if (!tab.pendingAnchor) post({type:'goto',ratio});
-        if (pos) tab.finishPosition(ratio > 0 && message.scrollable && !tab.pendingAnchor);
+        if (tab.pendingAnchor === null) post({type:'goto',ratio});
+        if (pos) tab.finishPosition(ratio > 0 && message.scrollable && tab.pendingAnchor === null);
         tab.rememberPosition({kind:'frame',ratio});
         break;
       }
@@ -125,6 +138,14 @@
         if (tab.kind === 'pdf') break;
         tab.frameScroll = message.ratio;
         if (tab.frameContentLoaded) tab.rememberPosition({kind:'frame',ratio:message.ratio});
+        break;
+      case 'heading':
+        if (message.id === '' || tab.frameToc.some(entry => entry.id === message.id)) {
+          activeId = message.id; tab.bookmarkHeading = message.id;
+        }
+        break;
+      case 'gone':
+        if (tab.pendingBookmark?.request === message.request) bookmarks.complete(tab, tab.pendingBookmark, message.found);
         break;
       case 'blocked': tab.frameBlocked = message.n; break;
       case 'probe': if (probe) tab.frameProbe = message.invoke; break;

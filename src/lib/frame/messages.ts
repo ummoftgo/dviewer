@@ -23,12 +23,14 @@ export type FrameMessage =
   | { type: 'pageText'; page: number; hasText: boolean }
   | { type: 'error'; code: 'pdfEncrypted' | 'pdfFailed'; detail?: string }
   | { type: 'scroll'; ratio: number }
+  | { type: 'heading'; id: string }
+  | { type: 'gone'; request: number; found: boolean }
   | { type: 'blocked'; n: number }
   | { type: 'found'; n: number; index: number; request: number }
   | { type: 'link'; href: string; kind: 'external' | 'relative' }
   | { type: 'probe'; invoke: string }
   | { type: 'isolationBroken' }
-  | { type: 'shortcut'; key: 'find' | 'raw' | 'escape' | 'focus' };
+  | { type: 'shortcut'; key: 'find' | 'raw' | 'escape' | 'focus' | 'bookmark' | 'bookmarks' };
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max;
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
@@ -122,6 +124,8 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
     case 'error': return (v.code === 'pdfEncrypted' || v.code === 'pdfFailed') && (v.detail === undefined || text(v.detail,4096))
       ? {type:'error',code:v.code,...(v.detail === undefined ? {} : {detail:v.detail as string})} : null;
     case 'scroll': return typeof v.ratio === 'number' && Number.isFinite(v.ratio) && v.ratio >= 0 && v.ratio <= 1 ? {type:'scroll',ratio:v.ratio} : null;
+    case 'heading': return text(v.id,2048) ? {type:'heading',id:v.id} : null;
+    case 'gone': return count(v.request) && typeof v.found === 'boolean' ? {type:'gone',request:v.request,found:v.found} : null;
     case 'blocked': return count(v.n) ? {type:'blocked',n:v.n} : null;
     case 'found': return count(v.n) && v.n <= 100000 && count(v.index) && v.index <= v.n && count(v.request)
       ? {type:'found',n:v.n,index:v.index,request:v.request} : null;
@@ -129,7 +133,7 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
       ? {type:'link',href:v.href,kind:v.kind as 'external' | 'relative'} : null;
     case 'probe': return text(v.invoke,4200) && (v.invoke === 'absent' || v.invoke === 'timeout' || v.invoke.startsWith('rejected:'))
       ? {type:'probe',invoke:v.invoke} : null;
-    case 'shortcut': return v.key === 'find' || v.key === 'raw' || v.key === 'escape' || v.key === 'focus' ? {type:'shortcut',key:v.key} : null;
+    case 'shortcut': return v.key === 'find' || v.key === 'raw' || v.key === 'escape' || v.key === 'focus' || v.key === 'bookmark' || v.key === 'bookmarks' ? {type:'shortcut',key:v.key} : null;
     case 'isolationBroken': return {type:'isolationBroken'};
     default: return null;
   }

@@ -1,0 +1,29 @@
+import { expect, test } from 'vitest';
+import { currentAnchor, readBookmarks, resolveAnchor } from './bookmarks';
+
+const item = {id:'saved',label:'why',source:{type:'file',path:'/doc.md'},anchor:{id:'part',text:'Section'},created:123};
+const headings = [{id:'first',text:'First',level:1},{id:'part',text:'Section',level:2}];
+
+test('reading keeps valid neighbors, strips unknown fields and rejects malformed or duplicate identities', () => {
+  const invalid = [null, {}, {...item,id:''}, {...item,id:3}, {...item,label:2}, {...item,label:' '},
+    {...item,created:NaN}, {...item,created:-1}, {...item,created:1.5}, {...item,anchor:{id:2,text:'x'}},
+    {...item,anchor:{id:'x',text:2}}, {...item,source:{type:'file',path:2}}, {...item,source:{type:'text'}},
+    {...item,source:{type:'url',url:''}}];
+  for (const bad of invalid) expect(readBookmarks([bad,item])).toEqual([item]);
+  expect(readBookmarks([{...item,extra:true,source:{...item.source,extra:true},anchor:{...item.anchor,extra:true}},item])).toEqual([item]);
+  expect(readBookmarks(null)).toEqual([]);
+  expect(readBookmarks([{...item,source:{type:'url',url:'https://example.com/doc'},anchor:{id:'',text:''}}])).toHaveLength(1);
+});
+
+test('the default label uses the current heading, the first heading before it, or a top marker', () => {
+  expect(currentAnchor(headings,'part')).toEqual(item.anchor);
+  expect(currentAnchor(headings,'')).toEqual({id:'first',text:'First'});
+  expect(currentAnchor([],'')).toEqual({id:'',text:''});
+});
+
+test('navigation resolves by id then exact text and distinguishes missing from document top', () => {
+  expect(resolveAnchor({...item.anchor,text:'old'},headings)).toEqual(item.anchor);
+  expect(resolveAnchor({id:'renamed-id',text:'Section'},headings)).toEqual(item.anchor);
+  expect(resolveAnchor({id:'removed',text:'Gone'},headings)).toBeNull();
+  expect(resolveAnchor({id:'',text:''},[])).toEqual({id:'',text:''});
+});

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { prosePosition, proseTop } from '../../position';
+  import { resolveAnchor } from '../../bookmarks';
+  import { bookmarks } from '../../state/bookmarks.svelte';
   import { i18n, t } from "../../i18n";
   import { errorMessage, renderMarkdown, highlightLanguages, type HighlightLanguage } from "../../ipc";
   import { workspace, type DocTab } from "../../state/docs.svelte";
@@ -47,8 +49,10 @@
   $effect(() => {
     void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody, settings.fontBodyFallback];
     if (!article || !scroller || enhancing) return;
-    return trackHeading(article, scroller, tab.toc.map(entry => entry.id), id => { activeId = id; },
+    const target = tab;
+    const stop = trackHeading(article, scroller, tab.toc.map(entry => entry.id), id => { activeId = id; target.bookmarkHeading = id; },
       (headings,top,max) => tab.rememberPosition(prosePosition(headings,top,max)));
+    return () => { stop(); target.bookmarkHeading = null; };
   });
 
   // The HTML is sanitised in Rust before it reaches us — see markdown.rs.
@@ -102,9 +106,9 @@
           const pos = untrack(() => tab.pendingPosition);
           const headings = headingPositions(host,scroller,target.toc.map(entry => entry.id));
           const max = Math.max(0,scroller.scrollHeight - scroller.clientHeight);
-          if (!explicitAnchor) scroller.scrollTop = pos?.kind === 'prose' ? proseTop(pos,headings,max) : tab.scrollTop;
+          if (explicitAnchor === null) scroller.scrollTop = pos?.kind === 'prose' ? proseTop(pos,headings,max) : tab.scrollTop;
           tab.scrollTop = scroller.scrollTop;
-          if (pos) tab.finishPosition(!explicitAnchor && scroller.scrollTop > 0);
+          if (pos) tab.finishPosition(explicitAnchor === null && scroller.scrollTop > 0);
           tab.rememberPosition(prosePosition(headings,scroller.scrollTop,max));
         }
       });
@@ -140,9 +144,14 @@
 
   $effect(() => {
     const anchor = tab.pendingAnchor;
-    if (!anchor || !article || tab.html === null || enhancing) return;
-    scrollToAnchor(anchor, 'instant');
-    tab.pendingAnchor = null;
+    const jump = tab.pendingBookmark;
+    if (anchor === null || !article || tab.html === null || enhancing) return;
+    untrack(() => {
+      const resolved = jump ? resolveAnchor(jump.anchor, tab.toc) : {id:anchor};
+      const found = resolved !== null && scrollToAnchor(resolved.id, 'instant');
+      if (jump) bookmarks.complete(tab, jump, found);
+      else tab.pendingAnchor = null;
+    });
   });
 
   async function openLanguage(control: CodeControl) {
@@ -212,8 +221,13 @@
   }
 
   function scrollToAnchor(id: string, behavior: ScrollBehavior = "smooth") {
+    if (id === '') {
+      scroller?.scrollTo({top:0,behavior});
+      return !!scroller;
+    }
     const target = article?.querySelector(`#${CSS.escape(id)}`);
     target?.scrollIntoView({ behavior, block: "start" });
+    return !!target;
   }
 </script>
 

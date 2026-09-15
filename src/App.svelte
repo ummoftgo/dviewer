@@ -1,5 +1,7 @@
 <script lang="ts">
   import { session } from './lib/state/session.svelte';
+  import BookmarksPanel from './lib/components/BookmarksPanel.svelte';
+  import { bookmarks, bookmarkTarget } from './lib/state/bookmarks.svelte';
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import { updates } from "./lib/state/updates.svelte";
   import SubTabBar from "./lib/components/SubTabBar.svelte";
@@ -35,6 +37,8 @@
 
   let settingsOpen = $state(false);
   let showToc = $state(true);
+  let bookmarksOpen = $state(false);
+  let bookmarkDraft = $state<ReturnType<typeof bookmarkTarget>>(null);
   let dropActive = $state(false);
   let searchBarFocus = $state<(() => void) | null>(null);
   let focusMode = $state(false);
@@ -73,7 +77,7 @@
     const status = await ipc.smokeStatus();
     smoking = status.active;
     const request = await ipc.startupRequest();
-    await Promise.all([settings.load(), recents.load()]);
+    await Promise.all([settings.load(), recents.load(), bookmarks.load()]);
     if (status.active) {
       if (status.window !== 'main') return reportNewWindow(status.window, request);
       return runSmoke();
@@ -205,6 +209,18 @@
 
   // --- keyboard -----------------------------------------------------------
 
+  function addBookmark() {
+    const target = bookmarkTarget(active);
+    if (!bookmarks.ready || !target) return;
+    bookmarkDraft = target;
+    bookmarksOpen = true;
+  }
+
+  function toggleBookmarks() {
+    bookmarksOpen = !bookmarksOpen;
+    if (!bookmarksOpen) bookmarkDraft = null;
+  }
+
   function changeFocus(key: 'F11' | 'Escape', handled = false) {
     const next = nextFocusMode(focusMode, key, handled);
     if (next === focusMode) return;
@@ -240,6 +256,12 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
+    if (!event.defaultPrevented && (event.ctrlKey || event.metaKey) && !event.altKey
+      && ((!event.shiftKey && shortcutKey(event) === 'd') || (event.shiftKey && shortcutKey(event) === 'b'))) {
+      event.preventDefault();
+      if (!event.repeat) { if (event.shiftKey) toggleBookmarks(); else addBookmark(); }
+      return;
+    }
     if (event.key === 'F11' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
       if (event.defaultPrevented) return;
       event.preventDefault();
@@ -331,14 +353,18 @@
       tab={active}
       {showToc}
       {focusMode}
+      {bookmarksOpen}
+      onAddBookmark={addBookmark}
+      onToggleBookmarks={toggleBookmarks}
       onToggleFocus={() => changeFocus('F11')}
-      onToggleToc={() => (showToc = !showToc)}
+      onToggleToc={() => { showToc = bookmarksOpen || !showToc; bookmarksOpen = false; bookmarkDraft = null; }}
       onOpenSettings={() => (settingsOpen = true)}
       onSearch={() => searchBarFocus?.()}
     />
   {/if}
 
   </div>
+  <div class="workspace">
   <main bind:this={main} tabindex="-1">
     {#if !active || active.status === "blank"}
       <StartPane onOpenSettings={() => (settingsOpen = true)} />
@@ -362,8 +388,12 @@
             <RawView tab={active} bind:focusSearch={searchBarFocus} />
           {/if}
         {:else if active.view === "frame"}
-          <FrameView tab={active} {showToc} probe={smoking} bind:focusSearch={searchBarFocus}
-            onShortcut={key => changeFocus(key === 'focus' ? 'F11' : 'Escape')} />
+          <FrameView tab={active} showToc={showToc && !bookmarksOpen} probe={smoking} bind:focusSearch={searchBarFocus}
+            onShortcut={key => {
+              if (key === 'bookmark') addBookmark();
+              else if (key === 'bookmarks') toggleBookmarks();
+              else changeFocus(key === 'focus' ? 'F11' : 'Escape');
+            }} />
         {:else if active.view === "tree"}
           <TreeView tab={active} bind:focusSearch={searchBarFocus} />
         {:else if active.view === "collection"}
@@ -373,11 +403,16 @@
         {:else if active.view === "archive"}
           <ArchiveView tab={active} bind:focusSearch={searchBarFocus} />
         {:else}
-          <MarkdownView tab={active} {showToc} bind:focusSearch={searchBarFocus} />
+          <MarkdownView tab={active} showToc={showToc && !bookmarksOpen} bind:focusSearch={searchBarFocus} />
         {/if}
       {/key}
     {/if}
   </main>
+  {#if bookmarksOpen}
+    <BookmarksPanel tab={active} draft={bookmarkDraft} onDone={() => { bookmarkDraft = null; }}
+      onClose={() => { bookmarksOpen = false; bookmarkDraft = null; main?.focus(); }} />
+  {/if}
+  </div>
   {#if positionRestored}<div class="position-status" role="status">{t('session.positionRestored')}</div>{/if}
 
   {#if dropActive}
@@ -437,7 +472,9 @@
   main {
     flex: 1;
     min-height: 0;
+    min-width: 0;
   }
+  .workspace { display:flex; flex:1; min-height:0; }
 
   .dropzone {
     position: absolute;

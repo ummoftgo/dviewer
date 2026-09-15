@@ -9,6 +9,7 @@
   import { DOC_KINDS, encodingChoices, readsBytes, warningMessage, type DocKind } from "../ipc";
   import { t } from "../i18n";
   import { supportsRaw } from '../viewMode';
+  import { bookmarkTarget, bookmarks } from '../state/bookmarks.svelte';
   import { workspace, type DocTab } from "../state/docs.svelte";
   import { pageWidthLabel, pageWidthOptions, settings } from "../state/settings.svelte";
 
@@ -20,9 +21,12 @@
     onSearch: () => void;
     focusMode: boolean;
     onToggleFocus: () => void;
+    bookmarksOpen: boolean;
+    onAddBookmark: () => void;
+    onToggleBookmarks: () => void;
   }
 
-  let { tab, showToc, onToggleToc, onOpenSettings, onSearch, focusMode, onToggleFocus }: Props = $props();
+  let { tab, showToc, onToggleToc, onOpenSettings, onSearch, focusMode, onToggleFocus, bookmarksOpen, onAddBookmark, onToggleBookmarks }: Props = $props();
 
   let copyTarget = $state<{ tab: DocTab; revision: number } | null>(null);
   let copyButton = $state<HTMLButtonElement>();
@@ -133,6 +137,13 @@
       {#if tab.mode === "rendered" && tab.frameToc.length > (tab.kind === 'pdf' ? 0 : 1)}
         <button class="icon-btn" onclick={onToggleToc} aria-pressed={showToc} title={t("toolbar.toc")} aria-label={t("toolbar.toc.show")}><Icon name="list" /></button>
       {/if}
+    {/if}
+
+    <button class="icon-btn" data-action="bookmarks-toggle" onclick={onToggleBookmarks} aria-pressed={bookmarksOpen}
+      title={t('bookmarks.toggle')} aria-label={t('bookmarks.toggle')}><Icon name="bookmark" /></button>
+    {#if tab.kind === 'markdown' || tab.kind === 'html'}
+      <button class="icon-btn" data-action="bookmark-add" onclick={onAddBookmark} disabled={!bookmarks.ready || !bookmarkTarget(tab)}
+        title={t('bookmarks.add')} aria-label={t('bookmarks.add')}><Icon name="plus" /></button>
     {/if}
 
     {#if tab.mode === "rendered" && (tab.view === "prose" || gridWidth)}
