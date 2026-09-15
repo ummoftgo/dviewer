@@ -107,7 +107,7 @@ DocBytes::map_file은 로컬 파일 길이가 64 MiB 이하이면 std::fs::read�
 
 인덱싱과 검색은 백그라운드 스레드에서 돌고 진행률·결과를 이벤트로 흘려보냅니다. 탭을 닫으면 취소됩니다.
 
-### 열다섯 형식, 여섯 개의 읽는 방식
+### 열여섯 형식, 여섯 개의 읽는 방식
 
 형식은 **어떻게 읽히는가**로 묶습니다. 프론트엔드는 `DocKind` 가 아니라 `DocView`(`prose` / `tree` / `table` / `collection` / `archive` / `frame`)로 분기합니다.
 
@@ -777,7 +777,7 @@ WebKitGTK 2.50에서는 opaque sandbox 문서의 CSP `'self'`가 문서 URL이 �
 
 HTML은 정화해 글 보기로 바꾸지 않고 opaque iframe(`allow-scripts`)에서 실행한다. `docserve.rs`의 tiny_http 서버는 127.0.0.1의 임의 포트에만 바인딩한다. 문서별 32바이트 OS 난수 토큰을 frame_url(id)로 전달하고, 문서 닫힘에 맞춰 폐기한다. Host와 토큰을 확인한 뒤 현재 AppState 문서를 다시 조회하므로 이미 닫힌 문서의 URL은 거부된다. 자원 경로는 URL 디코딩·루트 이탈 검사·심볼릭 링크/Windows reparse 검사·canonical 경계 확인을 거친다. 권한 범위는 로컬 문서의 부모 폴더다.
 
-본문은 앱이 선택한 인코딩의 UTF-8 snapshot이다. 64MiB 상한을 검사하고 SharedBytes 리더 앞·에이전트 태그·뒤를 연결하여 전체 본문을 다시 복제하지 않는다. 자원 파일도 크기를 검사한 뒤 스트림으로 보낸다. HTTP charset은 utf-8, 기본 CSP는 외부 통신·폼·하위 프레임을 막으며 Referrer-Policy no-referrer와 Cache-Control no-store를 사용한다. 문서별 토큰과 Access-Control-Allow-Origin null은 opaque 문서의 로컬 폰트·모듈 읽기를 허용한다. Range는 아직 구현하지 않는다.
+본문은 앱이 선택한 인코딩의 UTF-8 snapshot이다. 64MiB 상한을 검사하고 SharedBytes 리더 앞·에이전트 태그·뒤를 연결하여 전체 본문을 다시 복제하지 않는다. 자원 파일도 크기를 검사한 뒤 스트림으로 보낸다. HTTP charset은 utf-8, 기본 CSP는 외부 통신·폼·하위 프레임을 막으며 Referrer-Policy no-referrer와 Cache-Control no-store를 사용한다. 문서별 토큰과 Access-Control-Allow-Origin null은 opaque 문서의 로컬 폰트·모듈 읽기를 허용한다. PDF 응답은 단일 Range를 지원한다.
 
 외부 허용은 토큰 등록부의 external과 탭 상태로 보관하며 저장하지 않는다. frame_external이 성공한 뒤 로딩 revision을 올려 iframe을 새로 만들고, response_policy는 명시적 루프백 출처를 유지하면서 script/style/img/font/media/connect에만 HTTPS를 추가한다. 재읽기는 같은 문서의 허용을 유지하고 닫기는 토큰과 허용을 함께 폐기한다. 에이전트의 모든 메시지는 해당 로딩의 query 식별값을 싣고 부모는 WindowProxy와 식별값을 함께 검사한다. frameLoaded는 load 이벤트 진단이고 frameReadyLoad는 새 ready의 식별값이므로 둘을 섞지 않는다.
 
@@ -786,3 +786,18 @@ HTML은 정화해 글 보기로 바꾸지 않고 opaque iframe(`allow-scripts`)�
 에이전트는 DOMContentLoaded 뒤 목차를 보내고, 부모와 자식은 event.source의 WindowProxy를 대조한다. 부모는 메시지 필드·범위와 중복 제목 id를 검사한다. 제목은 최대 10,000개, 찾기는 텍스트 노드별 최대 100,000개 일치다. 긴 노드 목록은 4,096개마다 실행을 양보하고 새 찾기는 이전 세대를 버린다. iframe 안의 Ctrl+F·Ctrl+E는 부모의 찾기/원문으로 전달한다. HTML 원문은 TextRawView와 기존 lines/lines 작업 슬롯을 재사용한다. 탭 전환은 스크롤 비율을 보존하고 파일 세대 변경은 프레임을 새로 만든다.
 
 등록된 커스텀 스킴은 Tauri에서 Local로 취급돼 M39의 same-origin 대조군에서 명령이 실행됐다. HTTP 출처는 opaque일 때 Origin 파서에서, same-origin일 때 Remote ACL에서 거부됐다. 제품 응답은 기본적으로 엄격한 CSP를 사용하고 ready를 IPC 프로브에 묶지 않는다. SmokeRun이 있는 실행에서만 probe=1 응답의 connect-src에 IPC 전송을 허용하며, 외부 자원 허용 시에도 이 스모크 전용 검사를 유지한다. timeout/실행은 회귀 검사 실패이고, 실행 응답은 프레임을 비워 격리 오류로 표시한다. 다른 OS의 거부 경로는 CI 스모크가 확인한다.
+
+
+### PDF도 프레임으로 읽기
+
+PDF는 매직 `%PDF-`를 확장자·응답 MIME보다 우선하고 reads_bytes에서 제외한다. 원본 바이트에 인코딩 변환을 적용하지 않는다. 파일·URL·압축 항목 모두 기존 snapshot을 사용하고 PDF 프레임의 상한은 256 MiB다. HTML과 형제 자원의 64 MiB 상한은 유지한다.
+
+문서 토큰 루트는 application/pdf이며 SharedBytes의 Cursor.take로 요청 범위만 전달한다. Range 없는 응답은 200, 유효한 단일 범위는 206, 잘못되거나 충족할 수 없는 범위는 416이다. suffix·열린 끝·끝 초과 절단을 처리하며 다중 범위는 거부한다. Access-Control-Allow-Origin null에 Accept-Ranges·Content-Range·Content-Encoding 노출을 더한다. PDF.js의 disableStream·disableAutoFetch로 불필요한 선읽기를 막는다.
+
+공식 ZIP의 버전·SHA-256을 고정하고 필요한 파일만 dist/pdfjs로 준비한다. 완성형 viewer는 npm 배포물에 없으며 bundle.resources는 단일 exe 포터블·자기 갱신과 맞지 않으므로 Tauri asset_resolver를 재사용한다. resolver의 index.html 폴백을 막기 위해 준비 스크립트의 자원 목록과 서버의 경로 허용 목록을 함께 검사한다. 개발 실행도 frontendDist를 준비하고 같은 API로 읽는다.
+
+뷰어 자체 CSP 메타를 제거하고 PDF 뷰어 응답에만 루프백 connect-src와 wasm-unsafe-eval을 허용한다. 문자열 eval은 허용하지 않는다. WebView2는 opaque 출처의 blob:null 모듈 워커 진입점을 cross-origin redirect로 거부한다. 따라서 classic Blob Worker에서 고정 ESM을 import()하고 workerPort로 전달하며 iframe 해제 시 종료한다. sandbox나 CSP는 이 우회 때문에 완화하지 않는다. file=는 현재 문서 토큰 루트와 정확히 일치해야 한다. PDF.js의 origin 검사도 유지한다. PDF 스크립팅의 QuickJS 모듈도 같은 고정 자원에 포함한다.
+
+공통 에이전트는 발신자·load 식별·차단·스모크 프로브·단축키를 맡고 PDF 에이전트는 viewer 초기화 뒤 documentinit·첫 렌더·outline 준비를 기다린다. ready에 pages와 고유 o<순번> 목차를 함께 전달하고 목적지 페이지는 프레임 내부에 매핑한다. 목차 출력과 탐색은 각각 10,000개로 제한한다. 페이지·찾기 결과는 eventBus를 거쳐 기존 FrameView·FrameSearchBar로 전달한다. URLSearchParams로 file과 세대 쿼리를 합쳐 stale 메시지를 거부한다.
+
+위치는 {kind:'pdf',page}로 저장하여 HTML 비율과 구분한다. ready 뒤 페이지 이동의 응답으로 복원을 완료하며 파일이 짧아지면 마지막 페이지로 제한한다. 텍스트 없음은 현재 페이지에서만 지연 판정하고 문서 전체에 대한 결론으로 확대하지 않는다. 암호 요구는 입력창 대신 pdfEncrypted 오류다. 주석 편집·폼 입력은 비활성이고 뷰어 내부 파일 열기·드롭은 앱 문서 식별을 우회하므로 막는다. CSP·워커·글꼴은 세 OS 스모크로 확인한다.

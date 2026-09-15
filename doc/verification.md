@@ -1138,3 +1138,31 @@ main edaa03c 통합 뒤 Rust 전체 544개(fixtures required, 실패·무시 0)�
 새 debug·release 빌드로 각각 정상 스모크 47개와 왕복 2개가 통과했다. 앱 sweep은 debug 19,831ms·release 18,594ms다. 두 빌드의 sessionPosition은 렌더 스크롤 8,584.6669921875px로 복원(검사 허용 오차 12px 미만)했고 원문 줄 인덱스 36(화면 37번째 줄)을 유지했다. 목차 200개에서 스크롤 중 제목 사각형 재측정은 0회, 정지 대조군·스크롤 프레임 간격 중앙값은 모두 5.6ms였다. 같은 실행의 대조군이며 변경 전후 성능 비교는 아니다.
 
 HTML은 스크립트·모듈·폰트 true, 제목 3·찾기 2, 프로브 `rejected:Origin header is not a valid URL`이었다. 언마운트 직후와 약 1초 뒤 요청 카운터는 두 빌드 모두 html 1·agent 1·resource 2로 같았다. Windows 실행이며 실제 앱 재시작 후 사용자 화면 확인·다른 OS 검증·clippy는 별도로 남는다. 스모크 종료 로그의 Chrome_WidgetWin_0 등록 해제 오류 1412는 관측됐지만 검사 실패는 없었고 원인은 조사하지 않았다.
+
+
+## M43 — PDF 격리 프레임
+
+공식 PDF.js 6.3.289 ZIP의 버전·SHA-256을 고정하고 필요한 자원을 exe에 내장했다. Range는 실제 serve 경로에서 200/206/416·범위 바이트·CORS 헤더 노출을 검사한다. 매직 우선·바이너리 보존·PDF 상한·자원 경로 및 file 쿼리 경계·뷰어 주입·MIME도 검사한다. 프런트는 pages/page 메시지, file과 세대 쿼리의 공존, PDF 위치 저장과 실제 Session.start의 복원 호출을 검증한다.
+
+| 검사 | 결과 |
+| --- | --- |
+| DVIEWER_FIXTURES=required cargo test | 553 통과, 실패·무시 0 |
+| npm test | 359 통과, 34파일 |
+| npm run check | 오류0·경고0, 4로케일×459키 |
+| Windows 정상 debug 스모크 | 48개 + 왕복2 통과, 앱 sweep 20,159ms |
+| Windows release 스모크 | 48개 + 왕복2 통과, 앱 sweep 19,134ms |
+| 내장 PDF.js 자원 | 294파일7,926,844바이트 + manifest11,561바이트 |
+| exe 크기 | debug51,595,776바이트, release31,922,688바이트 |
+
+생성기가 scripts/pdf-fixtures.mjs를 호출해 report.pdf(두 페이지·needle·목차 세 항목 중 둘은 같은 페이지)와 image-only.pdf를 직접 쓴다. xref와 stream 길이는 실제 바이트 길이로 만든다. pdfFrame 스모크는 ready의 pages2/목차3, 고유 ID, page2 왕복, 텍스트 및 검색, 페이지 위치 보존과 탭 닫기 뒤 iframe 제거를 검사한다. 작은 PDF는 Range를 사용하지 않을 수 있으므로 범위 응답의 근거는 Rust 테스트다.
+
+첫 debug 실행은 PDF만 실패했고 나머지47·왕복2는 통과했다. 실제 WebView2/CDP에서 opaque의 blob:null 모듈 워커 진입점이 cross-origin redirect로 거부되는 것을 확인했다. PDF.js가 처리 후 계속 진행하는 localStorage/parent.document 예외와 구분했다. Blob 클래식 워커에서 고정 ESM을 import()하도록 좁혀 수정한 뒤 PDF 단독 및 전체 debug/release가 통과했다. sandbox·CSP는 이 수정 때문에 완화하지 않았다.
+
+| 깨뜨려 확인 | 결과 |
+| --- | --- |
+| Range 전달을 빈 헤더로 변경 | Rust 응답 테스트1실패(200 != 206) |
+| outline 이전에 빈 목차로 ready 전송 | pdfFrame 목차 단언1실패, 다른47·왕복2통과 |
+
+두 변형은 원본 바이트로 복원했다. 복원 뒤 Rust 전체553 통과, 정상 debug 재빌드와 release 스모크를 완료했다. PDF는 두 빌드 모두 pages2·page2·headings3·matches2이며, 프로브는 rejected:Origin header is not a valid URL이다. PDF 관측 시간은 debug508ms/release495ms, HTML 대조군은 1,254ms/1,258ms다. HTML은 inline/module/font=true·목차3·검색2, 외부 허용 뒤 차단0/재차단1, ZIP 형제 CSS·이미지 true를 유지했다. 시간은 같은 실행의 관측값이며 변경 전후 성능 실측은 아니다.
+
+FrameView·Toolbar·docs.svelte.ts autofixer issues는 없었다. session.svelte.ts 분석은 도구 내부 Cannot read properties of undefined (reading 'text') 예외로 실패했지만 svelte-check와 세션 테스트는 통과했다. clippy·대형 PDF 메모리 실측·실제 암호 PDF·한글/다단/복사 품질 화면 확인은 실행하지 않았다. image-only.pdf 안내와 실제 재실행 페이지 복원은 사용자 확인으로 남긴다. Linux·macOS warm 스모크도 미확인이므로 Windows 결과만으로 전체 마일스톤 완료를 선언하지 않는다.

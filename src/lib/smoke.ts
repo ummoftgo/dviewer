@@ -15,6 +15,7 @@
 import * as ipc from "./ipc";
 import {checkSessionPosition} from './sessionSmoke';
 import { checkHtmlFrame } from "./components/frame/smoke";
+import {checkPdfFrame} from './components/frame/pdfSmoke';
 import { frameDiagnostic } from './frame/diagnostics';
 import { checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
 import { checkCollectionWidths } from "./components/collection/smoke";
@@ -108,6 +109,7 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
   if (what === 'sessionPosition') return {ok:true,stage:what,metrics:await checkSessionPosition(tab)};
   if (what === "htmlFrame") { return {ok:true,stage:what,metrics:await checkHtmlFrame(tab)}; }
+  if (what === 'pdfFrame') { return {ok:true,stage:what,metrics:await checkPdfFrame(tab)}; }
   if (what === 'relativeLinks') return checkRelativeLinks(tab);
   if (what === "collectionWidths") {
     await checkCollectionWidths(tab);

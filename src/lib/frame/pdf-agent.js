@@ -49,8 +49,10 @@
     const options = window.PDFViewerApplicationOptions;
     try {
       const workerSrc = new URL('../build/pdf.worker.mjs',location.href).href;
-      workerUrl = URL.createObjectURL(new Blob([`import ${JSON.stringify(workerSrc)};`],{type:'text/javascript'}));
-      worker = new Worker(workerUrl,{type:'module'});
+      // Chromium rejects a blob:null module-worker entry point in opaque frames.
+      // A classic Blob entry can import the same fixed ESM without changing CSP.
+      workerUrl = URL.createObjectURL(new Blob([`import(${JSON.stringify(workerSrc)});`],{type:'text/javascript'}));
+      worker = new Worker(workerUrl);
       worker.addEventListener('error',() => error('pdfFailed'));
       options.setAll({workerPort:worker,disableStream:true,disableAutoFetch:true,
         annotationEditorMode:-1,annotationMode:1,enableSignatureEditor:false,enableSplitMerge:false,enableMerge:false,
