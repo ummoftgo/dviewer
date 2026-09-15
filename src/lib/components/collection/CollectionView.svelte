@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import { currentCollection } from '../../collectionCurrent';
   /**
    * One file, several collections, one grid.
    *
@@ -44,8 +45,14 @@
   }
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
-  const generation = untrack(() => tab.meta.generation ?? 0);
-  const current = () => (tab.meta.generation ?? 0) === generation;
+  const target = untrack(() => tab);
+  const docId = target.id;
+  const generation = target.meta.generation ?? 0;
+  const kind = target.kind;
+  let live = true;
+  let selection = 0;
+  onDestroy(() => { live = false; });
+  const current = () => currentCollection(target, tab, docId, generation, live);
 
   let grid = $state<ReturnType<typeof DataGrid>>();
   let controls = $state<ReturnType<typeof GridControls>>();
@@ -67,24 +74,20 @@
    * and what the toolbar's tail offers — and nowhere else. Naming that here
    * keeps the difference in one place instead of spread through the markup.
    */
-  const workbook = $derived(tab.kind === "xlsx");
-  const columnar = $derived(tab.kind === "parquet");
-  const treeTable = $derived(tab.kind === "treeTable");
-  const list = $derived(
-    treeTable ? async (_id: number) => ({ items: [{ name: tab.meta.title, isView: false }] })
-      : columnar ? parquetOpen : workbook ? xlsxSheets : sqliteCollections,
-  );
+  const workbook = kind === "xlsx";
+  const columnar = kind === "parquet";
+  const treeTable = kind === "treeTable";
+  const list = treeTable ? async (_id: number) => ({ items: [{ name: target.meta.title, isView: false }] })
+    : columnar ? parquetOpen : workbook ? xlsxSheets : sqliteCollections;
   /**
    * A Parquet file holds one thing, so choosing it takes no name — the command
    * signatures differ and the call site should not pretend otherwise.
    */
-  const choose = $derived(
-    treeTable ? (id: number, _name: string) => treeTableStats(id) : columnar
+  const choose = treeTable ? (id: number, _name: string) => treeTableStats(id) : columnar
       ? (id: number, _name: string) => parquetSelect(id)
       : workbook
         ? xlsxSelect
-        : sqliteSelect,
-  );
+        : sqliteSelect;
 
   const items = $derived(
     tab.collections.map((entry) => ({ name: entry.name, secondary: entry.isView })),
@@ -96,23 +99,24 @@
   // tab that already has its list has already paid for it — switching tabs must
   // not reconnect.
   $effect(() => {
-    const target = tab;
-    if (target.collections.length > 0 || target.error) return;
+    if (!current() || target.collections.length > 0 || target.error) return;
+    const request = selection;
+    const same = () => current() && request === selection;
     loading = true;
-    list(target.id)
+    list(docId)
       .then((result) => {
-        if (!current()) return;
+        if (!same()) return;
         target.collections = result.items;
         const pos = target.pendingPosition;
         const saved = pos?.kind === 'grid' ? result.items.find(item => item.name === pos.collection) : undefined;
         if (pos?.kind === 'grid' && !saved) target.finishPosition(false);
-        if (result.items.length > 0) select((saved ?? result.items[0]).name);
+        if (result.items.length > 0) return select((saved ?? result.items[0]).name);
       })
       .catch((err) => {
-        if (current()) target.error = errorMessage(err);
+        if (same()) target.error = errorMessage(err);
       })
       .finally(() => {
-        loading = false;
+        if (same()) loading = false;
       });
   });
 
@@ -124,35 +128,39 @@
    * row that another collection does not have — so all of it goes.
    */
   async function select(name: string) {
-    tab.order.reset();
-    tab.collection = name;
-    tab.schema = null;
-    tab.gridStats = null;
-    tab.selectedCell = null;
-    tab.pendingCell = null;
-    resetColumns(tab);
-    tab.resetColumnView();
-    tab.tableScrollTop = 0;
-    tab.tableSearch.reset();
+    if (!current()) return;
+    const request = ++selection;
+    const same = () => current() && request === selection && target.collection === name;
+    target.order.reset();
+    target.collection = name;
+    target.schema = null;
+    target.gridStats = null;
+    target.selectedCell = null;
+    target.pendingCell = null;
+    resetColumns(target);
+    target.resetColumnView();
+    target.tableScrollTop = 0;
+    target.tableSearch.reset();
     loading = true;
     try {
-      const stats = await choose(tab.id, name);
-      if (!current() || tab.collection !== name) return;
-      tab.gridStats = stats;
+      const stats = await choose(docId, name);
+      if (!same()) return;
+      target.gridStats = stats;
       await grid?.refresh(true);
+      if (!same()) return;
       // The schema comes second: the rows are what the reader is waiting for,
       // and the panel is one they may never open.
       if (!workbook && !treeTable) {
         const described = columnar
-          ? await parquetSchema(tab.id)
-          : await sqliteSchema(tab.id, name);
+          ? await parquetSchema(docId)
+          : await sqliteSchema(docId, name);
         // The reader may have moved on during the round trip.
-        if (current() && tab.collection === name) tab.schema = described;
+        if (same()) target.schema = described;
       }
     } catch (err) {
-      if (current()) tab.error = errorMessage(err);
+      if (same()) target.error = errorMessage(err);
     } finally {
-      loading = false;
+      if (same()) loading = false;
     }
   }
 
@@ -162,17 +170,21 @@
   }
 
   async function toggleFormulas() {
-    tab.order.reset();
+    if (!current()) return;
+    const name = target.collection;
+    const request = ++selection;
+    const same = () => current() && request === selection && target.collection === name;
+    target.order.reset();
     loading = true;
     try {
-      const stats = await xlsxSetFormulas(tab.id, !(tab.gridStats?.formulas ?? false));
-      if (!current()) return;
-      tab.gridStats = stats;
+      const stats = await xlsxSetFormulas(docId, !(target.gridStats?.formulas ?? false));
+      if (!same()) return;
+      target.gridStats = stats;
       await grid?.refresh();
     } catch (err) {
-      if (current()) tab.error = errorMessage(err);
+      if (same()) target.error = errorMessage(err);
     } finally {
-      loading = false;
+      if (same()) loading = false;
     }
   }
 </script>

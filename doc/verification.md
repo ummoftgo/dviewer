@@ -16,6 +16,21 @@
 | Windows debug 스모크 | 1회, 46개·왕복2 통과, 앱 sweep 19,979ms |
 | macOS 재현 | 미실행, 세 OS 확인 필요 |
 
+## 컬렉션 탭 전환 경합 (2026-09-15)
+
+Linux warm의 report.json.gz 실패는 이전 컬렉션의 select가 격자 refresh 뒤 다음 placeholder를 읽어 sqlite_schema에 음수 ID를 보내는 경로와 부합했다. CollectionView는 마운트 시 문서 참조·ID·generation·형식을 고정하고 해제 시 무효화한다. 목록·선택·수식 전환의 await 이후와 오류·종료 처리에서 문서 수명과 선택 요청을 검사하며, 격자 refresh 직후에도 다시 검사한다. IPC와 결과 기록은 고정한 문서로만 수행한다. 열기 성공 시 오류를 덮어 지우는 처리는 추가하지 않았다.
+
+| 검사 | 결과 |
+|---|---|
+| vitest | main 2704f19 rebase 후 355통과·34파일 |
+| check | 오류0·경고0·4로케일×455키 |
+| Svelte 분석 | CollectionView issues 0 |
+| generation만 비교하는 변형 | 새 회귀1개 실패, 원본 바이트 복원 후 재통과 |
+| Windows debug 스모크 | rebase 전 741bcd7의 새 빌드로 1회, 46개·왕복2 통과 |
+| 정리 | dev incremental 제거, cargo clean 322파일·6.3 GiB, 종료0 |
+
+새 순수 검사는 같은 generation의 placeholder로 교체된 참조와 ID·세대·준비 상태·해제 여부를 검사한다. 실제 Svelte 비동기 재개 순서를 재현하는 DOM 검사는 아니다. Windows 스모크에서 sample.parquet→report.json.gz가 모두 ready로 통과했고 앱 sweep은 19,542ms였다. 그 뒤 main 2704f19로 rebase하면서 M44의 저장된 컬렉션 이름 우선 선택과 이번 요청 수명 검사를 함께 보존했다. 요청 순서대로 rebase 후에는 vitest·check·Svelte 분석만 재실행했다. rebase 이후 바이너리 스모크와 Linux/macOS warm 확인은 남아 있다. cargo test·release 스모크는 실행하지 않았으며 스모크의 완료 기준이나 대기 시간은 바꾸지 않았다.
+
 ## M46b — 집중 모드의 입구와 출구
 
 상단 툴바의 집중 모드 버튼과 집중 중 오른쪽 위 종료 알약을 추가했다. 기존 sample.md 집중 스모크에 버튼 클릭→body[data-focus]·알약 표시→알약 초점·클릭→해제·초점 복원을 추가했다. CSS 표시와 동기 속성을 확인하며 고정 프레임 대기나 저장 설정을 사용하지 않는다. 기존 키보드·검색 Esc·메뉴 복원 검사도 유지한다.
