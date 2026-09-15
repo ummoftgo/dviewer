@@ -1,6 +1,10 @@
 import type { Messages } from "./ko";
 
 export const zhHans: Messages = {
+  "error.pdfEncrypted": "暂不支持密码保护的 PDF。",
+  "error.pdfFailed": "无法读取 PDF。",
+  "frame.pages": "第 {n}/{total} 页",
+  "frame.noText": "本页没有可查找或复制的文本。",
   "settings.restoreSession": "启动时恢复上次的文档和阅读位置",
   "session.positionRestored": "已恢复阅读位置",
   "session.failed": "无法打开上次的 {count} 个文档",

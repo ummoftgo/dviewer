@@ -8,6 +8,7 @@ use crate::{bytes::SharedBytes, error::{Error, Result, Subject}, state::{AppStat
 pub const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PDF_BYTES: usize = 256 * 1024 * 1024;
 const AGENT: &str = include_str!("../../src/lib/frame/agent.js");
+const PDF_AGENT: &str = include_str!("../../src/lib/frame/pdf-agent.js");
 const POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; worker-src 'self' blob:";
 type Response = tiny_http::Response<Box<dyn Read + Send>>;
 mod pdf;
@@ -221,13 +222,17 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
             route.served.agent.fetch_add(1, Ordering::Relaxed);
             return Some(reply(Box::new(Cursor::new(AGENT.as_bytes())), AGENT.len(), "text/javascript", None, false, false));
         }
+        if relative == "_/pdf-agent.js" {
+            route.served.agent.fetch_add(1, Ordering::Relaxed);
+            return Some(reply(Box::new(Cursor::new(PDF_AGENT.as_bytes())), PDF_AGENT.len(), "text/javascript", None, false, false));
+        }
         let path = pdf_asset_path(relative)?;
         let viewer = path == "pdfjs/web/viewer.html";
         if viewer && !pdf_file_matches(query, token) { return None; }
         let mut bytes = asset(&path)?;
         if viewer {
             route.served.html.fetch_add(1, Ordering::Relaxed);
-            let tag = format!("<script src=\"/{token}/_/agent.js\" data-pdf{}></script>", if probe { " data-probe" } else { "" });
+            let tag = format!("<script src=\"/{token}/_/agent.js\" data-pdf{}></script><script src=\"/{token}/_/pdf-agent.js\"></script>", if probe { " data-probe" } else { "" });
             let at = injection_offset(&bytes);
             bytes.splice(at..at, tag.bytes());
         } else { route.served.resource.fetch_add(1, Ordering::Relaxed); }

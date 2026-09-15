@@ -16,6 +16,19 @@ const file = (path: string): DocSource => ({ type: 'file', path });
 beforeEach(() => { vi.restoreAllMocks(); vi.mocked(getValue).mockReset(); vi.mocked(setValue).mockClear(); id = 0; });
 afterEach(() => vi.useRealTimers());
 
+test('restoring a PDF keeps its page through the frame view contract', async () => {
+  const pdf = tab(file('/reading.pdf')); pdf.meta.kind = 'pdf'; pdf.meta.view = 'frame';
+  pdf.rememberPosition({kind:'pdf',page:2});
+  const snapshot = captureSession([pdf],pdf.id);
+  expect(snapshot.tabs[0].pos).toEqual({kind:'pdf',page:2});
+  vi.mocked(getValue).mockResolvedValue(snapshot);
+  vi.spyOn(workspace,'openPath').mockResolvedValue(pdf);
+  vi.spyOn(workspace,'activate').mockImplementation(() => {});
+  vi.spyOn(workspace,'openLaunch').mockResolvedValue();
+  await new Session(workspace).start({files:[],urls:[]},true,false);
+  expect(pdf.pendingPosition).toEqual({kind:'pdf',page:2});
+});
+
 test('positions round trip and broken positions preserve the source tab', () => {
   const page = tab(file('/position.md'));
   page.rememberPosition({kind:'prose',heading:'section',ratio:0.4});

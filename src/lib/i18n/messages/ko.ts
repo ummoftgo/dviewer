@@ -6,6 +6,10 @@
  * Keys read `area.thing.property`; `{name}` placeholders are filled by `t()`.
  */
 export const ko = {
+  "error.pdfEncrypted": "암호 PDF는 아직 지원하지 않습니다.",
+  "error.pdfFailed": "PDF를 읽지 못했습니다.",
+  "frame.pages": "{n}/{total} 페이지",
+  "frame.noText": "현재 페이지는 텍스트가 없어 찾기·복사할 수 없습니다.",
   "settings.restoreSession": "시작할 때 이전 문서와 읽던 위치 복원",
   "session.positionRestored": "읽던 위치로 복원됨",
   "session.failed": "이전 문서 {count}개를 열지 못했습니다",

@@ -130,7 +130,7 @@
 
     {#if tab.view === "frame"}
       <button class="icon-btn" data-action="search-frame" onclick={onSearch} aria-pressed={tab.frameSearch.open} title={t("toolbar.search")} aria-label={t("toolbar.search")}><Icon name="search" /></button>
-      {#if tab.mode === "rendered" && tab.frameToc.length > 1}
+      {#if tab.mode === "rendered" && tab.frameToc.length > (tab.kind === 'pdf' ? 0 : 1)}
         <button class="icon-btn" onclick={onToggleToc} aria-pressed={showToc} title={t("toolbar.toc")} aria-label={t("toolbar.toc.show")}><Icon name="list" /></button>
       {/if}
     {/if}

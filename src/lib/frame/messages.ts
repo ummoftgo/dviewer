@@ -3,7 +3,10 @@ import type { TocEntry } from '../ipc';
 export type FrameMessage =
   | { type: 'agentStart' }
   | { type: 'loaded'; scrollable: boolean }
-  | { type: 'ready'; title: string; headings: TocEntry[] }
+  | { type: 'ready'; title: string; headings: TocEntry[]; pages?: number }
+  | { type: 'page'; n: number }
+  | { type: 'pageText'; page: number; hasText: boolean }
+  | { type: 'error'; code: 'pdfEncrypted' | 'pdfFailed' }
   | { type: 'scroll'; ratio: number }
   | { type: 'blocked'; n: number }
   | { type: 'found'; n: number; index: number; request: number }
@@ -27,6 +30,7 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
     case 'agentStart': return {type:'agentStart'};
     case 'loaded': return typeof v.scrollable === 'boolean' ? {type:'loaded',scrollable:v.scrollable} : null;
     case 'ready': {
+      if (v.pages !== undefined && (!count(v.pages) || v.pages < 1)) return null;
       if (!text(v.title,4096) || !Array.isArray(v.headings) || v.headings.length > 10000) return null;
       const headings: TocEntry[] = [], ids = new Set<string>();
       for (const item of v.headings) {
@@ -34,8 +38,11 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
           || !text(item.text,4096) || !Number.isInteger(item.level) || item.level < 1 || item.level > 6) return null;
         ids.add(item.id); headings.push({id:item.id, level:item.level, text:item.text});
       }
-      return {type:'ready',title:v.title,headings};
+      return {type:'ready',title:v.title,headings,...(v.pages === undefined ? {} : {pages:v.pages as number})};
     }
+    case 'page': return count(v.n) && v.n >= 1 ? {type:'page',n:v.n} : null;
+    case 'pageText': return count(v.page) && v.page >= 1 && typeof v.hasText === 'boolean' ? {type:'pageText',page:v.page,hasText:v.hasText} : null;
+    case 'error': return v.code === 'pdfEncrypted' || v.code === 'pdfFailed' ? {type:'error',code:v.code} : null;
     case 'scroll': return typeof v.ratio === 'number' && Number.isFinite(v.ratio) && v.ratio >= 0 && v.ratio <= 1 ? {type:'scroll',ratio:v.ratio} : null;
     case 'blocked': return count(v.n) ? {type:'blocked',n:v.n} : null;
     case 'found': return count(v.n) && v.n <= 100000 && count(v.index) && v.index <= v.n && count(v.request)
@@ -52,4 +59,11 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
 
 export function frameMessage(event: Pick<MessageEvent, 'source' | 'data'>, frame: Window | null, load: string): FrameMessage | null {
   return frame !== null && event.source === frame && load !== '' && event.data?.load === load ? parseFrameMessage(event.data) : null;
+}
+
+export function frameLocation(base: string, query: string, probe: boolean): string {
+  const url = new URL(base);
+  for (const [key,value] of new URLSearchParams(query)) url.searchParams.set(key,value);
+  if (probe) url.searchParams.set('probe','1');
+  return url.href;
 }

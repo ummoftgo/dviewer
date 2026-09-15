@@ -103,7 +103,7 @@ export class Session {
           ? await this.target.openPath(item.source.path) : await this.target.openUrl(item.source.url);
         if (tab) {
           tab.mode = item.mode;
-          tab.pendingPosition = compatiblePosition(item.pos,tab.view,tab.mode === 'raw');
+          tab.pendingPosition = compatiblePosition(item.pos,tab.view,tab.mode === 'raw',tab.kind);
           opened.set(key(item.source), tab.id);
         }
         else failed++;

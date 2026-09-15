@@ -1,6 +1,10 @@
 import type { Messages } from "./ko";
 
 export const en: Messages = {
+  "error.pdfEncrypted": "Password-protected PDFs are not supported yet.",
+  "error.pdfFailed": "The PDF could not be read.",
+  "frame.pages": "Page {n}/{total}",
+  "frame.noText": "This page has no text to find or copy.",
   "settings.restoreSession": "Restore previous documents and reading positions at startup",
   "session.positionRestored": "Reading position restored",
   "session.failed": "Could not open {count} previous documents",

@@ -6,7 +6,7 @@
   import { workspace, type DocTab } from '../../state/docs.svelte';
   import { settings } from '../../state/settings.svelte';
   import { toasts } from '../../state/toast.svelte';
-  import { frameMessage } from '../../frame/messages';
+  import { frameLocation, frameMessage } from '../../frame/messages';
   import { parentCspViolation } from '../../frame/diagnostics';
   import Toc from '../markdown/Toc.svelte';
   import FrameSearchBar from './FrameSearchBar.svelte';
@@ -14,12 +14,14 @@
   let {tab, showToc, probe = false, focusSearch = $bindable(null), onShortcut}: Props = $props();
   let iframe = $state<HTMLIFrameElement>();
   let src = $state<string>();
+  let expectedLoad = '';
   let activeId = $state('');
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let broken = false;
   const post = (message: unknown) => iframe?.contentWindow?.postMessage(message, '*');
   $effect(() => {
     const target = tab, query = tab.frameQuery;
+    expectedLoad = '';
     target.frameContentLoaded = false;
     const testing = probe;
     let live = true;
@@ -35,7 +37,8 @@
     void frameUrl(target.id).then(url => {
       if (!live) return;
       target.frameUrlPort = new URL(url).port;
-      src = `${url}${query}${testing ? '&probe=1' : ''}`;
+      src = frameLocation(url,query,testing);
+      expectedLoad = new URL(src).search;
       deadline = setTimeout(() => {
         if (!live || target.frameReady) return;
         target.frameError = t('frame.failed');
@@ -63,16 +66,42 @@
   }
   function receive(event: MessageEvent) {
     if (broken) return;
-    const load = `${tab.frameQuery}${probe ? '&probe=1' : ''}`;
+    const load = expectedLoad;
     const message = frameMessage(event, iframe?.contentWindow ?? null, load);
     if (!message) return;
     switch (message.type) {
       case 'agentStart': tab.frameAgentStarted = true; break;
       case 'ready':
+        if (tab.kind === 'pdf' && !message.pages) break;
         clearTimeout(deadline); tab.frameToc = message.headings; tab.frameReadyLoad = load; tab.frameReady = true;
+        if (tab.kind === 'pdf') {
+          tab.framePages = message.pages!; tab.frameContentLoaded = true;
+          const pos = tab.pendingPosition;
+          const page = Math.max(1,Math.min(tab.framePages,pos?.kind === 'pdf' ? pos.page : tab.framePage));
+          post({type:'goto',page});
+        }
         if (tab.frameSearch.query) find(1);
         break;
+      case 'page':
+        if (tab.kind !== 'pdf' || !tab.frameReady || message.n > tab.framePages) break;
+        if (tab.framePage !== message.n) tab.frameHasText = null;
+        tab.framePage = message.n;
+        if (tab.pendingPosition) {
+          const pos = tab.pendingPosition;
+          const expected = pos.kind === 'pdf' ? Math.min(pos.page,tab.framePages) : 1;
+          if (message.n !== expected) break;
+          tab.finishPosition(expected > 1);
+        }
+        tab.rememberPosition({kind:'pdf',page:message.n});
+        break;
+      case 'pageText':
+        if (tab.kind === 'pdf' && message.page === tab.framePage) tab.frameHasText = message.hasText;
+        break;
+      case 'error':
+        if (tab.kind === 'pdf') { clearTimeout(deadline); tab.frameError = errorMessage({code:message.code}); tab.frameReady = false; }
+        break;
       case 'loaded': {
+        if (tab.kind === 'pdf') break;
         tab.frameContentLoaded = true;
         const pos = tab.pendingPosition;
         const ratio = message.scrollable ? (pos?.kind === 'frame' ? pos.ratio : tab.frameScroll) : 0;
@@ -83,6 +112,7 @@
         break;
       }
       case 'scroll':
+        if (tab.kind === 'pdf') break;
         tab.frameScroll = message.ratio;
         if (tab.frameContentLoaded) tab.rememberPosition({kind:'frame',ratio:message.ratio});
         break;
@@ -94,7 +124,7 @@
         if (message.request === tab.frameSearch.request) { tab.frameSearch.n = message.n; tab.frameSearch.index = message.index; }
         break;
       case 'shortcut':
-        if (message.key === 'raw') tab.mode = 'raw';
+        if (message.key === 'raw') { if (tab.kind !== 'pdf') tab.mode = 'raw'; }
         else if (message.key === 'find') focusSearch?.();
         else if (message.key === 'escape' && tab.frameSearch.open) tab.frameSearch.open = false;
         else onShortcut?.(message.key);
@@ -112,18 +142,21 @@
 <svelte:window onmessage={receive} />
 <div class="frame-layout" data-ready={tab.frameReady ? 'true' : undefined} data-load={tab.frameReadyLoad} data-probe={tab.frameProbe ?? undefined}>
   <FrameSearchBar {tab} ready={tab.frameReady} onFind={find} bind:focusSearch />
-  <div class="content" data-focus-toc class:with-toc={showToc && tab.frameToc.length > 1}>
+  <div class="content" data-focus-toc class:with-toc={showToc && tab.frameToc.length > (tab.kind === 'pdf' ? 0 : 1)}>
     {#if tab.frameError}<p class="error" role="alert">{tab.frameError}</p>
     {:else if src}{#key src}<iframe bind:this={iframe} {src} sandbox="allow-scripts" title={tab.meta.title}
       onload={() => { tab.frameLoaded = true; }}></iframe>{/key}{/if}
-    {#if showToc && tab.frameToc.length > 1}<aside data-focus-chrome><Toc entries={tab.frameToc} {activeId} onSelect={id => {activeId=id;post({type:'goto',id});}} /></aside>{/if}
+    {#if showToc && tab.frameToc.length > (tab.kind === 'pdf' ? 0 : 1)}<aside data-focus-chrome><Toc entries={tab.frameToc} {activeId} onSelect={id => {activeId=id;post({type:'goto',id});}} /></aside>{/if}
   </div>
-  {#if tab.frameBlocked || tab.frameExternal}
+  {#if tab.frameBlocked || tab.frameExternal || (tab.kind === 'pdf' && tab.frameReady)}
     <div class="status" role="status">
+      {#if tab.kind === 'pdf' && tab.frameReady}<span>{t('frame.pages',{n:tab.framePage,total:tab.framePages})}</span>{/if}
+      {#if tab.kind === 'pdf' && tab.frameHasText === false}<span>{t('frame.noText')}</span>{/if}
       {#if tab.frameExternal}<span>{t('frame.allowed')}</span>{/if}
       {#if tab.frameBlocked}<span>{t('frame.blocked',{n:tab.frameBlocked})}</span>{/if}
-      <button type="button" data-action="frame-external" disabled={tab.frameToggling || (!tab.frameReady && !tab.frameExternal)}
+      {#if tab.frameBlocked || tab.frameExternal}<button type="button" data-action="frame-external" disabled={tab.frameToggling || (!tab.frameReady && !tab.frameExternal)}
         onclick={toggleExternal}>{t(tab.frameExternal ? 'frame.block' : 'frame.allow')}</button>
+      {/if}
     </div>
   {/if}
 </div>

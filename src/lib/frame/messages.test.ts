@@ -1,5 +1,28 @@
 import {expect, test} from 'vitest';
-import {frameMessage, linkKind, parseFrameMessage} from './messages';
+import {frameLocation, frameMessage, linkKind, parseFrameMessage} from './messages';
+
+test('PDF readiness, page and error messages preserve bounded typed fields', () => {
+  expect(parseFrameMessage({type:'ready',title:'PDF',pages:2,headings:[]})).toEqual({type:'ready',title:'PDF',pages:2,headings:[]});
+  for (const pages of [0,-1,1.5,NaN,'2']) expect(parseFrameMessage({type:'ready',title:'PDF',pages,headings:[]})).toBeNull();
+  expect(parseFrameMessage({type:'page',n:2})).toEqual({type:'page',n:2});
+  expect(parseFrameMessage({type:'page',n:0})).toBeNull();
+  expect(parseFrameMessage({type:'pageText',page:2,hasText:false})).toEqual({type:'pageText',page:2,hasText:false});
+  expect(parseFrameMessage({type:'error',code:'pdfEncrypted'})).toEqual({type:'error',code:'pdfEncrypted'});
+  expect(parseFrameMessage({type:'error',code:'arbitrary'})).toBeNull();
+});
+
+test('viewer file query coexists with generation and source identity', () => {
+  const base = 'http://127.0.0.1:123/a/_/pdfjs/web/viewer.html?file=%2Fa%2F';
+  const url = new URL(frameLocation(base,'?g=2&x=3',true));
+  expect(url.searchParams.get('file')).toBe('/a/');
+  expect(url.searchParams.get('g')).toBe('2');
+  expect(url.searchParams.get('probe')).toBe('1');
+  const frame = {} as Window;
+  const data = {type:'page',n:2,load:url.search};
+  expect(frameMessage({source:frame,data},frame,url.search)).toEqual({type:'page',n:2});
+  expect(frameMessage({source:frame,data},frame,new URL(frameLocation(base,'?g=3&x=3',true)).search)).toBeNull();
+  expect(frameLocation('http://127.0.0.1:123/a/','?g=0&x=1',true)).toBe('http://127.0.0.1:123/a/?g=0&x=1&probe=1');
+});
 
 test('headings become the existing TOC shape, without untrusted extra fields', () => {
   expect(parseFrameMessage({type:'loaded',scrollable:true,extra:1})).toEqual({type:'loaded',scrollable:true});

@@ -1,6 +1,15 @@
 import {expect,test} from 'vitest';
 import {clampRatio,compatiblePosition,originalRow,prosePosition,proseTop,readPosition} from './position';
 
+test('PDF pages survive persistence without being mistaken for HTML scroll ratios', () => {
+  const pos = readPosition({kind:'pdf',page:42,ignored:true});
+  expect(pos).toEqual({kind:'pdf',page:42});
+  expect(compatiblePosition(pos,'frame',false,'pdf')).toEqual(pos);
+  expect(compatiblePosition(pos,'frame',false,'html')).toBeUndefined();
+  expect(compatiblePosition({kind:'frame',ratio:0.5},'frame',false,'pdf')).toBeUndefined();
+  for (const page of [0,-1,0.5,Infinity,'2']) expect(readPosition({kind:'pdf',page})).toBeUndefined();
+});
+
 test('positions reject malformed coordinates and discard unknown fields', () => {
   for (const pos of [null,{}, {kind:'raw',line:-1}, {kind:'raw',line:1.2}, {kind:'grid',row:'4'},
     {kind:'grid',row:0,collection:4}, {kind:'frame',ratio:NaN}, {kind:'frame',ratio:2},

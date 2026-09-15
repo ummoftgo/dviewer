@@ -3,10 +3,14 @@
   const load = location.search;
   parent.postMessage({type:'agentStart', load}, '*');
   const send = value => parent.postMessage({...value, load}, '*');
+  const pdf = document.currentScript?.hasAttribute('data-pdf');
   const MAX_HEADINGS = 10000, MAX_MATCHES = 100000;
   let blocked = 0, scrollTimer, search = 0;
   let query = '', ranges = [], selected = -1, built = false;
   addEventListener('securitypolicyviolation', () => send({type:'blocked', n:++blocked}));
+  addEventListener('keydown', shortcut);
+  probe();
+  if (pdf) return;
   const currentRatio = () => {
     const max = document.documentElement.scrollHeight - innerHeight;
     return max > 0 ? Math.max(0, Math.min(1, scrollY / max)) : 0;
@@ -73,18 +77,18 @@
     } else if (value.type === 'find' && typeof value.q === 'string' && value.q.length <= 4096
       && (value.dir === 1 || value.dir === -1) && Number.isSafeInteger(value.request)) void find(value.q, value.dir, value.request);
   });
-  addEventListener('keydown', event => {
+  function shortcut(event) {
     if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && ['Escape','F11'].includes(event.key)) {
       if (event.defaultPrevented) return;
       event.preventDefault();
       if (!event.repeat) send({type:'shortcut',key:event.key === 'F11' ? 'focus' : 'escape'});
       return;
     }
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && ['f','e'].includes(event.key.toLowerCase())) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && (pdf ? ['f'] : ['f','e']).includes(event.key.toLowerCase())) {
       event.preventDefault();
       send({type:'shortcut',key:event.key.toLowerCase() === 'f' ? 'find' : 'raw'});
     }
-  });
+  }
   function ready() {
     const used = new Set([...document.querySelectorAll('[id]')].map(node => node.id));
     const seen = new Set();
@@ -106,8 +110,9 @@
   };
   if (document.readyState === 'complete') loaded();
   else addEventListener('load',loaded,{once:true});
-  // This marker is emitted by the server only for an authorized smoke response.
-  if (document.currentScript?.hasAttribute('data-probe')) {
+  function probe() {
+    // This marker is emitted by the server only for an authorized smoke response.
+    if (!document.currentScript?.hasAttribute('data-probe')) return;
     const internals = window.__TAURI_INTERNALS__;
     if (!internals) send({type:'probe', invoke:'absent'});
     else {

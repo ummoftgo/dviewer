@@ -73,6 +73,8 @@ pub enum Error {
     /// would be worse.
     Internal { detail: String },
     FrameServer,
+    PdfEncrypted,
+    PdfFailed,
     NoSuchDoc { id: u32 },
     Cancelled,
     SortTooLarge,
@@ -196,6 +198,8 @@ impl Error {
             Error::Io { .. } => "io",
             Error::Internal { .. } => "internal",
             Error::FrameServer => "frameServer",
+            Error::PdfEncrypted => "pdfEncrypted",
+            Error::PdfFailed => "pdfFailed",
             Error::NoSuchDoc { .. } => "noSuchDoc",
             Error::Cancelled => "cancelled",
             Error::SortTooLarge => "sortTooLarge",

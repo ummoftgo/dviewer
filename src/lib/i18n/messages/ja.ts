@@ -1,6 +1,10 @@
 import type { Messages } from "./ko";
 
 export const ja: Messages = {
+  "error.pdfEncrypted": "パスワード付きPDFはまだサポートされていません。",
+  "error.pdfFailed": "PDFを読み込めませんでした。",
+  "frame.pages": "{n}/{total} ページ",
+  "frame.noText": "このページには検索・コピーできるテキストがありません。",
   "settings.restoreSession": "起動時に前回のドキュメントと読んでいた位置を復元する",
   "session.positionRestored": "読んでいた位置を復元しました",
   "session.failed": "前回のドキュメントを{count}件開けませんでした",
