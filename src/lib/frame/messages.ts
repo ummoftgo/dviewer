@@ -1,16 +1,18 @@
 import type { TocEntry } from '../ipc';
+import {frameDiagnosticText} from './diagnostics';
 
 export const PDF_STAGES = ['start','webviewerloaded','worker-start','worker-imported','initializedPromise',
   'documentinit','pagesinit','pagesloaded','onePageRendered'] as const;
 export type PdfStage = typeof PDF_STAGES[number];
 export type InitStep = 'not-started' | 'pending' | 'resolved' | 'rejected';
-export interface FrameStall {
+export interface FrameStallSnapshot {
   readyState: string; l10n: string; pdfViewer: boolean; preferences: boolean; initialized: boolean;
   options: number | null; locale: string | null; language: string | null; fonts: string | null;
   navigationStatus: number | null;
   steps: {initialize: InitStep; preferences: InitStep; l10n: InitStep; components: InitStep};
-  resources: {name: string; responseStatus: number | null; duration: number | null; transferSize: number | null}[];
+  resources: {name: string | null; responseStatus: number | null; duration: number | null; transferSize: number | null}[];
 }
+export type FrameStall = FrameStallSnapshot | {raw: string};
 export type FrameMessage =
   | { type: 'agentStart' }
   | { type: 'stage'; name: PdfStage }
@@ -30,7 +32,7 @@ export type FrameMessage =
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max;
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
-function parseStall(value: unknown): FrameStall | null {
+function parseStall(value: unknown): FrameStallSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
   const nullableCount = (n: unknown) => n === null || count(n);
@@ -41,20 +43,49 @@ function parseStall(value: unknown): FrameStall | null {
     || typeof v.pdfViewer !== 'boolean' || typeof v.preferences !== 'boolean' || typeof v.initialized !== 'boolean'
     || !nullableCount(v.options) || !word(v.locale) || !word(v.language) || !word(v.fonts) || !status(v.navigationStatus)
     || !v.steps || typeof v.steps !== 'object' || !Array.isArray(v.resources) || v.resources.length > 15) return null;
-  const steps = v.steps as FrameStall['steps'];
+  const steps = v.steps as FrameStallSnapshot['steps'];
   for (const key of ['initialize','preferences','l10n','components'] as const) {
     if (!['not-started','pending','resolved','rejected'].includes(steps[key])) return null;
   }
-  const resources: FrameStall['resources'] = [];
+  const resources: FrameStallSnapshot['resources'] = [];
   for (const entry of v.resources) {
-    if (!entry || !text(entry.name,128) || !entry.name.startsWith('/') || /[\u0000-\u0020\u007f?:#\\]|[a-f\d]{64}/i.test(entry.name)
-      || !status(entry.responseStatus) || !nullableCount(entry.duration) || !nullableCount(entry.transferSize)) return null;
-    resources.push({name:entry.name,responseStatus:entry.responseStatus,duration:entry.duration,transferSize:entry.transferSize});
+    if (!entry || typeof entry !== 'object') return null;
+    const name = entry.name ?? null, responseStatus = entry.responseStatus ?? null;
+    const duration = entry.duration ?? null, transferSize = entry.transferSize ?? null;
+    if ((name !== null && (!text(name,128) || !name.startsWith('/') || /[\u0000-\u0020\u007f?:#\\]|[a-f\d]{64}/i.test(name)))
+      || !status(responseStatus) || (duration !== null && (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0))
+      || !nullableCount(transferSize)) return null;
+    resources.push({name,responseStatus,duration,transferSize});
   }
   const snapshot = {readyState:v.readyState,l10n:v.l10n,pdfViewer:v.pdfViewer,preferences:v.preferences,initialized:v.initialized,
     options:v.options,locale:v.locale,language:v.language,fonts:v.fonts,navigationStatus:v.navigationStatus,
-    steps:{initialize:steps.initialize,preferences:steps.preferences,l10n:steps.l10n,components:steps.components},resources} as FrameStall;
-  return JSON.stringify(snapshot).length <= 4096 ? snapshot : null;
+    steps:{initialize:steps.initialize,preferences:steps.preferences,l10n:steps.l10n,components:steps.components},resources} as FrameStallSnapshot;
+  return JSON.stringify(snapshot).length <= 8192 ? snapshot : null;
+}
+
+function rawStall(value: unknown): {raw: string} {
+  // Bound traversal too: a diagnostic fallback must not serialize an arbitrary object graph.
+  let visited = 0;
+  const preview = (item: unknown): unknown => {
+    if (++visited > 32) return '[truncated]';
+    if (typeof item === 'string') return item.slice(0,8192);
+    if (typeof item === 'bigint') return String(item);
+    if (Array.isArray(item)) return item.slice(0,15).map(preview);
+    if (item && typeof item === 'object') {
+      const result: Record<string, unknown> = Object.create(null);
+      for (const key in item) {
+        if (visited >= 32) break;
+        if (Object.hasOwn(item,key)) result[key.slice(0,128)] = preview((item as Record<string,unknown>)[key]);
+      }
+      return result;
+    }
+    return item;
+  };
+  try {
+    const raw = value && typeof value === 'object' && 'raw' in value && typeof value.raw === 'string'
+      ? value.raw.slice(0,8192) : JSON.stringify(preview(value)) ?? String(value);
+    return {raw:frameDiagnosticText(raw,2000)};
+  } catch { return {raw:'[unserializable stall]'}; }
 }
 
 export function linkKind(href: string): 'external' | 'relative' | null {
@@ -70,8 +101,9 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
     case 'agentStart': return {type:'agentStart'};
     case 'stage': return PDF_STAGES.some(name => name === v.name) ? {type:'stage',name:v.name as PdfStage} : null;
     case 'stall': {
-      const snapshot = parseStall(v.snapshot);
-      return snapshot ? {type:'stall',snapshot} : null;
+      let snapshot: FrameStallSnapshot | null = null;
+      try { snapshot = parseStall(v.snapshot); } catch { /* Keep a bounded raw diagnostic below. */ }
+      return {type:'stall',snapshot:snapshot ?? rawStall(v.snapshot ?? v)};
     }
     case 'loaded': return typeof v.scrollable === 'boolean' ? {type:'loaded',scrollable:v.scrollable} : null;
     case 'ready': {

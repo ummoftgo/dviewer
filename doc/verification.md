@@ -1235,3 +1235,19 @@ WebKit 관측 두 라운드 뒤 이 판의 PDF 지원을 Windows로 제한했다
 | 생성기·파일 선택기 조건식 모의 실행 | win32: PDF 생성·필터 포함/48항목, darwin·linux: PDF 제외/47항목 |
 
 Windows 생성기를 다시 실행해 smoke.json48항목을 확인했다. image-only.pdf는 화면 확인용으로만 생성하며 기존 스모크 수를 늘리지 않았다. fileAssociations의 pdf는 정적으로 남는다. 로그는 .agent-works/m43-platform1-*.log. 비Windows 실제 앱 검증은 main 푸시 뒤 warm에서 확인한다. WebKit 근본 원인 조사는 후속 판으로 넘긴다.
+
+### 스톨 진단 누락 방지와 최종 Windows 확인 — 2026-09-17
+
+자원 엔트리의 누락 필드를 null로 정규화하고 스냅샷 상한을8192자로 올렸다. 구조 검증 실패는 raw2000자로 보존하며 프레임/load 검증·URL/토큰 가림은 유지한다. 에이전트의 개별 Performance 속성 getter가 실패해도 다른 필드는 남긴다. 기존 코드도 undefined responseStatus를 null로 바꾸고 있었으므로 WebKit 스톨 누락의 근본 원인을 확정한 것으로 보지 않는다.
+
+| 최종 검사 | 결과 |
+| --- | --- |
+| Rust | 첫 커밋의555통과 재사용(백엔드 논리 변경 없음) |
+| npm test | 376 통과, 36파일 |
+| npm run check | 오류0·경고0, 4로케일×460키 |
+| Windows 새 debug 스모크 | 48개 + 왕복2 통과 |
+| PDF / HTML 대조군 / 앱 sweep | 534ms / 1,266ms / 20,216ms |
+| responseStatus 누락 정규화 제거 변형 | 회귀1실패, 원본 바이트 복원 |
+| dev 정리 | incremental 제거, cargo clean617파일6.0GiB |
+
+회귀는 누락 리소스 필드·소수 duration·4096자 초과 정상 스냅샷·검증 실패 raw·순환 입력·예외를 던지는 getter를 다룬다. 로그는 .agent-works/m43-platform2-*.log 및 m43-platform-mutation.log, 원본 스모크는 로컬 임시 디렉터리 dviewer-smoke-ZSzoZs/sweep.jsonl이다. 최종 에이전트를 새 프런트와 debug 바이너리에 포함해 확인했다. release·clippy·비Windows 실제 스모크는 실행하지 않았다. Linux/macOS는 PDF 없는47항목의 후속 warm으로 확인한다.

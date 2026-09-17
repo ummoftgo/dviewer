@@ -36,24 +36,30 @@
     stallTimer = undefined;
     if (initialized || failed || stalled) return;
     stalled = true;
+    let snapshot = {};
+    try {
     const read = (fn, fallback = null) => { try { return fn(); } catch { return fallback; } };
     const number = value => Number.isFinite(value) && value >= 0 ? Math.min(Number.MAX_SAFE_INTEGER,Math.round(value)) : null;
     const word = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g,'').slice(0,64) : null;
-    const prefix = `/${new URL(location.href).pathname.split('/')[1]}/`;
+    const prefix = read(() => `/${new URL(location.href).pathname.split('/')[1]}/`,'/');
     const path = name => read(() => {
+      if (typeof name !== 'string') return null;
       const url = new URL(name,location.href);
       if (!['http:','https:'].includes(url.protocol)) return '/[other]';
       const path = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length - 1) : url.pathname;
       return path.replace(/[a-f\d]{64}/gi,'[token]').slice(0,128);
-    },'/[unknown]');
-    const resources = read(() => performance.getEntriesByType('resource'),[]).slice(-15).map(entry => ({
-      name:path(entry.name),responseStatus:number(entry.responseStatus),duration:number(entry.duration),transferSize:number(entry.transferSize),
+    });
+    const resources = read(() => performance.getEntriesByType('resource').slice(-15),[]).map(entry => ({
+      name:read(() => path(entry.name)),responseStatus:read(() => number(entry.responseStatus)),
+      duration:read(() => number(entry.duration)),transferSize:read(() => number(entry.transferSize)),
     }));
-    const snapshot = {readyState:document.readyState,l10n:typeof app.l10n,pdfViewer:!!app.pdfViewer,preferences:!!app.preferences,
-      initialized:!!app.initialized,options:read(() => Object.keys(window.PDFViewerApplicationOptions.getAll()).length),
-      locale:word(navigator.locale),language:word(navigator.language),fonts:word(document.fonts?.status),
+    snapshot = {readyState:read(() => document.readyState),l10n:read(() => typeof app.l10n),
+      pdfViewer:read(() => !!app.pdfViewer),preferences:read(() => !!app.preferences),initialized:read(() => !!app.initialized),
+      options:read(() => Object.keys(window.PDFViewerApplicationOptions.getAll()).length),
+      locale:read(() => word(navigator.locale)),language:read(() => word(navigator.language)),fonts:read(() => word(document.fonts?.status)),
       navigationStatus:read(() => number(performance.getEntriesByType('navigation')[0]?.responseStatus)),steps:{...steps},resources};
-    while (JSON.stringify(snapshot).length > 4096 && resources.length) resources.shift();
+    while (JSON.stringify(snapshot).length > 8192 && resources.length) resources.shift();
+    } catch (cause) { snapshot.raw = String(cause?.message ?? cause ?? 'snapshot failed').slice(0,2000); }
     send({type:'stall',snapshot});
   }
   function publishPage() {

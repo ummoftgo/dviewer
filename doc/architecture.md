@@ -808,7 +808,9 @@ PDF 초기화 진단은 에이전트 시작·webviewerloaded·initializedPromise
 
 각 문서 Route는 인증된 GET 요청의 응답 준비 순서·상태 코드·토큰 없는 경로를 최근 20개까지 보관한다. 404도 기록하며 잘못된 토큰의 요청은 어느 문서에도 남기지 않는다. 경로는 쿼리·프래그먼트·제어 문자를 제거하고 128자로 제한한다. frame_served.last는 오래된 것부터 반환하며 라우트 폐기와 함께 사라진다. 상태 코드는 전송 완료나 자원 실행 성공의 증거가 아니다.
 
-worker-imported 후 8초 동안 초기화 완료 신호가 없으면 스톨 스냅샷을 한 번만 보낸다. 문서·뷰어·preferences·언어·폰트 상태, 옵션 키 수, navigation 상태 및 최근 자원 15개의 경로·상태·시간·크기를 담되 4,096자로 제한한다. 지원되지 않는 Performance 필드는 null이며, transferSize 0을 요청 실패로 해석하지 않는다. 타이머는 정상 초기화·오류·pagehide에서 취소하고 frameStall은 다시 열 때 비운다. 스톨·오류 수신 때도 서버 기록을 갱신한다.
+worker-imported 후 8초 동안 초기화 완료 신호가 없으면 스톨 스냅샷을 한 번만 보낸다. 문서·뷰어·preferences·언어·폰트 상태, 옵션 키 수, navigation 상태 및 최근 자원 15개의 경로·상태·시간·크기를 담되 8,192자로 제한한다. 자원 엔트리의 필드는 선택적이며 누락된 값은 null로 정규화한다. 항목별 속성 읽기의 예외를 격리해 다른 관측값을 보존하고, transferSize 0을 요청 실패로 해석하지 않는다. 타이머는 정상 초기화·오류·pagehide에서 취소하고 frameStall은 다시 열 때 비운다. 스톨·오류 수신 때도 서버 기록을 갱신한다.
+
+스톨 구조 검증이 실패해도 메시지를 버리지 않고 최대 2,000자의 raw 진단을 남긴다. 원문 미리보기는 순환·거대 객체의 무제한 탐색을 막고 URL·토큰을 가린다. raw도 원래의 프레임·load 식별 검사를 통과해야 하며 ready나 오류 상태를 대신하지 않는다. 기존 에이전트도 undefined responseStatus를 null로 바꾸고 있었으므로, 이 관용 처리는 누락 원인 확정이 아니라 후속 조사 자료를 보존하기 위한 변경이다.
 
 PDF.js의 initializedPromise는 initialize 성공 때만 resolve되고 실패 시 reject되지 않는다. 따라서 미완료 약속만으로 내부 await의 무한대기를 단정할 수 없다. initialize·createL10n·_initializeViewerComponents의 반환 약속을 관측해 각 단계 상태를 남기고 예외는 직접 전달한 뒤 그대로 다시 던진다. preferences 읽기의 거부는 PDF.js가 원래 처리하므로 스냅샷 상태로만 남긴다. 관측 타이머가 대기 작업을 취소하거나 대체 설정으로 우회하지는 않는다.
 
