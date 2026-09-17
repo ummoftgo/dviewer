@@ -11,7 +11,7 @@
 | `v*` 태그 | 테스트와 세 OS 번들을 병렬 실행하고, 둘 다 성공하면 산출물을 **초안 릴리스**에 붙임 |
 | 수동 실행 | 기본은 테스트만. `bundle` 입력을 켜면 릴리스 없이 번들만 만들어 아티팩트로 남김 |
 
-잡 그래프는 main에서 `test ∥ warm`, 태그에서 `test ∥ bundle → release`입니다. warm을 기다리는 잡은 없지만, 태그 전에는 대상 main 커밋의 warm 성공과 번들 리허설(`gh workflow run build.yml --ref main -f bundle=true`) 초록이 필수입니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. 스모크용 Parquet 생성은 두 잡 모두 `--features custom-protocol`을 사용하고 `MACOSX_DEPLOYMENT_TARGET`을 tauri build와 같은 값으로 맞춰 기능·환경 차이에 따른 의존 크레이트 재컴파일을 피합니다. 현재 값은 Tauri 기본값인 `10.13`이며 `bundle.macOS.minimumSystemVersion` 또는 Tauri 기본값이 바뀌면 워크플로의 값도 함께 갱신합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행하고 macOS는 universal 바이너리를 디스플레이 래퍼 없이 실행해 WebKit 검사를 태그 전에 확인합니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
+잡 그래프는 main에서 `test ∥ warm`, 태그에서 `test ∥ bundle → release`입니다. push와 workflow_dispatch는 동시성 그룹이 달라 서로 취소하지 않습니다. 판올림 커밋을 푸시한 직후 warm을 기다리지 않고 번들 리허설(`gh workflow run build.yml --ref main -f bundle=true`)을 시작합니다. 같은 SHA의 리허설에서 세 OS test·bundle·release 스모크가 모두 성공해야 태그를 만듭니다. 같은 이벤트·ref 안에서는 이전 실행을 계속 취소합니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. 스모크용 Parquet 생성은 두 잡 모두 `--features custom-protocol`을 사용하고 `MACOSX_DEPLOYMENT_TARGET`을 tauri build와 같은 값으로 맞춰 기능·환경 차이에 따른 의존 크레이트 재컴파일을 피합니다. 현재 값은 Tauri 기본값인 `10.13`이며 `bundle.macOS.minimumSystemVersion` 또는 Tauri 기본값이 바뀌면 워크플로의 값도 함께 갱신합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행하고 macOS는 universal 바이너리를 디스플레이 래퍼 없이 실행해 WebKit 검사를 태그 전에 확인합니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
 
 Parquet 예제를 위한 별도 예열 빌드는 하지 않습니다. 현재 rust-cache 설정은 워크스페이스 크레이트 산출물을 저장하지 않으므로, dviewer와 예제를 반복 컴파일하는 비용에 비해 추가 개발 의존성인 minisign 등의 예열 실익이 작다고 판단했습니다. Linux·macOS는 스모크용 픽스처를 만들 때 예제와 개발 의존성도 빌드합니다. macOS 앱은 universal이며 예제는 실행 호스트인 `aarch64-apple-darwin`으로 빌드합니다. Windows에서는 이 개발 의존성의 빌드 비용 일부가 bundle의 Parquet 단계로 옮겨갈 수 있습니다.
 
@@ -45,7 +45,11 @@ Linux ARM(aarch64)은 아직 없습니다. 크로스 컴파일보다 ARM 러너�
 
 ## 업데이트 릴리스 절차
 
-태그를 만들기 전에 대상 main 커밋의 세 OS 검증과 warm의 Linux·macOS 스모크 성공을 확인하고, `gh workflow run build.yml --ref main -f bundle=true`로 번들 리허설을 실행해 세 OS가 모두 초록인지 확인한다. 확인 뒤 main이 바뀌면 새 대상 커밋으로 다시 확인한다. 이 관문은 운영 절차이며 워크플로가 태그 생성을 자동으로 막는 것은 아니다.
+릴리스 때 로컬 스모크는 최신 프런트·바이너리로 debug 한 번만 실행한다. release 스모크는 같은 대상 SHA의 리허설이 세 OS에서 수행한다. 기능 구현 단계의 필수 검증을 생략한다는 뜻은 아니다.
+
+판올림은 package.json·package-lock.json·src-tauri/tauri.conf.json·src-tauri/Cargo.toml을 맞춘 뒤 src-tauri에서 `cargo update -p dviewer --offline`으로 Cargo.lock의 자기 패키지 버전을 갱신한다. 이 명령은 빌드나 테스트가 아니며 `git diff -- Cargo.lock`으로 의존 패키지 변경 없이 자기 버전만 바뀌었는지 확인한다. 판올림 직후의 중복 cargo test 대신 리허설의 required 테스트를 사용한다.
+
+순서는 **로컬 debug 확인 → 판올림 커밋·푸시 → 즉시 리허설 → 같은 SHA의 세 OS test·bundle·smoke 초록 확인 → 태그 → 태그 실행 → 초안 검증·공개**다. warm 완료를 따로 기다리지 않는다. 리허설 도중 main이 바뀌면 새 대상 SHA로 다시 확인한다. 성공 상태만 보지 말고 번들 잡이 건너뛰지 않았는지와 head SHA도 확인한다.
 
 CI 전용 실패는 관측 커밋을 먼저 넣는다. 두 바퀴의 진단·재현 안에 원인이 잡히지 않으면 그 기능을 릴리스에서 빼고 관문을 다시 검증한다.
 
