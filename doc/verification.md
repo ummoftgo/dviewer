@@ -1190,3 +1190,19 @@ pagesloaded를 기다린 WIP도 release 3회 중 1회 실패했다. 기존 CDP �
 | 3 | 48 + 2 통과 | 559ms | 1,271ms | 19,297ms |
 
 세 회차 모두 PDF pages2·page2·headings3·matches2와 격리 프로브 거부를 확인했다. 시간은 각 실행의 관측값이며 성능 개선 주장은 아니다. 로그는 .agent-works/m43-goto-final-*.log, 원본 결과는 로컬 임시 디렉터리 dviewer-smoke-FQmSNu·Rdu0XM·cr8Cou의 sweep.jsonl이다. 이번에는 debug 스모크·clippy·Linux/macOS·사용자 화면 및 실제 앱 재시작 복원 검증을 실행하지 않았다. 이 결과는 Windows release 검증이다.
+
+### WebKit PDF 초기화 관측 — 2026-09-17
+
+main a4eada5의 warm run35218242192에서 Windows는 통과했지만 Linux(WebKitGTK2.50.4)·macOS26.6.2는 모두 PDF timeout이었다. served html1/agent2/resource21·agent start yes만으로 PDF 에이전트 실행·워커 import·뷰어 초기화 완료 여부를 알 수 없었다. 이번 변경은 마지막 PDF 단계와 오류 detail을 timeout 진단에 남긴다. 워커 내부 import 거부도 별도로 전달한다. WebKit 원인을 확정하거나 워커 방식·CSP를 바꾼 것은 아니다.
+
+| 검사 | 결과 |
+| --- | --- |
+| DVIEWER_FIXTURES=required cargo test | 553 통과, 실패·무시0 |
+| npm test | 368 통과, 35파일 |
+| npm run check | 오류0·경고0, 4로케일×459키 |
+| Windows 새 custom-protocol debug 스모크 | 48개 + 왕복2 통과, PDF507ms·HTML1255ms·앱 sweep20,185ms |
+| 단계 전송을 무효화한 변형 | 단계 회귀1실패, 다른6개는 필터로 제외 |
+| detail을 빈 문자열로 바꾼 변형 | 오류 전달 회귀1실패, 다른6개는 필터로 제외 |
+| dev 정리 | incremental 제거, cargo clean617파일6.0GiB |
+
+회귀는 실제 에이전트를 VM에서 실행해 단계 허용 목록, 초기화·문서·워커·창 오류의 문자열 제한, 첫 실패 뒤 늦은 메시지 무시, worker bootstrap import 거부 전달을 검사한다. 파서는 발신 프레임·load 식별과 detail 최대 길이를 검증하고, timeout 문자열은 URL·토큰 가림을 전문 단언한다. 다시 열 때 frameStage 초기화도 검사한다. 두 변형은 원본 바이트로 복원했다. FrameView·docs.svelte.ts autofixer issues0. 로그는 .agent-works/m43-webkit-final-*.log 및 m43-webkit-mutation-*.log, 원본 스모크는 로컬 임시 디렉터리 dviewer-smoke-7Ceyli/sweep.jsonl이다. 이번 release 스모크·clippy·Linux/macOS 재실행은 하지 않았다. 다음 warm의 stage/detail을 보고 후속 수정을 판단하며 세 OS에서 확인한다.

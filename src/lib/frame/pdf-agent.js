@@ -6,7 +6,15 @@
   let pagesLoaded = false, pendingGoto = null, applyingPage = false;
   let request = 0, query = '', textGeneration = 0;
   const destinations = new Map();
-  const error = code => { if (!failed) { failed = true; ready = false; pendingGoto = null; send({type:'error',code}); } };
+  const stage = name => { if (!failed) send({type:'stage',name}); };
+  const error = (code, cause) => {
+    if (failed) return;
+    failed = true; ready = false; pendingGoto = null;
+    send({type:'error',code,detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
+  };
+  addEventListener('error',event => error('pdfFailed',event.message || event.error));
+  addEventListener('unhandledrejection',event => error('pdfFailed',event.reason));
+  stage('start');
   function publishPage() {
     if (!ready || !pagesLoaded || failed || applyingPage || (pendingGoto !== null && app.page !== pendingGoto)) return;
     pendingGoto = null;
@@ -66,28 +74,44 @@
       ready = true;
       send({type:'ready',title:document.title.slice(0,4096),pages:pdf.numPages,headings});
       applyGoto();
-    } catch { error('pdfFailed'); }
+    } catch (cause) { error('pdfFailed',cause); }
   }
   document.addEventListener('webviewerloaded', () => {
+    stage('webviewerloaded');
     app = window.PDFViewerApplication;
     const options = window.PDFViewerApplicationOptions;
     try {
       const workerSrc = new URL('../build/pdf.worker.mjs',location.href).href;
       // Chromium rejects a blob:null module-worker entry point in opaque frames.
       // A classic Blob entry can import the same fixed ESM without changing CSP.
-      workerUrl = URL.createObjectURL(new Blob([`import(${JSON.stringify(workerSrc)});`],{type:'text/javascript'}));
+      // A rejected import() stays in the worker and does not fire its owner's error event.
+      const bootstrap = `const fail = cause => postMessage({type:'pdfWorkerError',detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
+addEventListener('unhandledrejection',event => fail(event.reason));
+postMessage({type:'pdfWorkerStage',name:'worker-start'});
+import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStage',name:'worker-imported'}),fail);`;
+      workerUrl = URL.createObjectURL(new Blob([bootstrap],{type:'text/javascript'}));
       worker = new Worker(workerUrl);
-      worker.addEventListener('error',() => error('pdfFailed'));
+      worker.addEventListener('error',event => error('pdfFailed',event.message || event.error));
+      worker.addEventListener('message',({data}) => {
+        if (data?.type === 'pdfWorkerError' && typeof data.detail === 'string') error('pdfFailed',data.detail);
+        else if (data?.type === 'pdfWorkerStage' && ['worker-start','worker-imported'].includes(data.name)) stage(data.name);
+      });
       options.setAll({workerPort:worker,disableStream:true,disableAutoFetch:true,
         annotationEditorMode:-1,annotationMode:1,enableSignatureEditor:false,enableSplitMerge:false,enableMerge:false,
         disableHistory:true,disablePreferences:true,viewOnLoad:1});
       app.initializedPromise.then(() => {
+        stage('initializedPromise');
         // Opening inside the embedded viewer would bypass the app's document identity.
         app.appConfig.secondaryToolbar.openFileButton.hidden = true;
         app.passwordPrompt.open = async () => { error('pdfEncrypted'); await app.close(); };
-        app.eventBus.on('documenterror',() => error('pdfFailed'));
-        app.eventBus.on('documentinit',() => void documentReady());
-        app.eventBus.on('pagesloaded',() => { pagesLoaded = true; applyGoto(); });
+        app.eventBus.on('documenterror',event => error('pdfFailed',event?.message));
+        app.eventBus.on('documentinit',() => {
+          stage('documentinit');
+          app.pdfViewer.onePageRendered.then(() => stage('onePageRendered'),cause => error('pdfFailed',cause));
+          void documentReady();
+        });
+        app.eventBus.on('pagesinit',() => stage('pagesinit'));
+        app.eventBus.on('pagesloaded',() => { stage('pagesloaded'); pagesLoaded = true; applyGoto(); });
         app.eventBus.on('pagechanging',publishPage);
         const found = ({matchesCount}) => {
           if (!ready || !matchesCount || app.findController.state?.query !== query) return;
@@ -95,8 +119,8 @@
         };
         app.eventBus.on('updatefindmatchescount',found);
         app.eventBus.on('updatefindcontrolstate',found);
-      }).catch(() => error('pdfFailed'));
-    } catch { error('pdfFailed'); }
+      }).catch(cause => error('pdfFailed',cause));
+    } catch (cause) { error('pdfFailed',cause); }
   },{once:true});
   addEventListener('message', event => {
     if (event.source !== parent || failed || !event.data || typeof event.data !== 'object') return;

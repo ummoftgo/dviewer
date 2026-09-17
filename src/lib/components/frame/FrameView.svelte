@@ -28,6 +28,7 @@
     target.frameReady = false; target.frameReadyLoad = ''; target.frameBlocked = 0; target.frameProbe = null;
     target.frameError = null; target.frameUrlPort = null; target.frameLoaded = false;
     target.frameServed = null; target.frameCsp = []; target.frameAgentStarted = false;
+    target.frameStage = null;
     const cspViolation = (event: SecurityPolicyViolationEvent) => {
       const entry = parentCspViolation(event.effectiveDirective, event.blockedURI);
       if (!target.frameCsp.includes(entry) && target.frameCsp.length < 4) target.frameCsp.push(entry);
@@ -71,6 +72,7 @@
     if (!message) return;
     switch (message.type) {
       case 'agentStart': tab.frameAgentStarted = true; break;
+      case 'stage': if (tab.kind === 'pdf') tab.frameStage = message.name; break;
       case 'ready':
         if (tab.kind === 'pdf' && !message.pages) break;
         clearTimeout(deadline); tab.frameToc = message.headings; tab.frameReadyLoad = load; tab.frameReady = true;
@@ -98,7 +100,10 @@
         if (tab.kind === 'pdf' && message.page === tab.framePage) tab.frameHasText = message.hasText;
         break;
       case 'error':
-        if (tab.kind === 'pdf') { clearTimeout(deadline); tab.frameError = errorMessage({code:message.code}); tab.frameReady = false; }
+        if (tab.kind === 'pdf') {
+          clearTimeout(deadline); tab.frameReady = false;
+          tab.frameError = errorMessage({code:message.code}) + (message.detail ? ` (detail ${message.detail})` : '');
+        }
         break;
       case 'loaded': {
         if (tab.kind === 'pdf') break;

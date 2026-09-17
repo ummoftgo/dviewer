@@ -1,5 +1,20 @@
 import {expect, test} from 'vitest';
-import {frameLocation, frameMessage, linkKind, parseFrameMessage} from './messages';
+import {PDF_STAGES, frameLocation, frameMessage, linkKind, parseFrameMessage} from './messages';
+
+test('PDF diagnostics admit only known stages and bounded error strings from the current frame', () => {
+  const frame = {} as Window, load = '?g=2';
+  for (const name of PDF_STAGES) {
+    const data = {type:'stage',name,load};
+    expect(frameMessage({source:frame,data},frame,load)).toEqual({type:'stage',name});
+    expect(frameMessage({source:{} as Window,data},frame,load)).toBeNull();
+    expect(frameMessage({source:frame,data},frame,'?g=3')).toBeNull();
+  }
+  for (const name of ['', 'arbitrary', {}, 'x'.repeat(4096)]) expect(parseFrameMessage({type:'stage',name})).toBeNull();
+  for (const detail of ['', 'x'.repeat(4096)]) {
+    expect(parseFrameMessage({type:'error',code:'pdfFailed',detail})).toEqual({type:'error',code:'pdfFailed',detail});
+  }
+  for (const detail of [null, {}, 42, 'x'.repeat(4097)]) expect(parseFrameMessage({type:'error',code:'pdfFailed',detail})).toBeNull();
+});
 
 test('PDF readiness, page and error messages preserve bounded typed fields', () => {
   expect(parseFrameMessage({type:'ready',title:'PDF',pages:2,headings:[]})).toEqual({type:'ready',title:'PDF',pages:2,headings:[]});

@@ -1,12 +1,16 @@
 import type { TocEntry } from '../ipc';
 
+export const PDF_STAGES = ['start','webviewerloaded','worker-start','worker-imported','initializedPromise',
+  'documentinit','pagesinit','pagesloaded','onePageRendered'] as const;
+export type PdfStage = typeof PDF_STAGES[number];
 export type FrameMessage =
   | { type: 'agentStart' }
+  | { type: 'stage'; name: PdfStage }
   | { type: 'loaded'; scrollable: boolean }
   | { type: 'ready'; title: string; headings: TocEntry[]; pages?: number }
   | { type: 'page'; n: number }
   | { type: 'pageText'; page: number; hasText: boolean }
-  | { type: 'error'; code: 'pdfEncrypted' | 'pdfFailed' }
+  | { type: 'error'; code: 'pdfEncrypted' | 'pdfFailed'; detail?: string }
   | { type: 'scroll'; ratio: number }
   | { type: 'blocked'; n: number }
   | { type: 'found'; n: number; index: number; request: number }
@@ -28,6 +32,7 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
   const v = value as Record<string, unknown>;
   switch (v.type) {
     case 'agentStart': return {type:'agentStart'};
+    case 'stage': return PDF_STAGES.some(name => name === v.name) ? {type:'stage',name:v.name as PdfStage} : null;
     case 'loaded': return typeof v.scrollable === 'boolean' ? {type:'loaded',scrollable:v.scrollable} : null;
     case 'ready': {
       if (v.pages !== undefined && (!count(v.pages) || v.pages < 1)) return null;
@@ -42,7 +47,8 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
     }
     case 'page': return count(v.n) && v.n >= 1 ? {type:'page',n:v.n} : null;
     case 'pageText': return count(v.page) && v.page >= 1 && typeof v.hasText === 'boolean' ? {type:'pageText',page:v.page,hasText:v.hasText} : null;
-    case 'error': return v.code === 'pdfEncrypted' || v.code === 'pdfFailed' ? {type:'error',code:v.code} : null;
+    case 'error': return (v.code === 'pdfEncrypted' || v.code === 'pdfFailed') && (v.detail === undefined || text(v.detail,4096))
+      ? {type:'error',code:v.code,...(v.detail === undefined ? {} : {detail:v.detail as string})} : null;
     case 'scroll': return typeof v.ratio === 'number' && Number.isFinite(v.ratio) && v.ratio >= 0 && v.ratio <= 1 ? {type:'scroll',ratio:v.ratio} : null;
     case 'blocked': return count(v.n) ? {type:'blocked',n:v.n} : null;
     case 'found': return count(v.n) && v.n <= 100000 && count(v.index) && v.index <= v.n && count(v.request)
