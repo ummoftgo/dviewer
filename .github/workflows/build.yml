@@ -20,9 +20,71 @@ permissions:
   contents: read
 
 jobs:
+  reuse:
+    name: Select rehearsal artifacts
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run-id: ${{ steps.select.outputs.run-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Find a successful signed rehearsal of this commit
+        id: select
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { appendFileSync } from 'node:fs';
+          const repo = process.env.GITHUB_REPOSITORY;
+          const sha = execFileSync('git', ['rev-parse', 'HEAD'], {encoding:'utf8'}).trim();
+          const api = (path, key) => JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp', `repos/${repo}/${path}`],
+            {encoding:'utf8', maxBuffer:16 * 1024 * 1024})).flatMap(page => page[key]);
+          const bundles = ['linux-x86_64', 'macos-universal', 'windows-x64'];
+          const required = [...bundles.map(slug => `bundle (${slug})`),
+            ...['ubuntu-22.04', 'macos-latest', 'windows-latest'].map(os => `test (${os})`)];
+          let selected = '';
+          try {
+            const runs = api(`actions/workflows/build.yml/runs?event=workflow_dispatch&status=success&head_sha=${sha}&per_page=100`, 'workflow_runs');
+            for (const run of runs) {
+              if (run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success'
+                || run.head_sha !== sha || run.head_branch !== 'main' || run.head_repository?.full_name !== repo) continue;
+              const jobs = api(`actions/runs/${run.id}/jobs?filter=latest&per_page=100`, 'jobs');
+              // Runs do not expose dispatch inputs. Successful bundle jobs prove bundle=true;
+              // the signing step excludes older, unsigned rehearsals of the same commit.
+              if (!required.every(name => jobs.some(job => job.name === name && job.conclusion === 'success'))
+                || !jobs.some(job => job.name === 'bundle (windows-x64)' && job.steps.some(step =>
+                  step.name === 'Sign portable executable' && step.conclusion === 'success'))) continue;
+              const artifacts = api(`actions/runs/${run.id}/artifacts?per_page=100`, 'artifacts')
+                .filter(artifact => artifact.name.startsWith('dviewer-'));
+              if (artifacts.length !== bundles.length || !bundles.every(slug => artifacts.some(artifact =>
+                artifact.name === `dviewer-${slug}` && !artifact.expired && artifact.size_in_bytes > 0
+                && Date.parse(artifact.expires_at) > Date.now() && artifact.workflow_run?.id === run.id
+                && artifact.workflow_run?.head_sha === sha))) continue;
+              selected = String(run.id);
+              break;
+            }
+          } catch (error) {
+            console.warn(`::warning::Rehearsal lookup failed; building this tag instead. ${error.message}`);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `run-id=${selected}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, selected
+            ? `Reusing signed rehearsal [${selected}](https://github.com/${repo}/actions/runs/${selected}) for \`${sha}\`.\n`
+            : `No reusable signed rehearsal for \`${sha}\`; running tests and bundles.\n`);
+          NODE
+
   # Runs on every push and pull request, on all three targets: a Linux-only
   # job would not catch a Windows or macOS break.
   test:
+    needs: reuse
+    if: ${{ !cancelled() && (needs.reuse.result == 'skipped' || (needs.reuse.result == 'success' && needs.reuse.outputs.run-id == '')) }}
     name: test (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -172,7 +234,10 @@ jobs:
   # release without cutting one.
   bundle:
     name: bundle (${{ matrix.slug }})
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.bundle
+    needs: reuse
+    if: ${{ !cancelled() && (startsWith(github.ref, 'refs/tags/v') || inputs.bundle) && (needs.reuse.result == 'skipped' || (needs.reuse.result == 'success' && needs.reuse.outputs.run-id == '')) }}
+    env:
+      SIGNED_BUNDLE: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.bundle) }}
     strategy:
       fail-fast: false
       matrix:
@@ -225,10 +290,22 @@ jobs:
 
       - run: npm ci
 
-      - name: Require signing keys for a release
-        run: node scripts/updater-manifest.mjs --prepare updater-build.json
+      - name: Prepare release or rehearsal signing
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { prepare } from './scripts/updater-manifest.mjs';
+          const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          const env = {...process.env};
+          // Validate the future release configuration without creating a Git tag.
+          if (env.SIGNED_BUNDLE === 'true' && env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
+            env.GITHUB_REF = `refs/tags/v${config.version}`;
+          }
+          prepare(config, env, 'updater-build.json');
+          NODE
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.SIGNED_BUNDLE == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
 
       # `bundle.targets: "all"` means deb+rpm+AppImage, msi+nsis, or app+dmg
       # depending on the runner. `npm run build` runs first via
@@ -238,8 +315,8 @@ jobs:
         env:
           # appimagetool cannot mount its own image on a runner without FUSE.
           APPIMAGE_EXTRACT_AND_RUN: 1
-          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.SIGNED_BUNDLE == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.SIGNED_BUNDLE == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
 
       # The release binary, against every fixture, in a real window. This is
       # the build the smoke harness was written for: the defects it targets —
@@ -288,7 +365,7 @@ jobs:
           # An AppImage is already the portable form: one file, runs in place.
           cp "$b"/appimage/*.AppImage "$out/dviewer_${version}_linux-x86_64_portable.AppImage"
           chmod +x "$out"/*.AppImage
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ "$SIGNED_BUNDLE" == true ]]; then
             cp "$b"/appimage/*.AppImage.sig "$out/dviewer_${version}_linux-x86_64_portable.AppImage.sig"
           fi
 
@@ -303,7 +380,7 @@ jobs:
           # and a plain zip drops both — the unpacked copy then will not launch.
           ditto -c -k --keepParent "$b/macos/dviewer.app" \
             "$out/dviewer_${version}_macos-universal_portable.zip"
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ "$SIGNED_BUNDLE" == true ]]; then
             cp "$b"/macos/*.app.tar.gz "$out/dviewer_${version}_macos-universal.app.tar.gz"
             cp "$b"/macos/*.app.tar.gz.sig "$out/dviewer_${version}_macos-universal.app.tar.gz.sig"
           fi
@@ -321,14 +398,14 @@ jobs:
           # The frontend is compiled into the binary and nothing else ships
           # beside it, so the portable build is that one file.
           Compress-Archive -Path "src-tauri/target/release/dviewer.exe" -DestinationPath "$out/dviewer_${version}_windows-x64_portable.zip" -Force
-          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+          if ($env:SIGNED_BUNDLE -eq 'true') {
             Copy-Item (Get-ChildItem "$b/msi/*.msi.sig")[0].FullName "$out/dviewer_${version}_windows-x64.msi.sig"
             Copy-Item (Get-ChildItem "$b/nsis/*-setup.exe.sig")[0].FullName "$out/dviewer_${version}_windows-x64_setup.exe.sig"
             Copy-Item "src-tauri/target/release/dviewer.exe" "$out/dviewer_${version}_windows-x64_portable.exe"
           }
 
       - name: Sign portable executable
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        if: runner.os == 'Windows' && env.SIGNED_BUNDLE == 'true'
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -346,11 +423,15 @@ jobs:
   # One job creates the release, so three parallel bundlers cannot race to
   # create it and end up with duplicates.
   release:
-    needs: [test, bundle]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [reuse, test, bundle]
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.reuse.result == 'success' &&
+        ((needs.reuse.outputs.run-id != '' && needs.test.result == 'skipped' && needs.bundle.result == 'skipped') ||
+         (needs.reuse.outputs.run-id == '' && needs.test.result == 'success' && needs.bundle.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -358,10 +439,17 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Validate release tag and signing keys
+        run: node scripts/updater-manifest.mjs --prepare updater-build.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       - uses: actions/download-artifact@v4
         with:
+          pattern: dviewer-*
           path: artifacts
           merge-multiple: true
+          run-id: ${{ needs.reuse.outputs.run-id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Generate and sign update manifest
         env:

@@ -8,14 +8,28 @@
 | --- | --- |
 | main 푸시 | 세 OS 테스트와 `warm`을 병렬 실행. warm은 번들 없이 release 앱을 빌드해 캐시를 예열하고, Linux·macOS에서 release 스모크도 실행 |
 | PR | 테스트만. 세 러너에서 픽스처를 만든 뒤 `cargo test`(부재를 실패로 치는 `DVIEWER_FIXTURES=required` 로), 타입 체크와 프런트엔드 빌드는 Linux에서 한 번 |
-| `v*` 태그 | 테스트와 세 OS 번들을 병렬 실행하고, 둘 다 성공하면 산출물을 **초안 릴리스**에 붙임 |
-| 수동 실행 | 기본은 테스트만. `bundle` 입력을 켜면 릴리스 없이 번들만 만들어 아티팩트로 남김 |
+| `v*` 태그 | 동일 SHA의 성공한 서명 리허설 산출물을 재사용해 **초안 릴리스**를 만듦. 후보가 없으면 기존처럼 세 OS test·bundle을 실행 |
+| 수동 실행 | 기본은 테스트만. main에서 `bundle=true`면 세 OS 테스트·서명 번들·release 스모크를 수행하고 아티팩트로 남김. 다른 브랜치는 기존 비서명 번들 |
 
-잡 그래프는 main에서 `test ∥ warm`, 태그에서 `test ∥ bundle → release`입니다. push와 workflow_dispatch는 동시성 그룹이 달라 서로 취소하지 않습니다. 판올림 커밋을 푸시한 직후 warm을 기다리지 않고 번들 리허설(`gh workflow run build.yml --ref main -f bundle=true`)을 시작합니다. 같은 SHA의 리허설에서 세 OS test·bundle·release 스모크가 모두 성공해야 태그를 만듭니다. 같은 이벤트·ref 안에서는 이전 실행을 계속 취소합니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. 스모크용 Parquet 생성은 두 잡 모두 `--features custom-protocol`을 사용하고 `MACOSX_DEPLOYMENT_TARGET`을 tauri build와 같은 값으로 맞춰 기능·환경 차이에 따른 의존 크레이트 재컴파일을 피합니다. 현재 값은 Tauri 기본값인 `10.13`이며 `bundle.macOS.minimumSystemVersion` 또는 Tauri 기본값이 바뀌면 워크플로의 값도 함께 갱신합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행하고 macOS는 universal 바이너리를 디스플레이 래퍼 없이 실행해 WebKit 검사를 태그 전에 확인합니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
+잡 그래프는 main에서 `test ∥ warm`, 수동 리허설에서 `test ∥ bundle`입니다. 태그는 먼저 `reuse`가 후보를 고르고, 있으면 `reuse → release`(test·bundle 생략), 없으면 `reuse → (test ∥ bundle) → release`로 진행합니다. push와 workflow_dispatch는 동시성 그룹이 달라 서로 취소하지 않습니다. 판올림 커밋을 푸시한 직후 warm을 기다리지 않고 번들 리허설(`gh workflow run build.yml --ref main -f bundle=true`)을 시작합니다. 같은 SHA의 리허설에서 세 OS test·bundle·release 스모크가 모두 성공해야 태그를 만듭니다. 같은 이벤트·ref 안에서는 이전 실행을 계속 취소합니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. 스모크용 Parquet 생성은 두 잡 모두 `--features custom-protocol`을 사용하고 `MACOSX_DEPLOYMENT_TARGET`을 tauri build와 같은 값으로 맞춰 기능·환경 차이에 따른 의존 크레이트 재컴파일을 피합니다. 현재 값은 Tauri 기본값인 `10.13`이며 `bundle.macOS.minimumSystemVersion` 또는 Tauri 기본값이 바뀌면 워크플로의 값도 함께 갱신합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행하고 macOS는 universal 바이너리를 디스플레이 래퍼 없이 실행해 WebKit 검사를 태그 전에 확인합니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
 
 Parquet 예제를 위한 별도 예열 빌드는 하지 않습니다. 현재 rust-cache 설정은 워크스페이스 크레이트 산출물을 저장하지 않으므로, dviewer와 예제를 반복 컴파일하는 비용에 비해 추가 개발 의존성인 minisign 등의 예열 실익이 작다고 판단했습니다. Linux·macOS는 스모크용 픽스처를 만들 때 예제와 개발 의존성도 빌드합니다. macOS 앱은 universal이며 예제는 실행 호스트인 `aarch64-apple-darwin`으로 빌드합니다. Windows에서는 이 개발 의존성의 빌드 비용 일부가 bundle의 Parquet 단계로 옮겨갈 수 있습니다.
 
 main에서 번들을 만들지 않는 대신 테스트는 세 OS 모두에서 돌립니다. Linux에서만 돌리면 Windows나 macOS에서만 깨지는 변경을 태그를 밀 때까지 모릅니다. 픽스처를 거기서 만드는 이유는 [검증](verification.md) 의 CI 절에 있습니다 — 그것 없이는 열한 개가 무언가를 단언하지 않은 채 초록이었습니다.
+
+### 같은 커밋의 리허설 산출물 재사용
+
+태그 전용 `reuse` 잡은 체크아웃된 태그의 커밋 SHA로 현재 저장소의 build.yml 실행을 조회한다. 성공한 main의 `workflow_dispatch` 실행만 대상으로 하며 세 OS test·bundle 잡 성공과 Windows `Sign portable executable` 단계 성공을 확인한다. 실행 목록 API에 dispatch 입력이 없으므로 실제 번들 잡 성공으로 `bundle=true`를 확인한다. 이전 비서명 리허설은 제외한다.
+
+필요한 아티팩트는 `dviewer-linux-x86_64`, `dviewer-macos-universal`, `dviewer-windows-x64`다. 이름·개수·비어 있지 않은 크기·run id·SHA·만료 여부를 대조한다. 기본 보존 기간은 90일이지만 저장소 정책에 따라 달라질 수 있으므로 API의 `expired`와 `expires_at`을 확인한다. 조회 실패·후보 없음·누락·만료는 기존 test·bundle 경로로 폴백한다.
+
+release는 `needs: [reuse, test, bundle]`를 유지하면서 명시적 조건으로 생략된 의존 잡을 처리한다. 재사용은 test·bundle이 모두 skipped일 때만, 폴백은 둘 다 success일 때만 초안을 허용하며 취소·실패 시에는 공개 작업을 하지 않는다. selector와 release에만 `actions: read`를 추가한다. 다른 실행 다운로드에는 [공식 download-artifact v4 계약](https://github.com/actions/download-artifact/blob/v4/README.md#download-artifacts-from-other-workflow-runs-or-repositories)에 따라 `run-id`와 `github-token`을 함께 전달한다. 폴백은 현재 run-id를 사용한다.
+
+release 잡은 태그/앱 버전·서명 키를 다시 검증한 뒤 내려받은 파일로 기존 `latest.json`을 만들고 서명하여 초안에 올린다. 번들 자산은 다시 빌드하거나 서명하지 않는다. 선택 이후 아티팩트가 삭제·만료되거나 다운로드가 실패하면 초안 생성 전에 실패한다. 그 경우 태그 워크플로를 다시 실행하면 selector가 다시 조회하고 유효한 후보가 없을 때 번들 폴백을 수행한다.
+
+새 workflow를 main에 반영한 뒤 실제 `bundle=true` 리허설을 한 번 실행해 세 OS 서명 자산을 확인한다. 태그의 재사용 경로는 이후 실제 릴리스에서 처음 검증하며 가짜 태그는 만들지 않는다. 로컬 YAML·분기 검사만으로 CI의 권한·스킵 전파·아티팩트 다운로드까지 성공했다고 간주하지 않는다.
+
+절차의 목표는 약 40분에서 약 20분(리허설 15분·태그 2분·로컬 확인과 검증 3분)으로 줄이는 것이다. 이는 계획상의 예상이며 새 경로의 실측은 아니다. 2026-09-15의 성공한 v0.22.0 실행은 main 푸시 7분 2초, 리허설 8분 28초, 태그 8분 31초였다. 실행 대기·캐시·서명 자산 크기에 따라 달라지므로, 반영 후 리허설과 실제 태그 시간을 다시 기록한다.
 
 ### 산출물
 
@@ -49,7 +63,7 @@ Linux ARM(aarch64)은 아직 없습니다. 크로스 컴파일보다 ARM 러너�
 
 판올림은 package.json·package-lock.json·src-tauri/tauri.conf.json·src-tauri/Cargo.toml을 맞춘 뒤 src-tauri에서 `cargo update -p dviewer --offline`으로 Cargo.lock의 자기 패키지 버전을 갱신한다. 이 명령은 빌드나 테스트가 아니며 `git diff -- Cargo.lock`으로 의존 패키지 변경 없이 자기 버전만 바뀌었는지 확인한다. 판올림 직후의 중복 cargo test 대신 리허설의 required 테스트를 사용한다.
 
-순서는 **로컬 debug 확인 → 판올림 커밋·푸시 → 즉시 리허설 → 같은 SHA의 세 OS test·bundle·smoke 초록 확인 → 태그 → 태그 실행 → 초안 검증·공개**다. warm 완료를 따로 기다리지 않는다. 리허설 도중 main이 바뀌면 새 대상 SHA로 다시 확인한다. 성공 상태만 보지 말고 번들 잡이 건너뛰지 않았는지와 head SHA도 확인한다.
+순서는 **로컬 debug 확인 → 판올림 커밋·푸시 → 즉시 리허설 → 같은 SHA의 세 OS test·bundle·smoke 초록 확인 → 태그 → 태그 실행(유효한 리허설 아티팩트 재사용) → 초안 검증·공개**다. warm 완료를 따로 기다리지 않는다. 리허설 도중 main이 바뀌면 새 대상 SHA로 다시 확인한다. 성공 상태만 보지 말고 번들 잡이 건너뛰지 않았는지와 head SHA도 확인한다.
 
 CI 전용 실패는 관측 커밋을 먼저 넣는다. 두 바퀴의 진단·재현 안에 원인이 잡히지 않으면 그 기능을 릴리스에서 빼고 관문을 다시 검증한다.
 
@@ -65,7 +79,7 @@ Get-Content -Raw "$HOME/.tauri/dviewer.key.pub"
 
 마지막 명령의 공개키 **내용**을 `src-tauri/tauri.conf.json`의 `plugins.updater.pubkey`에 넣는다. 개인키는 저장소에 넣지 않고 별도로 백업한다. v0.14.0 부터 이 필드에 공개키가 들어 있다(키 ID `3AF6FA7C02D64C69`). 이 필드가 비어 있으면 앱은 업데이트 확인을 시작하지 않는다. 태그 빌드는 공개키·비밀키 누락 또는 태그/앱 버전 불일치 때 실패한다. 암호가 없는 키는 암호 시크릿을 비워 둔다.
 
-일반 개발·PR·수동 번들은 서명 자산 생성을 끈다. 태그 빌드만 별도 설정을 합쳐 `createUpdaterArtifacts: true`와 시크릿을 전달한다. NSIS·MSI·AppImage와 macOS `.app.tar.gz`의 `.sig`를 수집하고, Windows 포터블 exe 자체를 별도 자산으로 복사해 서명한다. 포터블 ZIP은 기존 배포용으로 유지한다.
+일반 개발·PR·main 이외 브랜치의 수동 번들은 서명 자산 생성을 끈다. 태그와 main의 `bundle=true` 리허설은 별도 설정을 합쳐 `createUpdaterArtifacts: true`와 시크릿을 전달한다. 리허설도 기존 prepare 검증 함수를 사용하되 현재 앱 버전의 예상 태그 문자열을 함수 인자로만 전달한다. Git 태그를 만들거나 실제 GitHub ref를 바꾸지 않으며, 실제 태그 경로의 버전 일치 검사는 유지한다. NSIS·MSI·AppImage와 macOS `.app.tar.gz`의 `.sig`를 수집하고, Windows 포터블 exe 자체를 별도 자산으로 복사해 서명한다. 포터블 ZIP은 기존 배포용으로 유지한다.
 
 `scripts/updater-manifest.mjs`가 형태별 자산의 존재·크기·서명 형식을 검사해 `latest.json`을 만들고 CI가 이 파일에도 서명해 `latest.json.sig`를 올린다. 플랫폼 키는 Windows 형태별 3개, macOS 두 아키텍처, Linux x86_64다. macOS 두 키는 같은 universal 아카이브를 가리킨다. `notes`는 비워 두므로 앱은 릴리스 페이지 링크를 제공한다. 나중에 노트를 매니페스트에 넣으면 매니페스트를 다시 서명해야 한다.
 
