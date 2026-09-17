@@ -21,7 +21,7 @@ export type FrameMessage =
   | { type: 'loaded'; scrollable: boolean }
   | { type: 'ready'; title: string; headings: TocEntry[]; pages?: number }
   | { type: 'page'; n: number }
-  | { type: 'rotated'; deg: number; auto: boolean }
+  | { type: 'rotated'; deg: number; auto: boolean; image?: boolean }
   | { type: 'pageText'; page: number; hasText: boolean }
   | { type: 'error'; code: 'pdfEncrypted' | 'pdfFailed'; detail?: string }
   | { type: 'scroll'; ratio: number }
@@ -122,7 +122,8 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
       return {type:'ready',title:v.title,headings,...(v.pages === undefined ? {} : {pages:v.pages as number})};
     }
     case 'page': return count(v.n) && v.n >= 1 ? {type:'page',n:v.n} : null;
-    case 'rotated': return isPdfRotation(v.deg) && typeof v.auto === 'boolean' ? {type:'rotated',deg:v.deg,auto:v.auto} : null;
+    case 'rotated': return isPdfRotation(v.deg) && typeof v.auto === 'boolean' && (v.image === undefined || typeof v.image === 'boolean')
+      ? {type:'rotated',deg:v.deg,auto:v.auto,...(v.image === undefined ? {} : {image:v.image as boolean})} : null;
     case 'pageText': return count(v.page) && v.page >= 1 && typeof v.hasText === 'boolean' ? {type:'pageText',page:v.page,hasText:v.hasText} : null;
     case 'error': return (v.code === 'pdfEncrypted' || v.code === 'pdfFailed') && (v.detail === undefined || text(v.detail,4096))
       ? {type:'error',code:v.code,...(v.detail === undefined ? {} : {detail:v.detail as string})} : null;

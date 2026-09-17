@@ -1,10 +1,22 @@
 // Trusted viewer bridge; the PDF and this iframe still have no app capabilities.
+function orientationFromProfiles(rows, cols) {
+  if (!rows.length || !cols.length) return null;
+  const density = rows.reduce((sum,n) => sum + n,0) / (rows.length * cols.length);
+  if (density < 0.01) return null;
+  const energy = (profile,span) => profile.reduce((sum,n) => sum + (n / span - density) ** 2,0) / profile.length;
+  const rowEnergy = energy(rows,cols.length), colEnergy = energy(cols,rows.length);
+  if (rowEnergy + colEnergy < 1e-6) return null;
+  // ponytail: ink profiles cannot distinguish up from down; the pill offers a half-turn.
+  if (colEnergy >= rowEnergy * 2) return 270;
+  return rowEnergy >= colEnergy * 2 ? 0 : null;
+}
 (() => {
   const load = location.search;
   const send = value => parent.postMessage({...value, load}, '*');
   let app, ready = false, failed = false, worker, workerUrl;
   let pagesLoaded = false, pendingGoto = null, applyingPage = false;
   let positionReceived = false, rotationApplied = false, pendingRotation = null, automaticRotation = 0;
+  let automaticImage = false, imageCorrection = false, cancelImageProbe;
   let initialized = false, stallTimer, stalled = false;
   const steps = {initialize:'not-started',preferences:'pending',l10n:'not-started',components:'not-started'};
   let request = 0, query = '', textGeneration = 0;
@@ -13,6 +25,7 @@
   const error = (code, cause) => {
     if (failed) return;
     failed = true; ready = false; pendingGoto = null;
+    cancelImageProbe?.();
     clearTimeout(stallTimer);
     send({type:'error',code,detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
   };
@@ -81,15 +94,22 @@
     pendingRotation = null;
     applyingPage = true;
     try {
-      if (rotation) { rotationApplied = true; app.pdfViewer.pagesRotation = rotation.deg; }
+      if (rotation) {
+        if (rotation.auto) imageCorrection = automaticImage;
+        if (rotation.deg === 0) imageCorrection = false;
+        rotationApplied = true; app.pdfViewer.pagesRotation = rotation.deg;
+      }
       if (rotation || pendingGoto !== null) app.page = targetPage;
       // Resize restores the cached view location; refresh after both setters.
       app.pdfViewer.update();
     } finally { applyingPage = false; }
     // The rotation setter emits synchronously, and emits nothing for the same angle.
-    if (rotation) send({type:'rotated',deg:app.pdfViewer.pagesRotation,auto:rotation.auto});
+    if (rotation) publishRotation(rotation.auto);
     // The setter can dispatch pagechanging synchronously; acknowledge after it returns.
     publishPage();
+  }
+  function publishRotation(auto) {
+    send({type:'rotated',deg:app.pdfViewer.pagesRotation,auto,...(imageCorrection ? {image:true} : {})});
   }
   function orientation(counts) {
     const total = counts.reduce((sum,count) => sum + count,0);
@@ -98,6 +118,7 @@
   }
   async function detectOrientation(pdf) {
     const counts = [0,0,0,0];
+    let textCount = 0;
     try {
       for (let n = 1; n <= Math.min(3,pdf.numPages); n++) {
         const page = await pdf.getPage(n);
@@ -105,7 +126,9 @@
         const content = await page.getTextContent();
         if (failed || pdf !== app.pdfDocument) return 0;
         for (const item of content.items) {
-          if (typeof item.str !== 'string' || !item.str.trim() || content.styles?.[item.fontName]?.vertical) continue;
+          if (typeof item.str !== 'string' || !item.str.trim()) continue;
+          textCount++;
+          if (content.styles?.[item.fontName]?.vertical) continue;
           const [a,b] = item.transform ?? [];
           if (!Number.isFinite(a) || !Number.isFinite(b) || (!a && !b)) continue;
           const angle = Math.abs(a) >= Math.abs(b) ? (a > 0 ? 0 : 180) : (b > 0 ? 90 : 270);
@@ -113,7 +136,49 @@
         }
       }
     } catch { return 0; /* Text extraction failure only disables automatic correction. */ }
+    if (textCount < 20 && !rotationApplied && pendingRotation === null) return detectImageOrientation(pdf);
     return orientation(counts);
+  }
+  async function detectImageOrientation(pdf) {
+    let canvas, task, timer;
+    try {
+      canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d',{alpha:false,willReadFrequently:true});
+      if (!context) return 0;
+      const start = performance.now();
+      const timeout = new Promise((_,reject) => {
+        cancelImageProbe = () => { const active = task; task = null; active?.cancel(); reject(new Error('image orientation cancelled')); };
+        timer = setTimeout(cancelImageProbe,200);
+      });
+      for (let n = 1; n <= Math.min(2,pdf.numPages); n++) {
+        const page = await Promise.race([pdf.getPage(n),timeout]);
+        if (failed || pdf !== app.pdfDocument || performance.now() - start >= 200) return 0;
+        const base = page.getViewport({scale:1,rotation:0});
+        const viewport = page.getViewport({scale:Math.min(1,256 / Math.max(base.width,base.height)),rotation:0});
+        canvas.width = Math.max(1,Math.min(256,Math.ceil(viewport.width)));
+        canvas.height = Math.max(1,Math.min(256,Math.ceil(viewport.height)));
+        task = page.render({canvas,viewport,background:'#ffffff',annotationMode:0});
+        await Promise.race([task.promise,timeout]);
+        task = null;
+        if (failed || pdf !== app.pdfDocument || performance.now() - start >= 200) return 0;
+        const {width,height} = canvas;
+        const pixels = context.getImageData(0,0,width,height).data;
+        let rows = new Uint32Array(height), cols = new Uint32Array(width);
+        for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+          const at = (y * width + x) * 4;
+          if (pixels[at] * 299 + pixels[at+1] * 587 + pixels[at+2] * 114 < 128000) { rows[y]++; cols[x]++; }
+        }
+        if (page.rotate % 180 !== 0) [rows,cols] = [cols,rows];
+        if (orientationFromProfiles(rows,cols) !== 270) return 0;
+      }
+      if (performance.now() - start >= 200) return 0;
+      automaticImage = true;
+      return 270;
+    } catch { return 0; /* A failed or slow probe must not prevent opening the PDF. */ }
+    finally {
+      clearTimeout(timer); task?.cancel(); cancelImageProbe = undefined;
+      if (canvas) { canvas.width = 0; canvas.height = 0; }
+    }
   }
   async function pageText() {
     if (!ready) return;
@@ -205,7 +270,8 @@ import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStag
         app.eventBus.on('rotationchanging',({pagesRotation}) => {
           if (failed || applyingPage) return;
           rotationApplied = true; pendingRotation = null;
-          send({type:'rotated',deg:pagesRotation,auto:false});
+          if (pagesRotation === 0) imageCorrection = false;
+          publishRotation(false);
         });
         const found = ({matchesCount}) => {
           if (!ready || !matchesCount || app.findController.state?.query !== query) return;
@@ -254,6 +320,7 @@ import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStag
   addEventListener('drop',event => { event.preventDefault(); event.stopImmediatePropagation(); },true);
   addEventListener('pagehide',() => {
     ready = false; failed = true; pendingGoto = null; textGeneration++;
+    cancelImageProbe?.();
     clearTimeout(stallTimer);
     worker?.terminate(); if (workerUrl) URL.revokeObjectURL(workerUrl);
     void app?.close();

@@ -7,6 +7,8 @@ export const en: Messages = {
   "frame.pages": "Page {n}/{total}",
   "frame.autoRotation": "Orientation corrected automatically ({deg}°)",
   "frame.undoRotation": "Undo",
+  "frame.imageRotation": "Orientation corrected automatically (image) ({deg}°)",
+  "frame.reverseRotation": "Reverse",
   "frame.noText": "This page has no text to find or copy.",
   "bookmarks.title": "Bookmarks",
   "bookmarks.scope": "Bookmark scope",

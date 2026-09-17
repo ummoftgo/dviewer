@@ -3,18 +3,30 @@ import {runInNewContext} from 'node:vm';
 import {expect,test,vi} from 'vitest';
 import {parseFrameMessage,type FrameStall} from './messages';
 
-type TextPage = {rotate:number; items:unknown[]; styles?:Record<string,{vertical:boolean}>};
+type TextPage = {rotate:number; items:unknown[]; styles?:Record<string,{vertical:boolean}>;
+  pixels?:'vertical'|'horizontal'|'blank'; render?:'fail'|'pending'; elapsed?:number};
 const textItems = (a:number,b:number,n=20) => Array.from({length:n},() => ({str:'word',transform:[a,b,-b,a,0,0],fontName:'F1'}));
 function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}]) {
   const listeners = new Map<string,(event: unknown) => void>();
   const bus = new Map<string,(event?:{pagesRotation:number}) => void>();
-  const messages: {type:string;n?:number;deg?:number;auto?:boolean;name?:string;code?:string;detail?:string;load?:string;snapshot?:FrameStall}[] = [];
+  const messages: {type:string;n?:number;deg?:number;auto?:boolean;image?:boolean;name?:string;code?:string;detail?:string;load?:string;snapshot?:FrameStall}[] = [];
   const workerListeners = new Map<string,(event:unknown) => void>();
   let workerBlob!: Blob, resolveError!: () => void;
   const errored = new Promise<void>(resolve => {resolveError=resolve;});
   const attempts: number[] = [];
   const rotationAttempts:number[] = [], order:string[] = [], textPages:number[] = [];
   let rotation = 0, textFailure = false;
+  let drawn:TextPage, elapsed=0;
+  const renders:{page:number;width:number;height:number;rotation:number;cancel:ReturnType<typeof vi.fn>;finish:() => void}[] = [];
+  const canvas = {width:0,height:0,getContext:() => ({getImageData() {
+    const data = new Uint8ClampedArray(canvas.width * canvas.height * 4).fill(255);
+    for (let y=0;y<canvas.height;y++) for (let x=0;x<canvas.width;x++) {
+      if ((drawn.pixels === 'vertical' && x % 16 < 6) || (drawn.pixels === 'horizontal' && y % 16 < 6)) {
+        const at=(y * canvas.width+x)*4; data[at]=data[at+1]=data[at+2]=0;
+      }
+    }
+    return {data};
+  }})};
   let initialize!: () => void, current = 1, scrolled = 1, location = 1, accepts = false, resolveReady!: () => void;
   const ready = new Promise<void>(resolve => {resolveReady = resolve;});
   let resolveInitialization!: () => void;
@@ -46,6 +58,16 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     pdfDocument:{numPages:3,getOutline:async () => {if (outlineError) throw outlineError; return [{title:'Second',dest:[1]}];},
       getPage:async (n:number) => ({rotate:pages[(n-1) % pages.length].rotate,getTextContent:async () => {
         textPages.push(n); if (textFailure) throw new Error('text failed'); return pages[(n-1) % pages.length];
+      },getViewport:({scale,rotation}:{scale:number;rotation:number}) => ({width:320*scale,height:640*scale,rotation}),
+      render({viewport}:{viewport:{rotation:number}}) {
+        drawn=pages[(n-1) % pages.length]; elapsed+=drawn.elapsed ?? 0;
+        let finish!:() => void, reject!:(cause:Error) => void;
+        const promise=new Promise<void>((resolve,fail) => {finish=resolve; reject=fail;});
+        const cancel=vi.fn(() => reject(new Error('render cancelled')));
+        renders.push({page:n,width:canvas.width,height:canvas.height,rotation:viewport.rotation,cancel,finish});
+        if (drawn.render === 'fail') reject(new Error('render failed'));
+        else if (drawn.render !== 'pending') finish();
+        return {promise,cancel};
       }})},
     eventBus:{on(name:string,listener:(event?:{pagesRotation:number}) => void) {bus.set(name,listener);}},
     get page() {return current;},
@@ -57,17 +79,18 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   };
   class Worker {addEventListener(name:string,listener:(event:unknown) => void) {workerListeners.set(name,listener);} terminate() {}}
   class WorkerUrl extends URL {static createObjectURL(blob:Blob) {workerBlob=blob; return 'blob:null/test';} static revokeObjectURL() {}}
-  runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8'),{
+  const orientationFromProfiles = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\norientationFromProfiles;',{
     parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}}},
-    document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},addEventListener(_name:string,listener:() => void) {initialize=listener;}},
+    document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},createElement:() => canvas,addEventListener(_name:string,listener:() => void) {initialize=listener;}},
     navigator:{language:'en-GB',locale:'C'},
-    performance:{getEntriesByType(type:string) {return type === 'navigation' ? [{responseStatus:200}] : resourceEntries;}},
+    performance:{now:() => Date.now()+elapsed,getEntriesByType(type:string) {return type === 'navigation' ? [{responseStatus:200}] : resourceEntries;}},
     location:{search:'?g=0',href:'http://127.0.0.1:123/a/_/pdfjs/web/viewer.html'},
     Worker,URL:WorkerUrl,Blob,setTimeout,clearTimeout,
     addEventListener(name:string,listener:(event:unknown) => void) {listeners.set(name,listener);},
   });
   return {
-    attempts,messages,errored,resourceEntries,rotationAttempts,order,textPages,
+    attempts,messages,errored,resourceEntries,rotationAttempts,order,textPages,renders,canvas,
+    orientationFromProfiles:orientationFromProfiles as (rows:number[],cols:number[]) => number|null,
     failText() {textFailure=true;},
     numPages(n:number) {app.pdfDocument.numPages=n; app.pagesCount=n;},
     bootstrap() {return workerBlob.text();},
@@ -92,6 +115,109 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     close() {listeners.get('pagehide')!({});},
   };
 }
+
+test('ink profile energy distinguishes stripes, rejects sparse and uniform pages, and normalizes rectangular canvases',() => {
+  const {orientationFromProfiles:direction}=viewer();
+  expect(direction([8,8,8,8,0,0,0,0],Array(8).fill(4))).toBe(0);
+  expect(direction(Array(8).fill(4),[8,8,8,8,0,0,0,0])).toBe(270);
+  expect(direction(Array(32).fill(4),[32,32,32,32,0,0,0,0])).toBe(270);
+  expect(direction([8,8,8,8,...Array(28).fill(0)],Array(8).fill(4))).toBe(0);
+  expect(direction([4,4,4,4,0,0,0,0],[4,4,4,4,0,0,0,0])).toBeNull();
+  expect(direction([3,1,3,1],[4,0,2,2])).toBe(270);
+  expect(direction(Array(8).fill(4),Array(8).fill(4))).toBeNull();
+  expect(direction(Array(8).fill(0),Array(8).fill(0))).toBeNull();
+  expect(direction([1,...Array(99).fill(0)],[1,...Array(99).fill(0)])).toBeNull();
+  expect(direction(Array(100).fill(1),[100,...Array(99).fill(0)])).toBe(270);
+  expect(direction([0,...Array(99).fill(1)],[99,...Array(99).fill(0)])).toBeNull();
+  expect(direction([],[])).toBeNull();
+});
+
+test('image orientation needs agreement, respects page Rotate and bounds rendering to the first two small canvases',async () => {
+  const vertical:TextPage={rotate:0,items:[],pixels:'vertical'};
+  const horizontal:TextPage={rotate:0,items:[],pixels:'horizontal'};
+  for (const [pages,expected] of [
+    [[vertical,vertical,horizontal],270], [[horizontal,horizontal],0], [[vertical,horizontal],0],
+    [[vertical,{...vertical,pixels:'blank'}],0], [[{...vertical,rotate:90}],0],
+    [[{...horizontal,rotate:90}],270], [[vertical],270],
+  ] as [TextPage[],number][]) {
+    const pdf=viewer(undefined,false,pages); pdf.numPages(pages.length);
+    await pdf.initialize(); await pdf.ready(); pdf.goto(1); pdf.loaded();
+    expect(pdf.messages.find(m=>m.type==='rotated')).toEqual({type:'rotated',deg:expected,auto:expected!==0,
+      ...(expected ? {image:true} : {}),load:'?g=0'});
+    expect(pdf.renders.length).toBeLessThanOrEqual(2);
+    for (const render of pdf.renders) expect(render).toMatchObject({width:128,height:256,rotation:0});
+    if (pages.length===3) expect(pdf.renders.map(r=>r.page)).toEqual([1,2]);
+    expect(pdf.canvas.width).toBe(0); expect(pdf.canvas.height).toBe(0); pdf.close();
+  }
+});
+
+test('sufficient or unreadable text never falls back to pixels; saved zero and manual turns win',async () => {
+  for (const page of [
+    {rotate:0,items:textItems(1,0),pixels:'vertical'},
+    {rotate:0,items:[...textItems(0,1,15),...textItems(1,0,5)],pixels:'vertical'},
+    {rotate:0,items:textItems(0,1),styles:{F1:{vertical:true}},pixels:'vertical'},
+  ] as TextPage[]) {
+    const pdf=viewer(undefined,false,[page]); pdf.numPages(1); await pdf.initialize(); await pdf.ready(); pdf.goto(1); pdf.loaded();
+    expect(pdf.renders).toEqual([]); expect(pdf.rotationAttempts).toEqual([0]); pdf.close();
+  }
+  for (const choice of ['saved','manual','failed'] as const) {
+    const pdf=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical'}]); await pdf.initialize();
+    if (choice==='saved') pdf.goto(2,undefined,0);
+    else if (choice==='manual') pdf.manual(90);
+    else pdf.failText();
+    await pdf.ready(); pdf.goto(2); pdf.loaded();
+    expect(pdf.renders).toEqual([]);
+    expect(pdf.rotationAttempts).toEqual([choice==='manual' ? 90 : 0]); pdf.close();
+  }
+});
+
+test('reversing an image correction retains its pill provenance until undo, while restored angles are not auto',async () => {
+  const pdf=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical'}]);
+  await pdf.initialize(); await pdf.ready(); pdf.goto(2); pdf.loaded();
+  pdf.rotate(90); expect(pdf.page).toBe(2); pdf.rotate(0); expect(pdf.page).toBe(2);
+  expect(pdf.messages.filter(m=>m.type==='rotated')).toEqual([
+    {type:'rotated',deg:270,auto:true,image:true,load:'?g=0'},
+    {type:'rotated',deg:90,auto:false,image:true,load:'?g=0'},
+    {type:'rotated',deg:0,auto:false,load:'?g=0'},
+  ]); pdf.close();
+  for (const rotation of [0,90,270]) {
+    const restored=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical'}]);
+    await restored.initialize(); await restored.ready(); restored.goto(2,undefined,rotation); restored.loaded();
+    expect(restored.messages.find(m=>m.type==='rotated')).toEqual({type:'rotated',deg:rotation,auto:false,load:'?g=0'}); restored.close();
+  }
+});
+
+test('failed or synchronously slow image probes do not rotate or continue sampling',async () => {
+  for (const page of [
+    {rotate:0,items:[],pixels:'vertical',render:'fail'},
+    {rotate:0,items:[],pixels:'vertical',elapsed:201},
+  ] as TextPage[]) {
+    const pdf=viewer(undefined,false,[page]); await pdf.initialize(); await pdf.ready(); pdf.goto(2); pdf.loaded();
+    expect(pdf.renders).toHaveLength(1);
+    expect(pdf.messages.some(m=>m.type==='error')).toBe(false);
+    expect(pdf.messages.find(m=>m.type==='rotated')).toMatchObject({deg:0,auto:false});
+    expect(pdf.canvas.width).toBe(0); pdf.close();
+  }
+});
+
+test('image probe deadline and closing cancel the active render and discard partial evidence',async () => {
+  vi.useFakeTimers();
+  try {
+    for (const stop of ['deadline','close'] as const) {
+      const pdf=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical',render:'pending'}]);
+      await pdf.initialize(); const ready=pdf.ready(); await vi.advanceTimersByTimeAsync(0);
+      expect(pdf.renders).toHaveLength(1);
+      if (stop==='close') {pdf.close(); await vi.advanceTimersByTimeAsync(0);}
+      else {await vi.advanceTimersByTimeAsync(200); await ready; pdf.goto(2); pdf.loaded();}
+      expect(pdf.renders[0].cancel).toHaveBeenCalledTimes(1);
+      expect(pdf.renders).toHaveLength(1); expect(pdf.canvas.width).toBe(0);
+      expect(pdf.messages.some(m=>m.type==='rotated' && m.auto)).toBe(false);
+      if (stop==='close') expect(pdf.messages.some(m=>m.type==='ready')).toBe(false);
+      else expect(pdf.messages.find(m=>m.type==='rotated')).toMatchObject({deg:0,auto:false});
+      pdf.close(); expect(vi.getTimerCount()).toBe(0);
+    }
+  } finally {vi.useRealTimers();}
+});
 
 test('PDF orientation uses text matrices minus page Rotate and ignores sparse, vertical or invalid text',async () => {
   const samples = [

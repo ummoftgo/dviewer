@@ -12,6 +12,8 @@ export const ko = {
   "frame.pages": "{n}/{total} 페이지",
   "frame.autoRotation": "방향 자동 교정됨 ({deg}°)",
   "frame.undoRotation": "되돌리기",
+  "frame.imageRotation": "방향 자동 교정됨(이미지) ({deg}°)",
+  "frame.reverseRotation": "반대로",
   "frame.noText": "현재 페이지는 텍스트가 없어 찾기·복사할 수 없습니다.",
   "bookmarks.title": "책갈피",
   "bookmarks.scope": "책갈피 범위",

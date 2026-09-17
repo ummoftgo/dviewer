@@ -7,6 +7,8 @@ export const ja: Messages = {
   "frame.pages": "{n}/{total} ページ",
   "frame.autoRotation": "向きを自動補正しました（{deg}°）",
   "frame.undoRotation": "元に戻す",
+  "frame.imageRotation": "向きを自動補正しました（画像・{deg}°）",
+  "frame.reverseRotation": "反対向き",
   "frame.noText": "このページには検索・コピーできるテキストがありません。",
   "bookmarks.title": "ブックマーク",
   "bookmarks.scope": "ブックマークの範囲",

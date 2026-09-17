@@ -7,6 +7,8 @@ export const zhHans: Messages = {
   "frame.pages": "第 {n}/{total} 页",
   "frame.autoRotation": "已自动校正方向（{deg}°）",
   "frame.undoRotation": "撤销",
+  "frame.imageRotation": "已自动校正方向（图像・{deg}°）",
+  "frame.reverseRotation": "反向",
   "frame.noText": "本页没有可查找或复制的文本。",
   "bookmarks.title": "书签",
   "bookmarks.scope": "书签范围",

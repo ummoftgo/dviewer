@@ -25,6 +25,8 @@ test('PDF readiness, page and error messages preserve bounded typed fields', () 
   }
   for (const deg of [-90,360,45,'90',NaN]) expect(parseFrameMessage({type:'rotated',deg,auto:true})).toBeNull();
   for (const auto of [undefined,null,0,'true']) expect(parseFrameMessage({type:'rotated',deg:90,auto})).toBeNull();
+  for (const image of [true,false]) expect(parseFrameMessage({type:'rotated',deg:90,auto:false,image})).toEqual({type:'rotated',deg:90,auto:false,image});
+  for (const image of [null,1,'true',{}]) expect(parseFrameMessage({type:'rotated',deg:270,auto:true,image})).toBeNull();
   expect(parseFrameMessage({type:'ready',title:'PDF',pages:2,headings:[]})).toEqual({type:'ready',title:'PDF',pages:2,headings:[]});
   for (const pages of [0,-1,1.5,NaN,'2']) expect(parseFrameMessage({type:'ready',title:'PDF',pages,headings:[]})).toBeNull();
   expect(parseFrameMessage({type:'page',n:2})).toEqual({type:'page',n:2});

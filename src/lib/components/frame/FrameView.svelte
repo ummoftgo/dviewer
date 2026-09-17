@@ -117,6 +117,7 @@
       case 'rotated':
         if (tab.kind !== 'pdf') break;
         tab.frameRotation = message.deg; tab.frameAutoRotation = message.auto;
+        tab.frameImageRotation = message.image === true;
         tab.rememberPosition({kind:'pdf',page:tab.framePage,rotation:message.deg});
         break;
       case 'pageText':
@@ -193,8 +194,11 @@
     <div class="status" role="status">
       {#if tab.kind === 'pdf' && tab.frameReady}<span>{t('frame.pages',{n:tab.framePage,total:tab.framePages})}</span>{/if}
       {#if tab.kind === 'pdf' && tab.frameHasText === false}<span>{t('frame.noText')}</span>{/if}
-      {#if tab.kind === 'pdf' && tab.frameAutoRotation}
-        <span data-auto-rotation={tab.frameRotation}>{t('frame.autoRotation',{deg:tab.frameRotation ?? 0})}</span>
+      {#if tab.kind === 'pdf' && (tab.frameAutoRotation || tab.frameImageRotation)}
+        <span data-auto-rotation={tab.frameRotation} data-image-rotation={tab.frameImageRotation ? 'true' : undefined}>{t(tab.frameImageRotation ? 'frame.imageRotation' : 'frame.autoRotation',{deg:tab.frameRotation ?? 0})}</span>
+        {#if tab.frameImageRotation}
+          <button type="button" data-action="pdf-rotation-reverse" onclick={() => post({type:'rotate',deg:((tab.frameRotation ?? 0) + 180) % 360})}>{t('frame.reverseRotation')}</button>
+        {/if}
         <button type="button" data-action="pdf-rotation-reset" onclick={() => post({type:'rotate',deg:0})}>{t('frame.undoRotation')}</button>
       {/if}
       {#if tab.frameExternal}<span>{t('frame.allowed')}</span>{/if}
