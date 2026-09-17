@@ -9,9 +9,80 @@ import { enhanceCode } from './codeControls';
 import { measureColumns } from './measureTable';
 import { enhanceTables } from './enhance';
 import { recommendWidths, type TableState } from './tables';
+import { waitSearch } from './searchSmoke';
 
 const require = (value: unknown, message: string) => { if (!value) throw new Error(message); };
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+export async function checkTableFit(tab: DocTab) {
+  await waitSearch(() => !!document.querySelector('main [data-position-ready="true"] .table-wrap'),
+    'long-token table enhancement did not finish',60_000);
+  const root = document.querySelector<HTMLElement>('main article.markdown-body')!;
+  const wrap = root.querySelector<HTMLElement>('.table-wrap')!;
+  const viewport = wrap.querySelector<HTMLElement>('.table-viewport')!;
+  const table = viewport.querySelector('table')!;
+  const state = tab.tables.get(Number(wrap.dataset.table))!;
+  const saved = {defaultMode:settings.markdownTableMode,tabMode:tab.markdownTableMode,state:{...state}};
+  const handle = enhanceTables(root,tab.tables,tab.markdownTableMode);
+  const toggle = wrap.querySelector<HTMLButtonElement>('[data-action="mode"]')!;
+  const ready = (mode: string) => waitSearch(() => wrap.dataset.fitted === 'true' && wrap.dataset.mode === mode,
+    `long-token table did not finish ${mode} layout`,15_000);
+  const geometry = () => ({table:table.scrollWidth,viewport:viewport.clientWidth,scroll:viewport.scrollWidth});
+  const fits = () => {
+    const size = geometry();
+    require(size.table <= size.viewport && size.scroll <= size.viewport,
+      `long-token fill overflowed: ${JSON.stringify(size)}`);
+    require(Math.abs(table.getBoundingClientRect().width - viewport.clientWidth) < 1,
+      'long-token fill did not use the document width');
+  };
+  try {
+    await document.fonts.ready;
+    settings.markdownTableMode = 'fill';
+    tab.markdownTableMode = 'fill';
+    state.mode = 'fill';
+    delete state.fillRatios;
+    delete state.scrollWidths;
+    handle.refresh();
+    await ready('fill');
+    fits();
+    const filled = geometry();
+    for (const selector of ['td a','td code']) {
+      const text = table.querySelector(selector)!;
+      require(text, `long-token fixture is missing ${selector}`);
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      require(range.getClientRects().length > 1, `${selector} did not wrap inside its fill column`);
+    }
+    const grip = table.querySelectorAll<HTMLElement>('.table-grip')[1];
+    grip.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true,cancelable:true}));
+    await ready('fill');
+    require(!!state.fillRatios, 'fill resize did not retain manual ratios');
+    fits();
+    wrap.querySelector<HTMLButtonElement>('[data-action="recommend"]')!.click();
+    await ready('fill');
+    require(!state.fillRatios, 'recommendation did not clear manual ratios');
+    fits();
+    toggle.click();
+    await ready('scroll');
+    const scrolling = geometry();
+    require(scrolling.scroll > scrolling.viewport, 'long-token scroll mode lost its natural width');
+    toggle.click();
+    await ready('fill');
+    fits();
+    const copy = root.cloneNode(true) as HTMLElement;
+    cleanCopyDom(copy);
+    require(!copy.querySelector('[data-fitted]')
+      && copy.querySelector('td a')?.textContent === table.querySelector('td a')?.textContent,
+      'table fitting changed copied content or leaked its completion marker');
+    return {filled,scrolling};
+  } finally {
+    settings.markdownTableMode = saved.defaultMode;
+    tab.markdownTableMode = saved.tabMode;
+    Object.assign(state,{scrollWidths:undefined,fillRatios:undefined},saved.state);
+    handle.refresh();
+    await ready(saved.state.mode);
+  }
+}
 
 export async function checkToc(tab: DocTab): Promise<void> {
   const root = document.querySelector<HTMLElement>('article.markdown-body')!;

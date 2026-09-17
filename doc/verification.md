@@ -2,6 +2,16 @@
 
 ← [README](../README.md)
 
+## M49 — 마크다운 표 채우기의 긴 토큰 넘침
+
+자동 채우기의 추천 결과를 `fillWidths`로 제한한다. 기존 고정 표 레이아웃·줄바꿈 CSS와 수동 폭은 유지한다. 단위 검사는 추천 최소 폭이 문서 폭을 넘는 경우, UI 최소 폭 합 바로 아래·같음·바로 위, 이미 맞는 추천 비율의 보존을 검사한다. 프런트 검증은 vitest 394개·check 오류/경고 0(4개 로케일×483키)이 통과했다.
+
+생성기에서 `markdown-table-fit.md`의 긴 URL·인라인 코드 표와 별도 `markdownTableFit` 단계를 추가했다. 설정·탭·표 상태를 명시적으로 fill로 지정하고 finally에서 복원한다. `data-fitted` 뒤 표와 `.table-viewport`의 scrollWidth/clientWidth를 비교하고, 텍스트의 실제 줄바꿈 기하·수동 조절·추천 복원·scroll 왕복·복사 결과도 확인한다. 생성기 기준 스모크 매니페스트는 50개다.
+
+사용자의 앱 종료·cargo 사용 승인 뒤, 각 스모크 직전 `tasklist`로 dviewer 미실행을 확인했다. `DVIEWER_FIXTURES=required cargo test` 555개가 한 번에 통과했다. 추천 폭 제한만 제거한 변형을 새 프런트·debug 바이너리로 빌드하자 `markdownTableFit` 1개가 실패했고 다른 픽스처 49개와 왕복 2개는 통과했다. 실패 시 표 scrollWidth는 17,849px, 뷰포트 clientWidth는 1,072px였다. 원본 SHA-256 일치로 바이트 복원을 확인한 뒤 다시 빌드한 정상 debug는 픽스처 50개와 왕복 2개가 통과했다. 정상 fill의 표·뷰포트·스크롤 폭은 모두 1,072px였고 scroll 모드의 넘침은 유지됐다.
+
+개발 incremental과 dviewer dev 산출물을 정리하고 main `0d67961`에 rebase했다(이미 같은 기준이어서 코드 변경 없음). release 스모크·Linux/macOS·clippy·사용자 화면 재확인은 실행하지 않았다. 위 치수는 기능 검증이며 성능 실측은 없다.
+
 ## M45 — 라벨 책갈피
 
 2026-09-17 `m45-current`는 main `5f49700`에서 사용자 화면 결함을 재현했다. 기존 스모크는 `pendingAnchor`로 이동한 뒤 `bookmarkHeading` 갱신까지 기다렸지만, 실제 추가 함수는 다음 애니메이션 프레임 이전의 제목을 읽을 수 있었다. 두 번째 절 중간으로 `scroller.scrollTop`을 직접 바꾸고 scroll 이벤트 직후 툴바 버튼을 클릭하도록 바꾸자 수정 전 debug에서 책갈피 기본 라벨 검사가 실패했다(픽스처 1개 실패·48개 통과, 왕복 2개 통과). 절 중간의 `activeHeading` 계산 자체는 단위 검사에서 정상이다. 추가 대상은 패널을 열기 전에 계산하므로 패널 열림 이후의 effect 정리를 이 재현의 원인으로 보지 않았다.

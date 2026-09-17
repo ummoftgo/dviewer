@@ -174,7 +174,7 @@ const enhancedTables = new WeakMap<HTMLElement, EnhancedTables>();
 export function enhanceTables(root: HTMLElement, states: Map<number, TableState>, defaultMode: TableMode): EnhancedTables {
   const existing = enhancedTables.get(root);
   if (existing) return existing;
-  const layouts = new Map<Element, () => void>();
+  const layouts = new Map<Element, { wrap: HTMLElement; layout: () => void }>();
   const refreshers: (() => void)[] = [];
   const cleanups: (() => void)[] = [];
   const pending = new Set<() => void>();
@@ -189,8 +189,11 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
   };
   const observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
-      const layout = layouts.get(entry.target);
-      if (layout) schedule(layout);
+      const entryLayout = layouts.get(entry.target);
+      if (entryLayout) {
+        entryLayout.wrap.dataset.fitted = 'false';
+        schedule(entryLayout.layout);
+      }
     }
   });
 
@@ -349,6 +352,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
     }
 
     function layout() {
+      wrap.dataset.fitted = 'false';
       labels();
       if (!table.checkVisibility() || viewport.clientWidth === 0) return;
       const left = viewport.scrollLeft;
@@ -359,7 +363,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
         if (state.fillRatios) applyWidths(fillWidths(state.fillRatios, available, minimum));
         else {
           intrinsic ??= measureColumns(table, root);
-          applyWidths(recommendWidths(intrinsic, available, minimum));
+          applyWidths(fillWidths(recommendWidths(intrinsic, available, minimum), available, minimum));
         }
       } else if (state.scrollWidths) {
         applyWidths(state.scrollWidths.map((width) => Math.max(minimum, width)));
@@ -382,6 +386,7 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
           grip.setAttribute("aria-valuemax", String(Math.round(count === 1 ? widths[column] : widths[column] + widths[neighbor] - minimum)));
         } else grip.removeAttribute("aria-valuemax");
       });
+      wrap.dataset.fitted = 'true';
     }
 
     toggle.onclick = () => {
@@ -396,8 +401,8 @@ export function enhanceTables(root: HTMLElement, states: Map<number, TableState>
       layout();
     };
     recommend.onclick = () => { delete state.fillRatios; layout(); };
-    refreshers.push(() => { natural = undefined; intrinsic = undefined; schedule(layout); });
-    layouts.set(viewport, layout);
+    refreshers.push(() => { natural = undefined; intrinsic = undefined; wrap.dataset.fitted = 'false'; schedule(layout); });
+    layouts.set(viewport, { wrap, layout });
     observer.observe(viewport);
     layout();
     cleanups.push(() => {

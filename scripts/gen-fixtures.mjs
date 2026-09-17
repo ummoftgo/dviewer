@@ -403,6 +403,15 @@ await writeFile(path.join(OUT,'bookmarks.html'), `<!doctype html><meta charset="
 <section><h2 id="second">Second section</h2><p>Scroll here and press Ctrl+D inside the HTML frame.</p></section>
 <section><h2 id="third">A very long heading for checking labels and document ordering</h2></section>`);
 
+const tableFitUrl = 'https://example.com/' + 'unbrokentoken'.repeat(160);
+await writeFile(path.join(OUT, 'markdown-table-fit.md'), `# Long tokens in a narrow table
+
+| Kind | Content |
+|---|---|
+| URL | [${tableFitUrl}](${tableFitUrl}) |
+| Code | \`${'inline_token_'.repeat(160)}\` |
+`);
+
 let readingMarkdown = '# 읽기 기능 조합 확인 😀\n\n';
 readingMarkdown += '## 짧은 열과 긴 문장 — 아주 긴 목차 이름에서도 현재 위치를 구분할 수 있어야 합니다 😀\n\n';
 readingMarkdown += '| ID | 설명 | 낱말 |\n|---|---|---|\n';
@@ -1332,6 +1341,7 @@ const SMOKE = [
   { file: "long-markdown.md", expect: "prose" },
   { file: 'session-position.md', expect: 'prose', then: 'sessionPosition' },
   { file: 'bookmarks.md', expect: 'prose', then: 'bookmarks' },
+  { file: 'markdown-table-fit.md', expect: 'prose', then: 'markdownTableFit' },
   { file: "markdown-reading.md", expect: "prose" },
   { file: "markdown-search-large.md", expect: "prose" },
   { file: "markdown-copy.md", expect: "prose" },

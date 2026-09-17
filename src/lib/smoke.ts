@@ -22,7 +22,7 @@ import { checkTextReading, checkTextRawVirtual } from "./components/table/smoke"
 import { checkCollectionWidths } from "./components/collection/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
-import { checkMarkdownCopy, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
+import { checkMarkdownCopy, checkTableFit, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
 import { checkDiagramCopy, checkMathCopy } from './components/markdown/imageSmoke';
 import { checkStyledCopy } from './components/markdown/styledSmoke';
 import { checkStickyTables } from './components/markdown/stickySmoke';
@@ -108,6 +108,7 @@ async function settle(tab: DocTab, expect: string): Promise<Outcome> {
  * can see it happen.
  */
 async function follow(tab: DocTab, what: string): Promise<Outcome> {
+  if (what === 'markdownTableFit') return {ok:true,stage:what,metrics:await checkTableFit(tab)};
   if (what === 'bookmarks') return {ok:true,stage:what,metrics:await checkBookmarks(tab)};
   if (what === 'sessionPosition') return {ok:true,stage:what,metrics:await checkSessionPosition(tab)};
   if (what === "htmlFrame") { return {ok:true,stage:what,metrics:await checkHtmlFrame(tab)}; }

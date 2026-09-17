@@ -44,6 +44,22 @@ test("a narrow page scrolls the minimum total instead of violating the minimum",
   expect(fillWidths([40, 200, 160], 100, 48)).toEqual([48, 48, 48]);
 });
 
+test('fill bounds recommended long-token widths by the viewport and only overflows for the UI minimum', () => {
+  const columns = [{min:40,max:80},{min:4000,max:4000}];
+  for (const available of [95,96,97,600]) {
+    const widths = fillWidths(recommendWidths(columns,available,48),available,48);
+    expect(widths.every(width => width >= 48)).toBe(true);
+    expect(sum(widths)).toBeCloseTo(Math.max(available,96));
+  }
+  expect(fillWidths(recommendWidths(columns,600,48),600,48)).toEqual([48,552]);
+});
+
+test('fill leaves recommendations that already fit unchanged', () => {
+  const recommended = recommendWidths([{min:80,max:300},{min:120,max:900}],600,48);
+  const widths = fillWidths(recommended,600,48);
+  widths.forEach((width,index) => expect(width).toBeCloseTo(recommended[index]));
+});
+
 test("unmeasured weights have a finite even fallback", () => {
   expect(fillWidths([], 300, 48)).toEqual([]);
   expect(fillWidths([0, NaN, Infinity], 300, 48)).toEqual([100, 100, 100]);
