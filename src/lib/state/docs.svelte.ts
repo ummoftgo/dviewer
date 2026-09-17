@@ -1,7 +1,7 @@
 import type { CellSelection } from "../components/grid/preview";
 import { compatiblePosition, type Position } from '../position';
 import type { FrameStall, PdfStage } from '../frame/messages';
-import type { BookmarkJump } from '../bookmarks';
+import type { BookmarkAnchor, BookmarkJump } from '../bookmarks';
 import { family, mainTabs, subtabLabel } from "../subtabs";
 import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
@@ -195,6 +195,7 @@ export class DocTab {
   pendingAnchor = $state<string | null>(null);
   pendingBookmark = $state<BookmarkJump | null>(null);
   bookmarkHeading = $state<string | null>(null);
+  readBookmarkAnchor = $state<(() => BookmarkAnchor | null) | null>(null);
   frameReady = $state(false);
   frameContentLoaded = $state(false);
   position = $state<Position>();
@@ -396,6 +397,7 @@ export class DocTab {
     this.pendingAnchor = null;
     this.pendingBookmark = null;
     this.bookmarkHeading = null;
+    this.readBookmarkAnchor = null;
     this.frameReady = false; this.frameToc = []; this.frameScroll = 0;
     this.framePage = 1; this.framePages = 0; this.frameHasText = null;
     this.frameBlocked = 0; this.frameProbe = null;

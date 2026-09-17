@@ -1,5 +1,6 @@
 import type { DocSource, TocEntry } from './ipc';
 import { sameSource } from './source';
+import { prosePosition, type HeadingPosition } from './position';
 
 export type BookmarkSource = Extract<DocSource, {type:'file' | 'url'}>;
 export interface BookmarkAnchor { id: string; text: string }
@@ -36,6 +37,13 @@ export function readBookmarks(value: unknown): Bookmark[] {
 export function currentAnchor(headings: readonly TocEntry[], id: string): BookmarkAnchor {
   const heading = headings.find(entry => entry.id === id) ?? headings[0];
   return heading ? {id:heading.id,text:heading.text} : {id:'',text:''};
+}
+
+export function proseAnchor(headings: readonly TocEntry[], positions: readonly HeadingPosition[], top: number, max: number): BookmarkAnchor | null {
+  if (!headings.length) return {id:'',text:''};
+  const id = prosePosition(positions,top,max).heading ?? positions[0]?.id;
+  const heading = headings.find(entry => entry.id === id);
+  return heading ? {id:heading.id,text:heading.text} : null;
 }
 
 export function resolveAnchor(anchor: BookmarkAnchor, headings: readonly TocEntry[]): BookmarkAnchor | null {

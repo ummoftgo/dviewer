@@ -55,6 +55,8 @@ CSV, TSV, JSONL, text, log, SQLite, Excel, Parquet, and derived tables fill spar
 
 In rendered Markdown and HTML opened from a file or URL, use the toolbar add button or `Ctrl+D` to label the current heading. The heading text is the default label; Enter saves and Escape cancels. Documents without headings bookmark the top. Open the panel next to the TOC button or with `Ctrl+Shift+B`; it also remains available in focus mode.
 
+Markdown finds the section from the scroll position at the moment you add or reassign a bookmark. Adding immediately after scrolling into a section saves that section's heading.
+
 Current-document bookmarks follow heading order; All shows newest additions first, including closed documents. Listing and filtering never opens or parses closed documents. Filter labels and document names, rename with double-click, F2 or the row menu, and delete with x. Clicking a row opens its source and locates the heading by id, then by exact text. A failed lookup shows “Not found”; use “Assign current location” in the row menu while viewing the same document to update the anchor without changing its label or creation time.
 
 Bookmarks persist independently of tabs, sessions and recent files. “Clear all bookmarks” in Settings deletes the entire list after confirmation.

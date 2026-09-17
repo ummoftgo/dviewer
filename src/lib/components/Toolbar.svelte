@@ -9,7 +9,7 @@
   import { DOC_KINDS, encodingChoices, readsBytes, warningMessage, type DocKind } from "../ipc";
   import { t } from "../i18n";
   import { supportsRaw } from '../viewMode';
-  import { bookmarkTarget, bookmarks } from '../state/bookmarks.svelte';
+  import { canBookmark, bookmarks } from '../state/bookmarks.svelte';
   import { workspace, type DocTab } from "../state/docs.svelte";
   import { pageWidthLabel, pageWidthOptions, settings } from "../state/settings.svelte";
 
@@ -142,7 +142,7 @@
     <button class="icon-btn" data-action="bookmarks-toggle" onclick={onToggleBookmarks} aria-pressed={bookmarksOpen}
       title={t('bookmarks.toggle')} aria-label={t('bookmarks.toggle')}><Icon name="bookmark" /></button>
     {#if tab.kind === 'markdown' || tab.kind === 'html'}
-      <button class="icon-btn" data-action="bookmark-add" onclick={onAddBookmark} disabled={!bookmarks.ready || !bookmarkTarget(tab)}
+      <button class="icon-btn" data-action="bookmark-add" onclick={onAddBookmark} disabled={!bookmarks.ready || !canBookmark(tab)}
         title={t('bookmarks.add')} aria-label={t('bookmarks.add')}><Icon name="plus" /></button>
     {/if}
 

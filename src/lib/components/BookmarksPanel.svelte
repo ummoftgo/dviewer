@@ -3,7 +3,7 @@
   import { bookmarkDocument, selectBookmarks, type Bookmark, type BookmarkAnchor, type BookmarkSource } from '../bookmarks';
   import { t } from '../i18n';
   import { sameSource } from '../source';
-  import { bookmarks, bookmarkTarget } from '../state/bookmarks.svelte';
+  import { bookmarks, bookmarkTarget, canBookmark } from '../state/bookmarks.svelte';
   import type { DocTab } from '../state/docs.svelte';
   import Icon from './Icon.svelte';
   import ContextMenu from './ContextMenu.svelte';
@@ -27,7 +27,6 @@
   let menu = $state<{item:Bookmark; x:number; y:number; button:HTMLButtonElement} | null>(null);
   const headings = $derived(tab?.view === 'frame' ? tab.frameToc : tab?.toc ?? []);
   const entries = $derived(selectBookmarks(bookmarks.entries,tab?.meta.source ?? null,headings,all,query));
-  const target = $derived(bookmarkTarget(tab));
 
   $effect(() => {
     if (!editing?.id) return;
@@ -55,11 +54,10 @@
   }
 
   function menuItems(item: Bookmark): MenuItem[] {
-    const destination = target;
     return [
       {label:t('bookmarks.rename'),hint:'F2',action:() => rename(item)},
-      {label:t('bookmarks.reassign'),disabled:!destination || !sameSource(item.source,destination.source),
-        action:() => { if (destination) bookmarks.reassign(item.id,destination); }},
+      {label:t('bookmarks.reassign'),disabled:!canBookmark(tab) || !tab || !sameSource(item.source,tab.meta.source),
+        action:() => { const destination = bookmarkTarget(tab); if (destination) bookmarks.reassign(item.id,destination); }},
     ];
   }
 

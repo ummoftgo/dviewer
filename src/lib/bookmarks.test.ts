@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { bookmarkDocument, currentAnchor, readBookmarks, resolveAnchor, selectBookmarks, type Bookmark } from './bookmarks';
+import { bookmarkDocument, currentAnchor, proseAnchor, readBookmarks, resolveAnchor, selectBookmarks, type Bookmark } from './bookmarks';
 
 const item = {id:'saved',label:'why',source:{type:'file',path:'/doc.md'},anchor:{id:'part',text:'Section'},created:123};
 const headings = [{id:'first',text:'First',level:1},{id:'part',text:'Section',level:2}];
@@ -26,6 +26,16 @@ test('navigation resolves by id then exact text and distinguishes missing from d
   expect(resolveAnchor({id:'renamed-id',text:'Section'},headings)).toEqual(item.anchor);
   expect(resolveAnchor({id:'removed',text:'Gone'},headings)).toBeNull();
   expect(resolveAnchor({id:'',text:''},[])).toEqual({id:'',text:''});
+});
+
+test('prose bookmarks use the section under the current scroll position, with top reserved for headingless documents', () => {
+  const positions = [{id:'first',top:32},{id:'part',top:900}];
+  expect(proseAnchor(headings,positions,1200,2000)).toEqual(item.anchor);
+  expect(proseAnchor(headings,positions,0,2000)).toEqual({id:'first',text:'First'});
+  expect(proseAnchor(headings,[positions[1]],0,2000)).toEqual(item.anchor);
+  expect(proseAnchor(headings,[],1200,2000)).toBeNull();
+  expect(proseAnchor(headings,[{id:'stale',top:32}],1200,2000)).toBeNull();
+  expect(proseAnchor([],[],1200,2000)).toEqual({id:'',text:''});
 });
 
 test('current documents sort by heading order including text fallback and top; all sorts by recency without changing storage', () => {

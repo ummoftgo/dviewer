@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getValue, setValue } from '../persist';
-import { Bookmarks, bookmarkTarget } from './bookmarks.svelte';
+import { Bookmarks, bookmarkTarget, canBookmark } from './bookmarks.svelte';
+import { proseAnchor } from '../bookmarks';
 import { DocTab, workspace } from './docs.svelte';
 import { toasts } from './toast.svelte';
 import type { DocMeta } from '../ipc';
@@ -55,11 +56,43 @@ test('failed saves keep the in-memory list and the next write can persist the co
 test('only ready rendered file/url Markdown or HTML can supply a bookmark target', () => {
   const tab = page();
   expect(bookmarkTarget(tab)).toBeNull();
-  tab.bookmarkHeading = 'part'; tab.toc = [{...anchor,level:2}];
+  tab.readBookmarkAnchor = () => anchor; tab.toc = [{...anchor,level:2}];
   expect(bookmarkTarget(tab)).toEqual({source,anchor});
   tab.mode = 'raw'; expect(bookmarkTarget(tab)).toBeNull(); tab.mode = 'rendered';
   tab.meta.source = {type:'text'}; expect(bookmarkTarget(tab)).toBeNull();
   tab.meta.source = {type:'archiveEntry',root:source,entries:[]}; expect(bookmarkTarget(tab)).toBeNull();
+});
+
+test('adding reads live prose coordinates even when the heading tracker is stale or unset', () => {
+  const tab = page();
+  tab.toc = [{id:'first',text:'First',level:1},{...anchor,level:2}];
+  let top = 0;
+  const read = vi.fn(() => proseAnchor(tab.toc,[{id:'first',top:32},{id:'part',top:900}],top,2000));
+  tab.readBookmarkAnchor = read;
+  expect(canBookmark(tab)).toBe(true);
+  expect(read).not.toHaveBeenCalled();
+  expect(bookmarkTarget(tab)?.anchor.id).toBe('first');
+  top = 1200;
+  for (const tracked of ['first','',null]) {
+    tab.bookmarkHeading = tracked;
+    expect(bookmarkTarget(tab)).toEqual({source,anchor});
+  }
+  tab.readBookmarkAnchor = () => null;
+  expect(bookmarkTarget(tab)).toBeNull();
+  tab.invalidate();
+  expect(tab.readBookmarkAnchor).toBeNull();
+  expect(canBookmark(tab)).toBe(false);
+});
+
+test('HTML still requires a loaded frame and its heading report', () => {
+  const tab = page(); tab.meta.kind = 'html'; tab.meta.view = 'frame';
+  tab.frameToc = [{...anchor,level:2}];
+  tab.bookmarkHeading = 'part';
+  expect(bookmarkTarget(tab)).toBeNull();
+  tab.frameContentLoaded = true;
+  expect(bookmarkTarget(tab)).toEqual({source,anchor});
+  tab.bookmarkHeading = null;
+  expect(bookmarkTarget(tab)).toBeNull();
 });
 
 test('bookmark navigation supersedes restoration and keeps a pending anchor until its matching result', async () => {

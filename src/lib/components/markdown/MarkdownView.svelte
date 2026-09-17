@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { prosePosition, proseTop } from '../../position';
-  import { resolveAnchor } from '../../bookmarks';
+  import { proseAnchor, resolveAnchor } from '../../bookmarks';
   import { bookmarks } from '../../state/bookmarks.svelte';
   import { i18n, t } from "../../i18n";
   import { errorMessage, renderMarkdown, highlightLanguages, type HighlightLanguage } from "../../ipc";
@@ -48,11 +48,16 @@
 
   $effect(() => {
     void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody, settings.fontBodyFallback];
-    if (!article || !scroller || enhancing) return;
-    const target = tab;
-    const stop = trackHeading(article, scroller, tab.toc.map(entry => entry.id), id => { activeId = id; target.bookmarkHeading = id; },
+    const target = tab, host = article, viewport = scroller;
+    if (!host || !viewport || target.html === null || enhancing) return;
+    target.readBookmarkAnchor = () => {
+      const headings = headingPositions(host,viewport,target.toc.map(entry => entry.id));
+      const inset = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      return proseAnchor(target.toc,headings,viewport.scrollTop + inset,Math.max(0,viewport.scrollHeight - viewport.clientHeight));
+    };
+    const stop = trackHeading(host, viewport, tab.toc.map(entry => entry.id), id => { activeId = id; target.bookmarkHeading = id; },
       (headings,top,max) => tab.rememberPosition(prosePosition(headings,top,max)));
-    return () => { stop(); target.bookmarkHeading = null; };
+    return () => { stop(); target.bookmarkHeading = null; target.readBookmarkAnchor = null; };
   });
 
   // The HTML is sanitised in Rust before it reaches us — see markdown.rs.

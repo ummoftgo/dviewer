@@ -5,14 +5,22 @@ import { t } from '../i18n';
 import { workspace, type DocTab } from './docs.svelte';
 import { toasts } from './toast.svelte';
 
+export function canBookmark(tab: DocTab | null): boolean {
+  return !!tab && tab.status === 'ready' && tab.mode === 'rendered'
+    && (tab.kind === 'markdown' || tab.kind === 'html')
+    && (tab.meta.source.type === 'file' || tab.meta.source.type === 'url')
+    && (tab.view === 'prose' ? tab.readBookmarkAnchor !== null
+      : tab.view === 'frame' && tab.frameContentLoaded && tab.bookmarkHeading !== null);
+}
+
 export function bookmarkTarget(tab: DocTab | null): {source:BookmarkSource; anchor:BookmarkAnchor} | null {
-  if (!tab || tab.status !== 'ready' || tab.mode !== 'rendered' || tab.bookmarkHeading === null
-    || (tab.kind !== 'markdown' && tab.kind !== 'html') || (tab.view !== 'prose' && tab.view !== 'frame')) return null;
+  if (!tab || !canBookmark(tab)) return null;
   const source = tab.meta.source;
   if (source.type !== 'file' && source.type !== 'url') return null;
-  if (tab.view === 'frame' && !tab.frameContentLoaded) return null;
+  const anchor = tab.view === 'prose' ? tab.readBookmarkAnchor!() : currentAnchor(tab.frameToc,tab.bookmarkHeading!);
+  if (!anchor) return null;
   return {source:source.type === 'file' ? {type:'file',path:source.path} : {type:'url',url:source.url},
-    anchor:currentAnchor(tab.view === 'frame' ? tab.frameToc : tab.toc, tab.bookmarkHeading)};
+    anchor};
 }
 
 export class Bookmarks {

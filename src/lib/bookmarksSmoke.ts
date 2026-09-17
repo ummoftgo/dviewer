@@ -23,9 +23,12 @@ export async function checkBookmarks(first: DocTab) {
     await waitSearch(() => !!scroller() && first.toc.length >= 2 && !button('bookmark-add')?.disabled,
       'Bookmark fixture or add button is not ready',15000);
     const second = first.toc[1];
-    first.pendingAnchor = second.id;
-    await waitSearch(() => first.pendingAnchor === null && first.bookmarkHeading === second.id && first.scrollTop > 100,
-      'Bookmark fixture did not reach its second heading');
+    const host = scroller()!, heading = document.getElementById(second.id)!;
+    const middle = heading.getBoundingClientRect().top - host.getBoundingClientRect().top - host.clientTop + host.scrollTop + 100;
+    host.scrollTop = middle;
+    host.dispatchEvent(new Event('scroll'));
+    require(Math.abs(host.scrollTop - middle) < 2, 'Bookmark fixture did not scroll into its second section');
+    // Click before the heading tracker's animation frame, just as a scroll followed by Add can do.
     button('bookmark-add')!.click();
     await waitSearch(() => !!document.querySelector<HTMLInputElement>('[data-action="bookmark-label"]'), 'Bookmark label editor missing');
     const input = document.querySelector<HTMLInputElement>('[data-action="bookmark-label"]')!;
@@ -36,6 +39,17 @@ export async function checkBookmarks(first: DocTab) {
     require(item.anchor.id === second.id && item.label === second.text, 'Bookmark saved the wrong heading');
     await bookmarks.flush();
     require(readBookmarks(await getValue('bookmarks'))[0]?.id === item.id, 'Bookmark did not reach the store');
+    const third = first.toc[2], keyboardHost = scroller()!, keyboardHeading = document.getElementById(third.id)!;
+    keyboardHost.scrollTop += keyboardHeading.getBoundingClientRect().top - keyboardHost.getBoundingClientRect().top - keyboardHost.clientTop + 100;
+    keyboardHost.dispatchEvent(new Event('scroll'));
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'d',ctrlKey:true,bubbles:true}));
+    await waitSearch(() => document.querySelector<HTMLInputElement>('[data-action="bookmark-label"]')?.value === third.text,
+      'Ctrl+D did not capture the current section with the panel already open');
+    document.querySelector<HTMLInputElement>('[data-action="bookmark-label"]')!.form!.requestSubmit();
+    await waitSearch(() => bookmarks.entries.length === 2, 'Ctrl+D bookmark did not save');
+    require(bookmarks.entries[1].anchor.id === third.id, 'Ctrl+D saved the wrong heading');
+    bookmarks.remove(bookmarks.entries[1].id);
+    await tick();
     button('bookmarks-all')!.click(); await tick();
     other = workspace.newTab(); await tick();
     await waitSearch(() => !!document.querySelector('main .start-pane') || !scroller(), 'Other tab did not render');
@@ -66,7 +80,7 @@ export async function checkBookmarks(first: DocTab) {
     await waitSearch(() => bookmarks.entries.length === 0 && !button('bookmark-open'), 'Bookmark deletion left a row');
     await bookmarks.flush();
     require(readBookmarks(await getValue('bookmarks')).length === 0, 'Bookmark deletion did not reach the store');
-    return {heading:second.id,returnedTop,reopened:current.id !== first.id,alignment};
+    return {heading:second.id,keyboardHeading:third.id,returnedTop,reopened:current.id !== first.id,alignment};
   } catch (cause) {
     throw new Error(`${String(cause)}; alignment=${JSON.stringify(alignment)}`);
   } finally {
