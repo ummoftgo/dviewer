@@ -1306,3 +1306,29 @@ Windows 생성기를 다시 실행해 smoke.json48항목을 확인했다. image-
 생성기가 쓴 sideways.pdf는 두 페이지에 회전 텍스트를 열두 항목씩 배치한다. Windows 매니페스트의 pdfOrientation 분기는 rotated 완료와 data-auto-rotation을 확인하고 실제 되돌리기 버튼을 눌러 0도·auto:false·같은 페이지 저장을 검증한다. 기존 report.pdf의 목차·이동·찾기 검사는 유지한다. 사용자 앱 종료 신호 뒤 npm run build → cargo build --features custom-protocol → debug smoke를 한 번 실행했다. 에이전트는 include_str!이므로 새 바이너리 빌드가 필수다. 로그는 .agent-works/m43b-*.log, 원본 결과 사본은 .agent-works/m43b-sweep.jsonl이다. 실제 사용자 PDF의 시각적 정확성과 재실행 화면 확인은 별도다.
 
 debug incremental과 dviewer dev 산출물 508개·4.1GiB를 정리했다. main 8d9718e의 M49 위로 충돌 없이 rebase했으며 range-diff에서 두 구현 커밋의 패치가 동일함을 확인했다. 통합 트리의 vitest·check를 다시 통과했다. 스모크는 rebase 전 50개 결과이며 M49를 합친 트리의 스모크는 다시 실행하지 않았다.
+
+## M43c — 이미지 PDF의 글줄 방향 추정
+
+텍스트가 부족한 PDF는 별도의 작은 canvas로 앞 두 쪽의 행·열 잉크 프로파일을 검사한다. 단위 테스트는 정규화한 분산·희소/균일·비슷한 에너지·비율과 잉크 경계·/Rotate·두 쪽 일치·캔버스 크기·추출 실패·예산 초과·닫기 취소·저장값과 수동 회전 우선순위·반대로 후 되돌리기 유지를 검증한다. 실제 PDF.js의 렌더·메시지·DOM 연결은 아래 Windows 스모크로 확인했다.
+
+| 검증 | 결과 |
+| --- | --- |
+| 전체 vitest (변형 원복 후) | 405개 / 38파일 통과 |
+| 경계 보강 후 에이전트·메시지 검사 | 33개 / 2파일 통과 |
+| npm run check | 오류 0·경고 0, 4로케일 × 487키 |
+| Svelte autofixer | FrameView·DocTab issues 0, 기존 effect·Map 제안은 유지 |
+| 이미지 판정 상한 | 앞 2쪽·긴 변 최대 256px·전체 이미지 탐색 예산 200ms |
+| 픽스처 | sideways-image.pdf·upright-image.pdf 각각 2쪽, 16,176바이트 |
+| 이전 PDF 픽스처 비교 | report.pdf·sideways.pdf·image-only.pdf 모두 이전 생성기와 바이트 동일 |
+| 에너지 비 2 → 0 변형 debug 스모크 | upright-image.pdf만 실패, 다른 52개·왕복 2개 통과 |
+| 원본 복원 | 18,163바이트·SHA-256 일치 |
+| 새 프런트·원복 debug 스모크 | 53개·왕복 2개 통과, 실패 0 |
+| sideways-image / upright-image | 221ms / 212ms |
+| 텍스트 PDF / HTML 대조군 | report.pdf 497ms / report.html 1,289ms |
+| Rust 테스트·clippy·release·비Windows 실제 스모크 | 이번 과제에서 실행하지 않음 |
+
+생성기는 무압축 DeviceGray 비트맵의 원시 바이트와 정확한 xref를 쓴다. 새 파일은 글꼴이나 회전 텍스트가 없는 세로/가로 줄무늬 대조군이다. 스모크는 `rotated` 수신값과 알약 DOM을 확인하고 실제 반대로·되돌리기 버튼을 누른다. 정상 원본 결과는 sideways-image에서 감지 270도·반대로 90도·최종 0도·페이지 2 유지, upright-image에서 감지 0도·auto:false다. 변형은 upright-image에 기대 0도 대신 270도·auto:true가 와 실패했다. 임의 대기시간이나 픽셀 색 비교로 통과시키지 않았다.
+
+변형과 원복 각각 npm run build → cargo build --features custom-protocol → debug smoke를 직렬로 실행했다. 원복 SHA-256은 `4a7970056aad9c6d2cf1e60cecf4b017759fbda2301bb41a7941c94b991b2766`이다. 로그·원본 결과는 `.agent-works/m43c-mutation-smoke.{log,jsonl}`, `m43c-debug-smoke.{log,jsonl}`, `m43c-mutation-restored.log`, `m43c-restored-vitest.log`, `m43c-smoke-check.log`, `m43c-fixture-check.log`에 남겼다. 표의 시간은 기능 검증 시간이며 성능 전후 비교가 아니다. 사용자 실제 Print To PDF 문서의 시각적 적합성은 계획 세션이 별도로 확인한다. 저장된 회전은 이미지 추정보다 우선한다.
+
+종료 후 debug incremental과 dviewer dev 산출물 508개·4.1GiB를 정리했다. 이번 과제의 픽스처 비교 사본과 변형 백업도 제거했으며 검증 로그와 생성기 픽스처는 남겼다. release·의존 크레이트와 다른 작업의 자료는 보존했다.

@@ -1400,6 +1400,8 @@ const SMOKE = [
   ...(process.platform === 'win32' ? [
     { file: 'report.pdf', expect: 'frame', then: 'pdfFrame' },
     { file: 'sideways.pdf', expect: 'frame', then: 'pdfOrientation' },
+    { file: 'sideways-image.pdf', expect: 'frame', then: 'pdfImageOrientation' },
+    { file: 'upright-image.pdf', expect: 'frame', then: 'pdfImageUpright' },
   ] : []),
 ];
 

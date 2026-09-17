@@ -113,7 +113,9 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
   if (what === 'sessionPosition') return {ok:true,stage:what,metrics:await checkSessionPosition(tab)};
   if (what === "htmlFrame") { return {ok:true,stage:what,metrics:await checkHtmlFrame(tab)}; }
   if (what === 'pdfFrame') { return {ok:true,stage:what,metrics:await checkPdfFrame(tab)}; }
-  if (what === 'pdfOrientation') { return {ok:true,stage:what,metrics:await checkPdfFrame(tab,true)}; }
+  if (what === 'pdfOrientation' || what === 'pdfImageOrientation' || what === 'pdfImageUpright') {
+    return {ok:true,stage:what,metrics:await checkPdfFrame(tab,what === 'pdfOrientation' ? 'text' : what === 'pdfImageOrientation' ? 'image' : 'upright')};
+  }
   if (what === 'relativeLinks') return checkRelativeLinks(tab);
   if (what === "collectionWidths") {
     await checkCollectionWidths(tab);
