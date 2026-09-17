@@ -811,3 +811,5 @@ PDF 초기화 진단은 에이전트 시작·webviewerloaded·initializedPromise
 worker-imported 후 8초 동안 초기화 완료 신호가 없으면 스톨 스냅샷을 한 번만 보낸다. 문서·뷰어·preferences·언어·폰트 상태, 옵션 키 수, navigation 상태 및 최근 자원 15개의 경로·상태·시간·크기를 담되 4,096자로 제한한다. 지원되지 않는 Performance 필드는 null이며, transferSize 0을 요청 실패로 해석하지 않는다. 타이머는 정상 초기화·오류·pagehide에서 취소하고 frameStall은 다시 열 때 비운다. 스톨·오류 수신 때도 서버 기록을 갱신한다.
 
 PDF.js의 initializedPromise는 initialize 성공 때만 resolve되고 실패 시 reject되지 않는다. 따라서 미완료 약속만으로 내부 await의 무한대기를 단정할 수 없다. initialize·createL10n·_initializeViewerComponents의 반환 약속을 관측해 각 단계 상태를 남기고 예외는 직접 전달한 뒤 그대로 다시 던진다. preferences 읽기의 거부는 PDF.js가 원래 처리하므로 스냅샷 상태로만 남긴다. 관측 타이머가 대기 작업을 취소하거나 대체 설정으로 우회하지는 않는다.
+
+이 판의 PDF 지원은 Windows로 제한한다. 매직·확장자·MIME 판별은 유지하고, 파일·URL·붙여넣기·압축 항목의 열기 및 파일 재읽기가 판별 뒤 공통 지원 검사를 거친다. 비Windows는 Unsupported 오류로 거부하므로 드롭·세션 복원·URL에서도 제한을 우회하지 못한다. 단일 ZIP의 자동 열기 거부는 기존처럼 ZIP 목록에 이유를 표시한다. 파일 선택기의 PDF 필터는 Windows에서만 보이되 실제 플랫폼 판정은 Rust의 cfg!(windows)가 맡는다. 정적 fileAssociations에는 pdf를 유지한다. 생성기는 Windows에서만 PDF 두 파일을 만들고 report.pdf 스모크를 넣는다(Windows48개, 다른 OS47개). WebKit 진단은 남겨 후속 판에서 조사한다.

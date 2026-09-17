@@ -87,6 +87,7 @@ pub(crate) fn reload_document(doc: &Document) -> Result<DocMeta> {
     }
     let bytes = Arc::new(bytes);
     let kind = source::detect_kind(&title, &bytes);
+    source::ensure_supported(kind)?;
     let decoded = if !kind.reads_bytes() {
         encoding::verbatim(bytes.clone())
     } else if let Some(encoding) = snapshot.chosen_encoding {

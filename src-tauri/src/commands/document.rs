@@ -32,6 +32,7 @@ pub async fn open_path(
             let (bytes, title) = source::ungzip(bytes, &title)?;
             let bytes = Arc::new(bytes);
             let kind = source::detect_kind(&title, &bytes);
+            source::ensure_supported(kind)?;
             let source = DocSource::File {
                 path: path.to_string_lossy().into_owned(),
             };
@@ -113,6 +114,7 @@ pub async fn open_url(
         (kind, encoding::verbatim(Arc::clone(&bytes)))
     };
 
+    source::ensure_supported(kind)?;
     if kind == DocKind::Zip {
         let opened = super::open_archive(id, bytes, title, DocSource::Url { url })?;
         return Ok(state.insert(window.label(), opened).meta());
@@ -150,6 +152,7 @@ pub fn open_text(
     // fallback is only reachable if it forgets to.
     let title = title.unwrap_or_else(|| "Untitled".to_owned());
     let kind = kind.unwrap_or_else(|| source::detect_kind(&title, &decoded.bytes));
+    source::ensure_supported(kind)?;
 
     Ok(state
         .insert(window.label(), Document::new(

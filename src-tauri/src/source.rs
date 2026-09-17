@@ -13,6 +13,27 @@ use crate::state::DocKind;
 /// RAM, so we refuse rather than swap the machine to death.
 pub const MAX_URL_BYTES: u64 = 512 * 1024 * 1024;
 
+pub fn ensure_supported(kind: DocKind) -> Result<()> {
+    supported_on(kind, cfg!(windows))
+}
+
+fn supported_on(kind: DocKind, windows: bool) -> Result<()> {
+    if kind == DocKind::Pdf && !windows { Err(Error::Unsupported) } else { Ok(()) }
+}
+
+#[cfg(test)]
+#[test]
+fn pdf_support_is_windows_only_without_changing_detection() {
+    let pdf = detect_kind("document.bin", b"%PDF-1.7\n");
+    assert_eq!(pdf, DocKind::Pdf);
+    assert_eq!(supported_on(pdf, false), Err(Error::Unsupported));
+    assert_eq!(supported_on(pdf, true), Ok(()));
+    assert_eq!(ensure_supported(pdf), supported_on(pdf, cfg!(windows)));
+    for kind in [DocKind::Html, DocKind::Markdown, DocKind::Json, DocKind::Zip] {
+        assert_eq!(supported_on(kind, false), Ok(()));
+    }
+}
+
 const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 const JSON_EXTS: &[&str] = &["json", "geojson", "har", "ipynb"];
 /// One record per line, so the table is the reading that matches the format.

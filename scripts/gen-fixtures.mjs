@@ -1305,7 +1305,7 @@ addEventListener('message', async event => {
 </script></body></html>\n`);
 
 // --- the smoke manifest ------------------------------------------------------
-await writePdfFixtures(OUT);
+if (process.platform === 'win32') await writePdfFixtures(OUT);
 // What each fixture is *for*, which is knowledge only this file has. The
 // harness opens the list and checks each against `expect`, so a fixture added
 // without a line here is a fixture nothing exercises — and that omission is
@@ -1377,7 +1377,7 @@ const SMOKE = [
   { file: "single-locked.zip", expect: "archive" },
   // Keep the isolated HTML frame last while investigating macOS slowdown.
   { file: "report.html", expect: "frame", then: "htmlFrame" },
-  { file: 'report.pdf', expect: 'frame', then: 'pdfFrame' },
+  ...(process.platform === 'win32' ? [{ file: 'report.pdf', expect: 'frame', then: 'pdfFrame' }] : []),
 ];
 
 /**

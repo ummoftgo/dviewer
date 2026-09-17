@@ -85,6 +85,7 @@ pub enum Error {
 
     // --- opening ------------------------------------------------------------
     EmptyPaste,
+    Unsupported,
     UnknownEncoding { name: String },
 
     // --- the network --------------------------------------------------------
@@ -208,6 +209,7 @@ impl Error {
             Error::UpdateUnavailable => "updateUnavailable",
             Error::UpdateReopenArgs => "updateReopenArgs",
             Error::EmptyPaste => "emptyPaste",
+            Error::Unsupported => "unsupported",
             Error::UnknownEncoding { .. } => "unknownEncoding",
             Error::BadUrl { .. } => "badUrl",
             Error::UnsupportedScheme => "unsupportedScheme",
@@ -354,6 +356,7 @@ mod tests {
             Error::UpdateUnavailable,
             Error::UpdateReopenArgs,
             Error::EmptyPaste,
+            Error::Unsupported,
             Error::UnknownEncoding { name: "x".into() },
             Error::BadUrl { url: "x".into() },
             Error::UnsupportedScheme,

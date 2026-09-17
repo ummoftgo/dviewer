@@ -10,11 +10,12 @@ import { t } from "./i18n";
  * language can change while the app is open.
  */
 function filters() {
+  const windows = navigator.userAgent.includes('Windows');
   return [
     {
       name: t("files.documents"),
     extensions: [
-      "md", "markdown", "mdx", "txt", "html", "htm", "pdf",
+      "md", "markdown", "mdx", "txt", "html", "htm", ...(windows ? ['pdf'] : []),
       "json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb",
       "yaml", "yml", "toml",
       "xml", "xhtml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml",
@@ -23,7 +24,7 @@ function filters() {
   },
   { name: t("files.markdown"), extensions: ["md", "markdown", "mdown", "mkd", "mdx", "txt"] },
   { name: t("format.html"), extensions: ["html", "htm", "xhtml"] },
-  { name: 'PDF', extensions: ['pdf'] },
+  ...(windows ? [{ name: 'PDF', extensions: ['pdf'] }] : []),
   { name: t("files.tree"), extensions: ["json", "jsonc", "jsonl", "ndjson", "geojson", "har", "ipynb", "yaml", "yml", "toml", "xml", "svg", "rss", "atom", "xsd", "xsl", "xslt", "plist", "kml", "gpx", "opml"] },
   { name: t("files.table"), extensions: ["csv", "tsv", "tab"] },
   { name: t("files.all"), extensions: ["*"] },

@@ -1222,3 +1222,16 @@ warm run35220937353의 두 OS는 worker-imported 뒤 준비 신호가 없었다.
 | dev 정리 | incremental 제거, cargo clean617파일6.0GiB |
 
 Rust는 최근 20개 유지·순서·404/206·토큰/쿼리 제거·문서 간 격리·폐기 후 초기화를 확인한다. VM 회귀는 가상 시간으로 7,999ms에는 없고 8,000ms에 한 번 나오는 스냅샷, 최근 자원15개·상태와 경로 정리, 초기화/닫기/오류 시 취소를 확인한다. 초기화 함수가 거부됐지만 완료 약속은 계속 미완료인 경우도 직접 오류 전달로 잡는다. 파서는 자료형·목록/문자열/직렬화 길이·발신 프레임과 세대를 검증한다. FrameView·docs.svelte.ts autofixer issues0. 로그는 .agent-works/m43-webkit2-*.log, 원본 스모크는 로컬 임시 디렉터리 dviewer-smoke-MfMlkG/sweep.jsonl이다. release·clippy·Linux/macOS 재실행은 하지 않았다. 다음 warm의 last/stall/detail이 마지막 관측 근거이며 세 OS에서 확인한다.
+
+### PDF: Windows 전용(이 판) — 2026-09-17
+
+WebKit 관측 두 라운드 뒤 이 판의 PDF 지원을 Windows로 제한했다. 판별은 그대로 두고 열기·재읽기에서 비Windows PDF를 Unsupported로 거부한다. 공통 정책 회귀는 Windows 허용·비Windows 거부 및 다른 형식 보존을 검사한다. 직접 파일·URL(MIME 판별 포함)·붙여넣기·압축 항목·파일 재읽기 호출부에 같은 검사를 적용했다.
+
+| 첫 커밋 검사 | 결과 |
+| --- | --- |
+| DVIEWER_FIXTURES=required cargo test | 555 통과 |
+| npm test | 373 통과, 36파일 |
+| npm run check | 오류0·경고0, 4로케일×460키 |
+| 생성기·파일 선택기 조건식 모의 실행 | win32: PDF 생성·필터 포함/48항목, darwin·linux: PDF 제외/47항목 |
+
+Windows 생성기를 다시 실행해 smoke.json48항목을 확인했다. image-only.pdf는 화면 확인용으로만 생성하며 기존 스모크 수를 늘리지 않았다. fileAssociations의 pdf는 정적으로 남는다. 로그는 .agent-works/m43-platform1-*.log. 비Windows 실제 앱 검증은 main 푸시 뒤 warm에서 확인한다. WebKit 근본 원인 조사는 후속 판으로 넘긴다.

@@ -8,6 +8,7 @@
 export const ko = {
   "error.pdfEncrypted": "암호 PDF는 아직 지원하지 않습니다.",
   "error.pdfFailed": "PDF를 읽지 못했습니다.",
+  "error.unsupported": "PDF는 이 판에서 Windows에서만 지원합니다. macOS·Linux는 다음 판.",
   "frame.pages": "{n}/{total} 페이지",
   "frame.noText": "현재 페이지는 텍스트가 없어 찾기·복사할 수 없습니다.",
   "settings.restoreSession": "시작할 때 이전 문서와 읽던 위치 복원",

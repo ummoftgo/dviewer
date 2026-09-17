@@ -177,6 +177,7 @@ fn entry_document(
     // disk goes through.
     let (bytes, title) = source::ungzip(DocBytes::from(body), name)?;
     let kind = source::detect_kind(&title, &bytes);
+    source::ensure_supported(kind)?;
     // A database arriving as bytes is an image, and an image whose header says
     // "write-ahead log" cannot be read from one. See `sqlite::adopt_image` —
     // and see `commands::document::open_url`, which does the same for a
