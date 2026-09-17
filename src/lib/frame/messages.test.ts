@@ -17,6 +17,14 @@ test('PDF diagnostics admit only known stages and bounded error strings from the
 });
 
 test('PDF readiness, page and error messages preserve bounded typed fields', () => {
+  for (const deg of [0,90,180,270]) for (const auto of [true,false]) {
+    const frame={} as Window, data={type:'rotated',deg,auto,load:'?g=1'};
+    expect(frameMessage({source:frame,data},frame,'?g=1')).toEqual({type:'rotated',deg,auto});
+    expect(frameMessage({source:frame,data},frame,'?g=2')).toBeNull();
+    expect(frameMessage({source:{} as Window,data},frame,'?g=1')).toBeNull();
+  }
+  for (const deg of [-90,360,45,'90',NaN]) expect(parseFrameMessage({type:'rotated',deg,auto:true})).toBeNull();
+  for (const auto of [undefined,null,0,'true']) expect(parseFrameMessage({type:'rotated',deg:90,auto})).toBeNull();
   expect(parseFrameMessage({type:'ready',title:'PDF',pages:2,headings:[]})).toEqual({type:'ready',title:'PDF',pages:2,headings:[]});
   for (const pages of [0,-1,1.5,NaN,'2']) expect(parseFrameMessage({type:'ready',title:'PDF',pages,headings:[]})).toBeNull();
   expect(parseFrameMessage({type:'page',n:2})).toEqual({type:'page',n:2});

@@ -232,6 +232,8 @@ export class DocTab {
   frameScroll = $state(0);
   framePage = $state(1);
   framePages = $state(0);
+  frameRotation = $state<number>();
+  frameAutoRotation = $state(false);
   frameHasText = $state<boolean | null>(null);
   frameBlocked = $state(0);
   frameProbe = $state<string | null>(null);
@@ -400,6 +402,7 @@ export class DocTab {
     this.readBookmarkAnchor = null;
     this.frameReady = false; this.frameToc = []; this.frameScroll = 0;
     this.framePage = 1; this.framePages = 0; this.frameHasText = null;
+    this.frameRotation = undefined; this.frameAutoRotation = false;
     this.frameBlocked = 0; this.frameProbe = null;
     this.frameError = null; this.frameUrlPort = null; this.frameLoaded = false;
     this.frameServed = null; this.frameCsp = []; this.frameAgentStarted = false;

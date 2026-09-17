@@ -4,7 +4,7 @@ export type Position =
   | { kind: 'grid'; row: number; collection?: string }
   | { kind: 'tree'; path: string }
   | { kind: 'raw'; line: number }
-  | { kind: 'pdf'; page: number }
+  | { kind: 'pdf'; page: number; rotation?: number }
   | { kind: 'frame'; ratio: number };
 
 const natural = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
@@ -19,13 +19,16 @@ export function readPosition(value: unknown): Position | undefined {
     case 'prose': return ratio(pos.ratio) && (pos.heading === undefined || name(pos.heading))
       ? {kind:'prose', ratio:pos.ratio, ...(pos.heading === undefined ? {} : {heading:pos.heading})} : undefined;
     case 'frame': return ratio(pos.ratio) ? {kind:'frame',ratio:pos.ratio} : undefined;
-    case 'pdf': return natural(pos.page) && pos.page >= 1 ? {kind:'pdf',page:pos.page} : undefined;
+    case 'pdf': return natural(pos.page) && pos.page >= 1 && (pos.rotation === undefined || isPdfRotation(pos.rotation))
+      ? {kind:'pdf',page:pos.page,...(pos.rotation === undefined ? {} : {rotation:pos.rotation as number})} : undefined;
     case 'raw': return natural(pos.line) ? {kind:'raw',line:pos.line} : undefined;
     case 'grid': return natural(pos.row) && (pos.collection === undefined || name(pos.collection))
       ? {kind:'grid',row:pos.row,...(pos.collection === undefined ? {} : {collection:pos.collection})} : undefined;
     case 'tree': return name(pos.path) ? {kind:'tree',path:pos.path} : undefined;
   }
 }
+
+export const isPdfRotation = (value: unknown): value is number => value === 0 || value === 90 || value === 180 || value === 270;
 
 export interface HeadingPosition { id: string; top: number }
 export function prosePosition(headings: readonly HeadingPosition[], top: number, max: number): Extract<Position,{kind:'prose'}> {

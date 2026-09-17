@@ -97,7 +97,8 @@
           tab.framePages = message.pages!; tab.frameContentLoaded = true;
           const pos = tab.pendingPosition;
           const page = Math.max(1,Math.min(tab.framePages,pos?.kind === 'pdf' ? pos.page : tab.framePage));
-          post({type:'goto',page});
+          const rotation = pos?.kind === 'pdf' ? pos.rotation : tab.frameRotation;
+          post({type:'goto',page,...(rotation === undefined ? {} : {rotation})});
         }
         if (tab.frameSearch.query) find(1);
         break;
@@ -111,7 +112,12 @@
           if (message.n !== expected) break;
           tab.finishPosition(expected > 1);
         }
-        tab.rememberPosition({kind:'pdf',page:message.n});
+        tab.rememberPosition({kind:'pdf',page:message.n,...(tab.frameRotation === undefined ? {} : {rotation:tab.frameRotation})});
+        break;
+      case 'rotated':
+        if (tab.kind !== 'pdf') break;
+        tab.frameRotation = message.deg; tab.frameAutoRotation = message.auto;
+        tab.rememberPosition({kind:'pdf',page:tab.framePage,rotation:message.deg});
         break;
       case 'pageText':
         if (tab.kind === 'pdf' && message.page === tab.framePage) tab.frameHasText = message.hasText;
@@ -187,6 +193,10 @@
     <div class="status" role="status">
       {#if tab.kind === 'pdf' && tab.frameReady}<span>{t('frame.pages',{n:tab.framePage,total:tab.framePages})}</span>{/if}
       {#if tab.kind === 'pdf' && tab.frameHasText === false}<span>{t('frame.noText')}</span>{/if}
+      {#if tab.kind === 'pdf' && tab.frameAutoRotation}
+        <span data-auto-rotation={tab.frameRotation}>{t('frame.autoRotation',{deg:tab.frameRotation ?? 0})}</span>
+        <button type="button" data-action="pdf-rotation-reset" onclick={() => post({type:'rotate',deg:0})}>{t('frame.undoRotation')}</button>
+      {/if}
       {#if tab.frameExternal}<span>{t('frame.allowed')}</span>{/if}
       {#if tab.frameBlocked}<span>{t('frame.blocked',{n:tab.frameBlocked})}</span>{/if}
       {#if tab.frameBlocked || tab.frameExternal}<button type="button" data-action="frame-external" disabled={tab.frameToggling || (!tab.frameReady && !tab.frameExternal)}

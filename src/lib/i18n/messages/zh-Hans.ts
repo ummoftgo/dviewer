@@ -5,6 +5,8 @@ export const zhHans: Messages = {
   "error.pdfFailed": "无法读取 PDF。",
   "error.unsupported": "此版本仅在 Windows 上支持 PDF。macOS 和 Linux 将在后续版本中支持。",
   "frame.pages": "第 {n}/{total} 页",
+  "frame.autoRotation": "已自动校正方向（{deg}°）",
+  "frame.undoRotation": "撤销",
   "frame.noText": "本页没有可查找或复制的文本。",
   "bookmarks.title": "书签",
   "bookmarks.scope": "书签范围",

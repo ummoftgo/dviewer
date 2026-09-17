@@ -8,6 +8,8 @@ test('PDF pages survive persistence without being mistaken for HTML scroll ratio
   expect(compatiblePosition(pos,'frame',false,'html')).toBeUndefined();
   expect(compatiblePosition({kind:'frame',ratio:0.5},'frame',false,'pdf')).toBeUndefined();
   for (const page of [0,-1,0.5,Infinity,'2']) expect(readPosition({kind:'pdf',page})).toBeUndefined();
+  for (const rotation of [0,90,180,270]) expect(readPosition({kind:'pdf',page:2,rotation})).toEqual({kind:'pdf',page:2,rotation});
+  for (const rotation of [null,-90,360,45,'0',NaN]) expect(readPosition({kind:'pdf',page:2,rotation})).toBeUndefined();
 });
 
 test('positions reject malformed coordinates and discard unknown fields', () => {

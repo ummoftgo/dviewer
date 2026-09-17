@@ -4,6 +4,7 @@
   const send = value => parent.postMessage({...value, load}, '*');
   let app, ready = false, failed = false, worker, workerUrl;
   let pagesLoaded = false, pendingGoto = null, applyingPage = false;
+  let positionReceived = false, rotationApplied = false, pendingRotation = null, automaticRotation = 0;
   let initialized = false, stallTimer, stalled = false;
   const steps = {initialize:'not-started',preferences:'pending',l10n:'not-started',components:'not-started'};
   let request = 0, query = '', textGeneration = 0;
@@ -63,28 +64,56 @@
     send({type:'stall',snapshot});
   }
   function publishPage() {
-    if (!ready || !pagesLoaded || failed || applyingPage || (pendingGoto !== null && app.page !== pendingGoto)) return;
+    if (!ready || !pagesLoaded || !positionReceived || failed || applyingPage || (pendingGoto !== null && app.page !== pendingGoto)) return;
     pendingGoto = null;
     send({type:'page',n:app.page});
     void pageText();
   }
   function applyGoto() {
-    if (!ready || !pagesLoaded || failed) return;
+    if (!ready || !pagesLoaded || !positionReceived || failed) return;
     if (typeof pendingGoto === 'string') {
       pendingGoto = destinations.get(pendingGoto) ?? null;
       if (pendingGoto === null) return;
     }
-    if (pendingGoto !== null) {
-      if (pendingGoto > app.pagesCount) { pendingGoto = null; return; }
-      applyingPage = true;
-      try {
-        app.page = pendingGoto;
-        // Resize restores the cached view location; refresh it after the setter scrolls.
-        app.pdfViewer.update();
-      } finally { applyingPage = false; }
-    }
+    if (pendingGoto > app.pagesCount) { pendingGoto = null; return; }
+    const rotation = pendingRotation ?? (!rotationApplied ? {deg:automaticRotation,auto:automaticRotation !== 0} : null);
+    const targetPage = pendingGoto ?? app.page;
+    pendingRotation = null;
+    applyingPage = true;
+    try {
+      if (rotation) { rotationApplied = true; app.pdfViewer.pagesRotation = rotation.deg; }
+      if (rotation || pendingGoto !== null) app.page = targetPage;
+      // Resize restores the cached view location; refresh after both setters.
+      app.pdfViewer.update();
+    } finally { applyingPage = false; }
+    // The rotation setter emits synchronously, and emits nothing for the same angle.
+    if (rotation) send({type:'rotated',deg:app.pdfViewer.pagesRotation,auto:rotation.auto});
     // The setter can dispatch pagechanging synchronously; acknowledge after it returns.
     publishPage();
+  }
+  function orientation(counts) {
+    const total = counts.reduce((sum,count) => sum + count,0);
+    const largest = Math.max(...counts), quarter = counts.indexOf(largest);
+    return total >= 20 && largest / total >= 0.8 ? quarter * 90 : 0;
+  }
+  async function detectOrientation(pdf) {
+    const counts = [0,0,0,0];
+    try {
+      for (let n = 1; n <= Math.min(3,pdf.numPages); n++) {
+        const page = await pdf.getPage(n);
+        if (failed || pdf !== app.pdfDocument) return 0;
+        const content = await page.getTextContent();
+        if (failed || pdf !== app.pdfDocument) return 0;
+        for (const item of content.items) {
+          if (typeof item.str !== 'string' || !item.str.trim() || content.styles?.[item.fontName]?.vertical) continue;
+          const [a,b] = item.transform ?? [];
+          if (!Number.isFinite(a) || !Number.isFinite(b) || (!a && !b)) continue;
+          const angle = Math.abs(a) >= Math.abs(b) ? (a > 0 ? 0 : 180) : (b > 0 ? 90 : 270);
+          counts[((angle - page.rotate + 360) % 360) / 90]++;
+        }
+      }
+    } catch { return 0; /* Text extraction failure only disables automatic correction. */ }
+    return orientation(counts);
   }
   async function pageText() {
     if (!ready) return;
@@ -117,6 +146,8 @@
       }
       if (failed || pdf !== app.pdfDocument) return;
       await app.pdfViewer.onePageRendered;
+      if (failed || pdf !== app.pdfDocument) return;
+      automaticRotation = await detectOrientation(pdf);
       if (failed || pdf !== app.pdfDocument) return;
       ready = true;
       send({type:'ready',title:document.title.slice(0,4096),pages:pdf.numPages,headings});
@@ -171,6 +202,11 @@ import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStag
         app.eventBus.on('pagesinit',() => stage('pagesinit'));
         app.eventBus.on('pagesloaded',() => { stage('pagesloaded'); pagesLoaded = true; applyGoto(); });
         app.eventBus.on('pagechanging',publishPage);
+        app.eventBus.on('rotationchanging',({pagesRotation}) => {
+          if (failed || applyingPage) return;
+          rotationApplied = true; pendingRotation = null;
+          send({type:'rotated',deg:pagesRotation,auto:false});
+        });
         const found = ({matchesCount}) => {
           if (!ready || !matchesCount || app.findController.state?.query !== query) return;
           send({type:'found',n:Math.min(100000,matchesCount.total),index:Math.min(100000,matchesCount.current),request});
@@ -184,11 +220,17 @@ import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStag
     if (event.source !== parent || failed || !event.data || typeof event.data !== 'object') return;
     const value = event.data;
     if (value.type === 'goto') {
+      if (value.rotation !== undefined && ![0,90,180,270].includes(value.rotation)) return;
       const target = typeof value.id === 'string' ? value.id : value.page;
       if (typeof target === 'string') {
         if (!target || target.length > 2048 || (ready && !destinations.has(target))) return;
       } else if (!Number.isSafeInteger(target) || target < 1 || (app?.pagesCount && target > app.pagesCount)) return;
       pendingGoto = target;
+      positionReceived = true;
+      if (value.rotation !== undefined) pendingRotation = {deg:value.rotation,auto:false};
+      applyGoto();
+    } else if (value.type === 'rotate' && [0,90,180,270].includes(value.deg)) {
+      pendingRotation = {deg:value.deg,auto:false};
       applyGoto();
     } else if (ready && value.type === 'find' && typeof value.q === 'string' && value.q.length <= 4096
       && [1,-1].includes(value.dir) && Number.isSafeInteger(value.request) && value.request >= 0) {

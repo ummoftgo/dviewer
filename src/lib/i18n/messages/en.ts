@@ -5,6 +5,8 @@ export const en: Messages = {
   "error.pdfFailed": "The PDF could not be read.",
   "error.unsupported": "PDF is supported only on Windows in this release. macOS and Linux are planned for a later release.",
   "frame.pages": "Page {n}/{total}",
+  "frame.autoRotation": "Orientation corrected automatically ({deg}°)",
+  "frame.undoRotation": "Undo",
   "frame.noText": "This page has no text to find or copy.",
   "bookmarks.title": "Bookmarks",
   "bookmarks.scope": "Bookmark scope",
