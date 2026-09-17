@@ -1397,7 +1397,10 @@ const SMOKE = [
   { file: "single-locked.zip", expect: "archive" },
   // Keep the isolated HTML frame last while investigating macOS slowdown.
   { file: "report.html", expect: "frame", then: "htmlFrame" },
-  ...(process.platform === 'win32' ? [{ file: 'report.pdf', expect: 'frame', then: 'pdfFrame' }] : []),
+  ...(process.platform === 'win32' ? [
+    { file: 'report.pdf', expect: 'frame', then: 'pdfFrame' },
+    { file: 'sideways.pdf', expect: 'frame', then: 'pdfOrientation' },
+  ] : []),
 ];
 
 /**

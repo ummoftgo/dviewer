@@ -20,6 +20,16 @@ function pdf(objects) {
 }
 const stream = text => `<< /Length ${Buffer.byteLength(text)} >>\nstream\n${text}\nendstream`;
 export async function writePdfFixtures(out) {
+  const sideways = page => Array.from({length:12},(_,i) =>
+    `BT /F1 16 Tf 0 1 -1 0 ${70 + i * 40} 140 Tm (Page ${page} line ${i + 1}: needle) Tj ET`).join('\n');
+  await writeFile(path.join(out,'sideways.pdf'),pdf([
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    stream(sideways(1)),stream(sideways(2)),
+  ]));
   await writeFile(path.join(out,'report.pdf'),pdf([
     '<< /Type /Catalog /Pages 2 0 R /Outlines 8 0 R >>',
     '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',

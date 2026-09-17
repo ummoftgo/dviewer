@@ -1287,3 +1287,22 @@ Windows 생성기를 다시 실행해 smoke.json48항목을 확인했다. image-
 | dev 정리 | incremental 제거, cargo clean617파일6.0GiB |
 
 회귀는 누락 리소스 필드·소수 duration·4096자 초과 정상 스냅샷·검증 실패 raw·순환 입력·예외를 던지는 getter를 다룬다. 로그는 .agent-works/m43-platform2-*.log 및 m43-platform-mutation.log, 원본 스모크는 로컬 임시 디렉터리 dviewer-smoke-ZSzoZs/sweep.jsonl이다. 최종 에이전트를 새 프런트와 debug 바이너리에 포함해 확인했다. release·clippy·비Windows 실제 스모크는 실행하지 않았다. Linux/macOS는 PDF 없는47항목의 후속 warm으로 확인한다.
+
+## M43b — PDF 방향 자동 교정
+
+앞 세 페이지의 텍스트 행렬과 /Rotate를 함께 집계하고 비공백 가로쓰기 항목 20개 이상·우세 80% 이상일 때만 문서 방향을 교정한다. 저장 회전과 명시적 0은 자동 판정보다 우선한다. VM에서 실제 에이전트를 실행해 네 방향·/Rotate 상쇄·항목 수·우세 비율 경계·세로쓰기와 잘못된 항목 제외·세 페이지 제한·추출 실패·저장값과 pagesloaded 도착 순서·동기 회전 이벤트·같은 각도의 명시적 응답·되돌리기·수동 회전·위치 캐시 유지·닫기와 입력 거부를 확인했다. 위치·메시지 파서와 세션 왕복은 회전 미저장과 0을 구분한다.
+
+| 검사 | 결과 |
+| --- | --- |
+| npm test (M49 rebase 전) | 397개, 38파일 통과 |
+| main 8d9718e rebase 후 npm test | 399개, 38파일 통과 |
+| npm run check | 오류 0·경고 0, 4로케일 × 485키 |
+| 임계 80% → 0% 변형 | 혼합 방향 표본 검사 1개 실패, 나머지 에이전트 15개 통과 |
+| 원본 복원 | 14,709바이트·SHA-256 일치, 에이전트 16개 통과 |
+| 새 프런트 + debug 바이너리 스모크 | 픽스처 50개 + 단일 인스턴스·새 창 왕복 2개 통과 |
+| sideways.pdf / report.pdf / report.html | 486ms / 510ms / 1,365ms (기능 검증 시간, 성능 전후 비교 아님) |
+| Rust 테스트·clippy·release·비Windows 실제 스모크 | 이번 프런트 과제에서 실행하지 않음 |
+
+생성기가 쓴 sideways.pdf는 두 페이지에 회전 텍스트를 열두 항목씩 배치한다. Windows 매니페스트의 pdfOrientation 분기는 rotated 완료와 data-auto-rotation을 확인하고 실제 되돌리기 버튼을 눌러 0도·auto:false·같은 페이지 저장을 검증한다. 기존 report.pdf의 목차·이동·찾기 검사는 유지한다. 사용자 앱 종료 신호 뒤 npm run build → cargo build --features custom-protocol → debug smoke를 한 번 실행했다. 에이전트는 include_str!이므로 새 바이너리 빌드가 필수다. 로그는 .agent-works/m43b-*.log, 원본 결과 사본은 .agent-works/m43b-sweep.jsonl이다. 실제 사용자 PDF의 시각적 정확성과 재실행 화면 확인은 별도다.
+
+debug incremental과 dviewer dev 산출물 508개·4.1GiB를 정리했다. main 8d9718e의 M49 위로 충돌 없이 rebase했으며 range-diff에서 두 구현 커밋의 패치가 동일함을 확인했다. 통합 트리의 vitest·check를 다시 통과했다. 스모크는 rebase 전 50개 결과이며 M49를 합친 트리의 스모크는 다시 실행하지 않았다.
