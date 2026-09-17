@@ -805,3 +805,9 @@ PDF는 매직 `%PDF-`를 확장자·응답 MIME보다 우선하고 reads_bytes�
 PDF.js의 페이지 setter는 pagechanging을 먼저 보내고 스크롤을 옮기지만, 배율 변경에 쓰는 위치 기록은 다음 update까지 이전 페이지에 남는다. 이 사이 ready로 목차·상태줄이 나타나 프레임 크기가 바뀌면 이전 위치로 되돌아갈 수 있다. 공통 goto 경로에서 setter 반환 직후 pdfViewer.update()로 위치까지 갱신한 다음 실제 목표 페이지를 확인하고 응답한다. 초기 뷰 적용은 documentinit 전에 끝나므로 임의의 지연이나 재시도를 추가하지 않는다.
 
 PDF 초기화 진단은 에이전트 시작·webviewerloaded·initializedPromise·documentinit·pagesinit·pagesloaded·onePageRendered와 워커 시작·모듈 import 완료를 고정 이름의 stage 메시지로 전달한다. 프레임·load 식별 검사를 통과한 마지막 단계만 frameStage에 보관하며 다시 열 때 초기화한다. 문서 준비 catch·워커 error·창 error/unhandledrejection의 메시지는 4,096자까지 error.detail로 보내고, FrameView의 기존 frameError에 붙인다. 워커 내부 import 거부와 unhandledrejection은 소유 창으로 자동 전달되지 않으므로 전용 워커 메시지로 건넨다. PDF.js 자체 메시지와 구분하고 원래 메시지 처리를 막지 않는다. 첫 실패 이후의 늦은 단계·오류는 무시한다. 스모크 timeout 출력은 마지막 stage와 detail을 남기되 URL·토큰 가림을 유지한다. 이 관측은 WebKit 원인 확정이나 CSP·워커 방식 변경을 대신하지 않는다. 세 OS에서 확인한다.
+
+각 문서 Route는 인증된 GET 요청의 응답 준비 순서·상태 코드·토큰 없는 경로를 최근 20개까지 보관한다. 404도 기록하며 잘못된 토큰의 요청은 어느 문서에도 남기지 않는다. 경로는 쿼리·프래그먼트·제어 문자를 제거하고 128자로 제한한다. frame_served.last는 오래된 것부터 반환하며 라우트 폐기와 함께 사라진다. 상태 코드는 전송 완료나 자원 실행 성공의 증거가 아니다.
+
+worker-imported 후 8초 동안 초기화 완료 신호가 없으면 스톨 스냅샷을 한 번만 보낸다. 문서·뷰어·preferences·언어·폰트 상태, 옵션 키 수, navigation 상태 및 최근 자원 15개의 경로·상태·시간·크기를 담되 4,096자로 제한한다. 지원되지 않는 Performance 필드는 null이며, transferSize 0을 요청 실패로 해석하지 않는다. 타이머는 정상 초기화·오류·pagehide에서 취소하고 frameStall은 다시 열 때 비운다. 스톨·오류 수신 때도 서버 기록을 갱신한다.
+
+PDF.js의 initializedPromise는 initialize 성공 때만 resolve되고 실패 시 reject되지 않는다. 따라서 미완료 약속만으로 내부 await의 무한대기를 단정할 수 없다. initialize·createL10n·_initializeViewerComponents의 반환 약속을 관측해 각 단계 상태를 남기고 예외는 직접 전달한 뒤 그대로 다시 던진다. preferences 읽기의 거부는 PDF.js가 원래 처리하므로 스냅샷 상태로만 남긴다. 관측 타이머가 대기 작업을 취소하거나 대체 설정으로 우회하지는 않는다.

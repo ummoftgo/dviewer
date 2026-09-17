@@ -108,13 +108,15 @@ fn request_counters_follow_each_document_route_and_its_lifetime() {
     let server = DocServer { host: "127.0.0.1:12345".into(),
         tokens: Arc::new(Mutex::new(HashMap::from([("a".into(), Route::new(1)), ("b".into(), Route::new(2))]))),
         stop: Arc::new(AtomicBool::new(false)), worker: None };
-    assert_eq!(server.served(1).unwrap(), FrameServed { html: 0, agent: 0, resource: 0 });
+    assert_eq!(server.served(1).unwrap(), FrameServed { html: 0, agent: 0, resource: 0, last: vec![] });
     assert!(serve(&state, &server.tokens, "/wrong/", false, &policy).is_none());
     assert!(serve(&state, &server.tokens, "/a/?g=0", false, &policy).is_some());
     assert!(serve(&state, &server.tokens, "/a/_/agent.js", false, &policy).is_some());
     assert!(serve(&state, &server.tokens, "/a/missing.css", false, &policy).is_none());
-    assert_eq!(server.served(1).unwrap(), FrameServed { html: 1, agent: 1, resource: 1 });
-    assert_eq!(server.served(2).unwrap(), FrameServed { html: 0, agent: 0, resource: 0 });
+    let served = server.served(1).unwrap();
+    assert_eq!((served.html, served.agent, served.resource), (1, 1, 1));
+    assert_eq!(served.last.iter().map(|item| item.status).collect::<Vec<_>>(), vec![200, 200, 404]);
+    assert_eq!(server.served(2).unwrap(), FrameServed { html: 0, agent: 0, resource: 0, last: vec![] });
     assert_eq!(server.url(1).unwrap(), "http://127.0.0.1:12345/a/");
     assert_eq!(server.served(1).unwrap().html, 1);
     server.revoke(1);
@@ -122,7 +124,31 @@ fn request_counters_follow_each_document_route_and_its_lifetime() {
     assert!(serve(&state, &server.tokens, "/a/", false, &policy).is_none());
     let reopened = server.url(1).unwrap();
     assert!(!reopened.ends_with("/a/"));
-    assert_eq!(server.served(1).unwrap(), FrameServed { html: 0, agent: 0, resource: 0 });
+    assert_eq!(server.served(1).unwrap(), FrameServed { html: 0, agent: 0, resource: 0, last: vec![] });
+}
+
+#[test]
+fn request_history_keeps_twenty_tokenless_paths_including_missing_pdf_assets() {
+    let state = AppState::default();
+    let bytes = Arc::new(DocBytes::Owned(b"%PDF-1.7".to_vec()));
+    state.insert("main", Document::new(1, "test.pdf".into(), DocSource::Text, None, DocKind::Pdf, bytes.clone(), encoding::verbatim(bytes)));
+    let token = "ab".repeat(32);
+    let tokens = Mutex::new(HashMap::from([(token.clone(), Route::new(1))]));
+    let policy = document_policy("127.0.0.1:12345");
+    for index in 0..22 {
+        assert!(serve(&state, &tokens, &format!("/{token}/_/pdfjs/web/locale/missing{index}/viewer.ftl?file={token}"), false, &policy).is_none());
+    }
+    assert!(super::serve(&state, &tokens, &format!("/{token}/"), false, &policy, &["bytes=0-3"], &|_| None).is_some());
+    assert!(serve(&state, &tokens, "/wrong/", false, &policy).is_none());
+    let served = tokens.lock().get(&token).unwrap().counts();
+    assert_eq!(served.last.len(), 20);
+    assert_eq!(served.last[0], FrameRequest { sequence: 4, path: "/_/pdfjs/web/locale/missing3/viewer.ftl".into(), status: 404 });
+    assert_eq!(served.last.last().unwrap(), &FrameRequest { sequence: 23, path: "/".into(), status: 206 });
+    let json = serde_json::to_string(&served).unwrap();
+    assert!(!json.contains(&token)); assert!(!json.contains('?'));
+    let route = tokens.lock().get(&token).unwrap().clone();
+    route.record(&format!("_/{}\n?{token}", "x".repeat(1000)), &token, 404);
+    assert_eq!(route.counts().last.last().unwrap().path.len(), 128);
 }
 
 #[test]

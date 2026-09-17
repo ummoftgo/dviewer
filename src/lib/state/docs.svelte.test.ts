@@ -792,8 +792,11 @@ test('HTML frame metadata resets on reload while its search stays local to the v
   tab.frameReady = true; tab.frameToc = [{id:'a',level:1,text:'A'}]; tab.frameScroll = 0.6;
   tab.frameBlocked = 3; tab.frameProbe = 'absent';
   tab.frameError = 'old error'; tab.frameUrlPort = '43123'; tab.frameLoaded = true;
-  tab.frameServed = {html:1, agent:1, resource:2}; tab.frameCsp = ['frame-src port 43123']; tab.frameAgentStarted = true;
+  tab.frameServed = {html:1, agent:1, resource:2,last:[]}; tab.frameCsp = ['frame-src port 43123']; tab.frameAgentStarted = true;
   tab.frameStage = 'pagesinit';
+  tab.frameStall = {readyState:'complete',l10n:'object',pdfViewer:false,preferences:true,initialized:false,
+    options:0,locale:null,language:'en-US',fonts:'loaded',navigationStatus:null,resources:[],
+    steps:{initialize:'pending',preferences:'pending',l10n:'not-started',components:'not-started'}};
   tab.frameSearch = {open:true,query:'find',n:3,index:2,request:7};
   tab.mode = 'raw';
   expect(tab.frameScroll).toBe(0.6);
@@ -802,6 +805,7 @@ test('HTML frame metadata resets on reload while its search stays local to the v
   expect([tab.frameError,tab.frameUrlPort,tab.frameLoaded]).toEqual([null,null,false]);
   expect([tab.frameServed,tab.frameCsp,tab.frameAgentStarted]).toEqual([null,[],false]);
   expect(tab.frameStage).toBeNull();
+  expect(tab.frameStall).toBeNull();
   expect(tab.frameSearch).toEqual({open:false,query:'',n:0,index:0,request:0});
 });
 

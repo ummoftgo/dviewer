@@ -1,6 +1,6 @@
 import type { CellSelection } from "../components/grid/preview";
 import { compatiblePosition, type Position } from '../position';
-import type { PdfStage } from '../frame/messages';
+import type { FrameStall, PdfStage } from '../frame/messages';
 import { family, mainTabs, subtabLabel } from "../subtabs";
 import * as ipc from "../ipc";
 import { viewOf } from "../ipc";
@@ -223,6 +223,7 @@ export class DocTab {
   frameCsp = $state<string[]>([]);
   frameAgentStarted = $state(false);
   frameStage = $state<PdfStage | null>(null);
+  frameStall = $state<FrameStall | null>(null);
   frameToc = $state<ipc.TocEntry[]>([]);
   frameScroll = $state(0);
   framePage = $state(1);
@@ -396,6 +397,7 @@ export class DocTab {
     this.frameError = null; this.frameUrlPort = null; this.frameLoaded = false;
     this.frameServed = null; this.frameCsp = []; this.frameAgentStarted = false;
     this.frameStage = null;
+    this.frameStall = null;
     this.frameReadyLoad = '';
     this.frameSearch = {open:false,query:"",n:0,index:0,request:0};
     this.markdownSearch.open = false;

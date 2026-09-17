@@ -29,6 +29,7 @@
     target.frameError = null; target.frameUrlPort = null; target.frameLoaded = false;
     target.frameServed = null; target.frameCsp = []; target.frameAgentStarted = false;
     target.frameStage = null;
+    target.frameStall = null;
     const cspViolation = (event: SecurityPolicyViolationEvent) => {
       const entry = parentCspViolation(event.effectiveDirective, event.blockedURI);
       if (!target.frameCsp.includes(entry) && target.frameCsp.length < 4) target.frameCsp.push(entry);
@@ -73,6 +74,9 @@
     switch (message.type) {
       case 'agentStart': tab.frameAgentStarted = true; break;
       case 'stage': if (tab.kind === 'pdf') tab.frameStage = message.name; break;
+      case 'stall':
+        if (tab.kind === 'pdf') { tab.frameStall = message.snapshot; refreshServed(tab,load); }
+        break;
       case 'ready':
         if (tab.kind === 'pdf' && !message.pages) break;
         clearTimeout(deadline); tab.frameToc = message.headings; tab.frameReadyLoad = load; tab.frameReady = true;
@@ -103,6 +107,7 @@
         if (tab.kind === 'pdf') {
           clearTimeout(deadline); tab.frameReady = false;
           tab.frameError = errorMessage({code:message.code}) + (message.detail ? ` (detail ${message.detail})` : '');
+          refreshServed(tab,load);
         }
         break;
       case 'loaded': {
@@ -138,6 +143,10 @@
         if (message.kind === 'relative') void workspace.openLink(tab,message.href);
         else void openUrl(message.href).catch(cause => toasts.show(errorMessage(cause),'error'));
     }
+  }
+  function refreshServed(target: DocTab, load: string) {
+    void frameServed(target.id).then(value => { if (expectedLoad === load) target.frameServed = value; })
+      .catch(() => { /* Keep unavailable diagnostics unknown. */ });
   }
   async function toggleExternal() {
     try { await tab.setFrameExternal(!tab.frameExternal); }

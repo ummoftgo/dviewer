@@ -1,25 +1,30 @@
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import {expect,test,vi} from 'vitest';
-import {parseFrameMessage} from './messages';
+import {parseFrameMessage,type FrameStall} from './messages';
 
-function viewer(outlineError?: Error) {
+function viewer(outlineError?: Error, pendingInitialization = false) {
   const listeners = new Map<string,(event: unknown) => void>();
   const bus = new Map<string,() => void>();
-  const messages: {type:string;n?:number;name?:string;code?:string;detail?:string;load?:string}[] = [];
+  const messages: {type:string;n?:number;name?:string;code?:string;detail?:string;load?:string;snapshot?:FrameStall}[] = [];
   const workerListeners = new Map<string,(event:unknown) => void>();
   let workerBlob!: Blob, resolveError!: () => void;
   const errored = new Promise<void>(resolve => {resolveError=resolve;});
   const attempts: number[] = [];
   let initialize!: () => void, current = 1, scrolled = 1, location = 1, accepts = false, resolveReady!: () => void;
   const ready = new Promise<void>(resolve => {resolveReady = resolve;});
+  let resolveInitialization!: () => void;
+  const initialization = new Promise<void>(resolve => {resolveInitialization=resolve;});
   const parent = {postMessage(message: {type:string;n?:number}) {
     messages.push(message);
     if (message.type === 'ready') resolveReady();
     if (message.type === 'error') resolveError();
   }};
   const app = {
-    initializedPromise:Promise.resolve(),
+    initializedPromise:pendingInitialization ? initialization : Promise.resolve(), initialized:!pendingInitialization,
+    async initialize() {await this.preferences.initializedPromise; await this.externalServices.createL10n(); await this._initializeViewerComponents();},
+    preferences:{initializedPromise:Promise.resolve()},
+    externalServices:{createL10n:async () => ({})}, _initializeViewerComponents:async () => {},
     appConfig:{secondaryToolbar:{openFileButton:{hidden:false}}},
     passwordPrompt:{open:vi.fn()}, close:vi.fn(), pagesCount:3,
     pdfViewer:{onePageRendered:Promise.resolve(),update() {location=scrolled;}},
@@ -34,16 +39,24 @@ function viewer(outlineError?: Error) {
   class Worker {addEventListener(name:string,listener:(event:unknown) => void) {workerListeners.set(name,listener);} terminate() {}}
   class WorkerUrl extends URL {static createObjectURL(blob:Blob) {workerBlob=blob; return 'blob:null/test';} static revokeObjectURL() {}}
   runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8'),{
-    parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {}}},
-    document:{title:'PDF',addEventListener(_name:string,listener:() => void) {initialize=listener;}},
+    parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}}},
+    document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},addEventListener(_name:string,listener:() => void) {initialize=listener;}},
+    navigator:{language:'en-GB',locale:'C'},
+    performance:{getEntriesByType(type:string) {return type === 'navigation' ? [{responseStatus:200}] : Array.from({length:20},(_,i) => ({
+      name:`http://127.0.0.1:123/a/_/pdfjs/web/${i}.ftl?file=secret#fragment`,responseStatus:i===19 ? 404 : undefined,duration:i+0.4,transferSize:100,
+    }));}},
     location:{search:'?g=0',href:'http://127.0.0.1:123/a/_/pdfjs/web/viewer.html'},
-    Worker,URL:WorkerUrl,Blob,
+    Worker,URL:WorkerUrl,Blob,setTimeout,clearTimeout,
     addEventListener(name:string,listener:(event:unknown) => void) {listeners.set(name,listener);},
   });
   return {
     attempts,messages,errored,
     bootstrap() {return workerBlob.text();},
     async initialize() {initialize(); await app.initializedPromise;},
+    start() {initialize();},
+    async finishInitialization() {app.initialized=true; resolveInitialization(); await initialization;},
+    failInitialization() {app._initializeViewerComponents=async () => {throw new Error('components failed');};},
+    runInitialization() {return app.initialize();},
     async ready() {bus.get('documentinit')!(); await ready;},
     loaded() {accepts=true; bus.get('pagesloaded')?.();},
     goto(target:number|string,source:unknown=parent) {listeners.get('message')!({source,data:{type:'goto',...(typeof target === 'string' ? {id:target} : {page:target})}});},
@@ -74,6 +87,59 @@ test('PDF goto waits for pagesloaded and only acknowledges the actual target',as
   expect(pdf.messages.filter(message => message.type === 'page').map(message => message.n)).toEqual([3]);
   pdf.messages.length=0; pdf.goto(3);
   expect(pdf.messages.filter(message => message.type === 'page').map(message => message.n)).toEqual([3]);
+});
+
+test('PDF startup sends one bounded stall snapshot eight seconds after worker import',async () => {
+  vi.useFakeTimers();
+  try {
+    const pdf=viewer(undefined,true); pdf.start();
+    pdf.workerEvent('message',{data:{type:'pdfWorkerStage',name:'worker-imported'}});
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(pdf.messages.some(message => message.type === 'stall')).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const stalls=pdf.messages.filter(message => message.type === 'stall');
+    expect(stalls).toHaveLength(1);
+    const snapshot=stalls[0].snapshot!;
+    expect(snapshot).toMatchObject({readyState:'complete',l10n:'undefined',pdfViewer:true,preferences:true,initialized:false,
+      options:1,locale:'C',language:'en-GB',fonts:'loaded',navigationStatus:200});
+    expect(snapshot.resources).toHaveLength(15);
+    expect(snapshot.resources[0]).toEqual({name:'/_/pdfjs/web/5.ftl',responseStatus:null,duration:5,transferSize:100});
+    expect(snapshot.resources[14]).toEqual({name:'/_/pdfjs/web/19.ftl',responseStatus:404,duration:19,transferSize:100});
+    expect(JSON.stringify(snapshot)).not.toMatch(/127\.0|secret|fragment/);
+    expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(4096);
+    expect(parseFrameMessage(stalls[0])).toEqual({type:'stall',snapshot});
+    pdf.workerEvent('message',{data:{type:'pdfWorkerStage',name:'worker-imported'}});
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(pdf.messages.filter(message => message.type === 'stall')).toHaveLength(1);
+    pdf.close();
+  } finally {vi.useRealTimers();}
+});
+
+test('initialization, closing and errors cancel the PDF stall timer',async () => {
+  vi.useFakeTimers();
+  try {
+    for (const finish of ['initialized','closed','failed']) {
+      const pdf=viewer(undefined,true); pdf.start();
+      pdf.workerEvent('message',{data:{type:'pdfWorkerStage',name:'worker-imported'}});
+      if (finish === 'initialized') await pdf.finishInitialization();
+      else if (finish === 'closed') pdf.close();
+      else pdf.event('error',{message:'failed'});
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(pdf.messages.some(message => message.type === 'stall'),finish).toBe(false);
+      pdf.close();
+    }
+  } finally {vi.useRealTimers();}
+});
+
+test('a rejected initialize is reported even when initializedPromise never rejects',async () => {
+  const pdf=viewer(undefined,true); pdf.failInitialization(); pdf.start();
+  await expect(pdf.runInitialization()).rejects.toThrow('components failed');
+  await pdf.errored;
+  expect(pdf.messages.filter(message => message.type === 'error')).toEqual([
+    {type:'error',code:'pdfFailed',detail:'components: components failed',load:'?g=0'},
+  ]);
+  expect(pdf.messages.some(message => message.name === 'initializedPromise')).toBe(false);
+  pdf.close();
 });
 
 test('PDF startup stages survive parsing even before ready',async () => {

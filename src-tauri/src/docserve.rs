@@ -1,5 +1,5 @@
 //! A bounded, document-scoped loopback origin for active document content.
-use std::{collections::HashMap, io::{Cursor, Read}, net::Ipv4Addr, path::{Component, Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}}, thread::JoinHandle, time::Duration};
+use std::{collections::{HashMap, VecDeque}, io::{Cursor, Read}, net::Ipv4Addr, path::{Component, Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}}, thread::JoinHandle, time::Duration};
 use parking_lot::Mutex;
 use tauri::Manager;
 use subtle::ConstantTimeEq;
@@ -15,10 +15,16 @@ mod pdf;
 use pdf::{pdf_asset_path, pdf_file_matches, pdf_policy, pdf_response};
 
 #[derive(Default)]
-struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64 }
+struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64, requests: Mutex<Requests> }
+
+#[derive(Default)]
+struct Requests { sequence: u64, last: VecDeque<FrameRequest> }
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct FrameRequest { sequence: u64, path: String, status: u16 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
-pub struct FrameServed { html: u64, agent: u64, resource: u64 }
+pub struct FrameServed { html: u64, agent: u64, resource: u64, last: Vec<FrameRequest> }
 
 #[derive(Clone)]
 struct Route { id: DocId, served: Arc<Served>, external: bool }
@@ -26,7 +32,17 @@ struct Route { id: DocId, served: Arc<Served>, external: bool }
 impl Route {
     fn new(id: DocId) -> Self { Self { id, served: Arc::new(Served::default()), external: false } }
     fn counts(&self) -> FrameServed {
-        FrameServed { html: self.served.html.load(Ordering::Relaxed), agent: self.served.agent.load(Ordering::Relaxed), resource: self.served.resource.load(Ordering::Relaxed) }
+        FrameServed { html: self.served.html.load(Ordering::Relaxed), agent: self.served.agent.load(Ordering::Relaxed), resource: self.served.resource.load(Ordering::Relaxed), last: self.served.requests.lock().last.iter().cloned().collect() }
+    }
+    fn record(&self, relative: &str, token: &str, status: u16) {
+        let path = relative.split(['?', '#']).next().unwrap_or("");
+        let path = path.replace(token, "[token]");
+        let path = format!("/{}", path.chars().filter(|c| !c.is_control()).take(127).collect::<String>());
+        let mut requests = self.served.requests.lock();
+        requests.sequence += 1;
+        let sequence = requests.sequence;
+        if requests.last.len() == 20 { requests.last.pop_front(); }
+        requests.last.push_back(FrameRequest { sequence, path, status });
     }
 }
 
@@ -208,6 +224,7 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
     let (token, relative) = path.strip_prefix('/')?.split_once('/')?;
     // Compare the secret in constant time; the small registry follows open HTML tabs.
     let route = tokens.lock().iter().find_map(|(key, route)| bool::from(key.as_bytes().ct_eq(token.as_bytes())).then(|| route.clone()))?;
+    let response = (|| {
     let doc = state.get(route.id).ok()?;
     let snapshot = doc.snapshot();
     if !matches!(snapshot.kind, DocKind::Html | DocKind::Pdf) { return None; }
@@ -278,6 +295,9 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
     if size > MAX_DOCUMENT_BYTES as u64 { return None; }
     let mime = mime(&file_path);
     Some(reply(Box::new(file.take(size)), size as usize, mime, mime.starts_with("text/html").then_some(policy), route.external, false))
+    })();
+    route.record(relative, token, response.as_ref().map_or(404, |response| response.status_code().0));
+    response
 }
 
 fn resource_path(base: &Path, encoded: &str) -> Option<PathBuf> {

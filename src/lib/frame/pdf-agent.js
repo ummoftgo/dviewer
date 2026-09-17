@@ -4,17 +4,58 @@
   const send = value => parent.postMessage({...value, load}, '*');
   let app, ready = false, failed = false, worker, workerUrl;
   let pagesLoaded = false, pendingGoto = null, applyingPage = false;
+  let initialized = false, stallTimer, stalled = false;
+  const steps = {initialize:'not-started',preferences:'pending',l10n:'not-started',components:'not-started'};
   let request = 0, query = '', textGeneration = 0;
   const destinations = new Map();
   const stage = name => { if (!failed) send({type:'stage',name}); };
   const error = (code, cause) => {
     if (failed) return;
     failed = true; ready = false; pendingGoto = null;
+    clearTimeout(stallTimer);
     send({type:'error',code,detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
   };
   addEventListener('error',event => error('pdfFailed',event.message || event.error));
   addEventListener('unhandledrejection',event => error('pdfFailed',event.reason));
   stage('start');
+  function observe(owner, method, step) {
+    const original = owner[method];
+    owner[method] = async function (...args) {
+      steps[step] = 'pending';
+      try {
+        const result = await original.apply(this,args);
+        steps[step] = 'resolved';
+        return result;
+      } catch (cause) {
+        steps[step] = 'rejected'; error('pdfFailed',`${step}: ${cause?.message ?? cause}`);
+        throw cause;
+      }
+    };
+  }
+  function stallSnapshot() {
+    stallTimer = undefined;
+    if (initialized || failed || stalled) return;
+    stalled = true;
+    const read = (fn, fallback = null) => { try { return fn(); } catch { return fallback; } };
+    const number = value => Number.isFinite(value) && value >= 0 ? Math.min(Number.MAX_SAFE_INTEGER,Math.round(value)) : null;
+    const word = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g,'').slice(0,64) : null;
+    const prefix = `/${new URL(location.href).pathname.split('/')[1]}/`;
+    const path = name => read(() => {
+      const url = new URL(name,location.href);
+      if (!['http:','https:'].includes(url.protocol)) return '/[other]';
+      const path = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length - 1) : url.pathname;
+      return path.replace(/[a-f\d]{64}/gi,'[token]').slice(0,128);
+    },'/[unknown]');
+    const resources = read(() => performance.getEntriesByType('resource'),[]).slice(-15).map(entry => ({
+      name:path(entry.name),responseStatus:number(entry.responseStatus),duration:number(entry.duration),transferSize:number(entry.transferSize),
+    }));
+    const snapshot = {readyState:document.readyState,l10n:typeof app.l10n,pdfViewer:!!app.pdfViewer,preferences:!!app.preferences,
+      initialized:!!app.initialized,options:read(() => Object.keys(window.PDFViewerApplicationOptions.getAll()).length),
+      locale:word(navigator.locale),language:word(navigator.language),fonts:word(document.fonts?.status),
+      navigationStatus:read(() => number(performance.getEntriesByType('navigation')[0]?.responseStatus)),steps:{...steps},resources};
+    while (JSON.stringify(snapshot).length > 4096 && resources.length) resources.shift();
+    send({type:'stall',snapshot});
+  }
   function publishPage() {
     if (!ready || !pagesLoaded || failed || applyingPage || (pendingGoto !== null && app.page !== pendingGoto)) return;
     pendingGoto = null;
@@ -81,6 +122,11 @@
     app = window.PDFViewerApplication;
     const options = window.PDFViewerApplicationOptions;
     try {
+      // initializedPromise is only resolved by PDF.js; a rejected initialize() leaves it pending.
+      observe(app,'initialize','initialize');
+      observe(app.externalServices,'createL10n','l10n');
+      observe(app,'_initializeViewerComponents','components');
+      app.preferences.initializedPromise.then(() => { steps.preferences = 'resolved'; },() => { steps.preferences = 'rejected'; });
       const workerSrc = new URL('../build/pdf.worker.mjs',location.href).href;
       // Chromium rejects a blob:null module-worker entry point in opaque frames.
       // A classic Blob entry can import the same fixed ESM without changing CSP.
@@ -94,12 +140,18 @@ import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStag
       worker.addEventListener('error',event => error('pdfFailed',event.message || event.error));
       worker.addEventListener('message',({data}) => {
         if (data?.type === 'pdfWorkerError' && typeof data.detail === 'string') error('pdfFailed',data.detail);
-        else if (data?.type === 'pdfWorkerStage' && ['worker-start','worker-imported'].includes(data.name)) stage(data.name);
+        else if (data?.type === 'pdfWorkerStage' && ['worker-start','worker-imported'].includes(data.name)) {
+          stage(data.name);
+          if (data.name === 'worker-imported' && !initialized && !failed && !stalled && stallTimer === undefined) {
+            stallTimer = setTimeout(stallSnapshot,8000);
+          }
+        }
       });
       options.setAll({workerPort:worker,disableStream:true,disableAutoFetch:true,
         annotationEditorMode:-1,annotationMode:1,enableSignatureEditor:false,enableSplitMerge:false,enableMerge:false,
         disableHistory:true,disablePreferences:true,viewOnLoad:1});
       app.initializedPromise.then(() => {
+        initialized = true; clearTimeout(stallTimer); stallTimer = undefined;
         stage('initializedPromise');
         // Opening inside the embedded viewer would bypass the app's document identity.
         app.appConfig.secondaryToolbar.openFileButton.hidden = true;
@@ -154,6 +206,7 @@ import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStag
   addEventListener('drop',event => { event.preventDefault(); event.stopImmediatePropagation(); },true);
   addEventListener('pagehide',() => {
     ready = false; failed = true; pendingGoto = null; textGeneration++;
+    clearTimeout(stallTimer);
     worker?.terminate(); if (workerUrl) URL.revokeObjectURL(workerUrl);
     void app?.close();
   },{once:true});
