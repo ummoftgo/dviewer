@@ -1402,6 +1402,8 @@ const SMOKE = [
     { file: 'sideways.pdf', expect: 'frame', then: 'pdfOrientation' },
     { file: 'sideways-image.pdf', expect: 'frame', then: 'pdfImageOrientation' },
     { file: 'upright-image.pdf', expect: 'frame', then: 'pdfImageUpright' },
+    { file: 'sideways-vector.pdf', expect: 'frame', then: 'pdfImageOrientation' },
+    { file: 'upright-vector.pdf', expect: 'frame', then: 'pdfImageUpright' },
   ] : []),
 ];
 

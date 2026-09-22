@@ -14,6 +14,12 @@ export interface FrameStallSnapshot {
   resources: {name: string | null; responseStatus: number | null; duration: number | null; transferSize: number | null}[];
 }
 export type FrameStall = FrameStallSnapshot | {raw: string};
+export const ORIENTATION_REASONS = ['timeout','sparse','ambiguous','upright','sideways','disagree','error'] as const;
+/** One page's verdict from the image orientation probe, kept for diagnostics. */
+export interface FrameOrientation {
+  page: number; ms: number; ink: number | null; rowEnergy: number | null; colEnergy: number | null;
+  decision: 0 | 270 | null; reason: typeof ORIENTATION_REASONS[number];
+}
 export type FrameMessage =
   | { type: 'agentStart' }
   | { type: 'stage'; name: PdfStage }
@@ -22,6 +28,7 @@ export type FrameMessage =
   | { type: 'ready'; title: string; headings: TocEntry[]; pages?: number }
   | { type: 'page'; n: number }
   | { type: 'rotated'; deg: number; auto: boolean; image?: boolean }
+  | ({ type: 'orientation' } & FrameOrientation)
   | { type: 'pageText'; page: number; hasText: boolean }
   | { type: 'error'; code: 'pdfEncrypted' | 'pdfFailed'; detail?: string }
   | { type: 'scroll'; ratio: number }
@@ -124,6 +131,13 @@ export function parseFrameMessage(value: unknown): FrameMessage | null {
     case 'page': return count(v.n) && v.n >= 1 ? {type:'page',n:v.n} : null;
     case 'rotated': return isPdfRotation(v.deg) && typeof v.auto === 'boolean' && (v.image === undefined || typeof v.image === 'boolean')
       ? {type:'rotated',deg:v.deg,auto:v.auto,...(v.image === undefined ? {} : {image:v.image as boolean})} : null;
+    case 'orientation': {
+      const measure = (n: unknown) => n === null || (typeof n === 'number' && Number.isFinite(n) && n >= 0);
+      if (!count(v.page) || v.page < 1 || v.ms === null || !measure(v.ms) || !measure(v.ink) || !measure(v.rowEnergy) || !measure(v.colEnergy)
+        || ![0,270,null].includes(v.decision as number | null) || !ORIENTATION_REASONS.some(reason => reason === v.reason)) return null;
+      return {type:'orientation',page:v.page,ms:v.ms as number,ink:v.ink as number | null,rowEnergy:v.rowEnergy as number | null,
+        colEnergy:v.colEnergy as number | null,decision:v.decision as 0 | 270 | null,reason:v.reason as FrameOrientation['reason']};
+    }
     case 'pageText': return count(v.page) && v.page >= 1 && typeof v.hasText === 'boolean' ? {type:'pageText',page:v.page,hasText:v.hasText} : null;
     case 'error': return (v.code === 'pdfEncrypted' || v.code === 'pdfFailed') && (v.detail === undefined || text(v.detail,4096))
       ? {type:'error',code:v.code,...(v.detail === undefined ? {} : {detail:v.detail as string})} : null;

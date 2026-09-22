@@ -12,8 +12,11 @@ export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | '
   if (orientation) {
     await waitSearch(() => tab.frameRotation !== undefined,'PDF orientation response missing');
     detectedRotation=tab.frameRotation;
+    // The probe's own verdict travels with every failure, so a refusal says whether it was slow, grey or split.
+    const verdict = `orientation ${JSON.stringify(tab.frameOrientation)}`;
     require(tab.frameRotation === expectedRotation && tab.frameAutoRotation === (expectedRotation !== 0),
-      `PDF orientation mismatch: expected ${expectedRotation}, got ${tab.frameRotation}, auto ${tab.frameAutoRotation}`);
+      `PDF orientation mismatch: expected ${expectedRotation}, got ${tab.frameRotation}, auto ${tab.frameAutoRotation}; ${verdict}`);
+    if (image) require(tab.frameOrientation?.reason === (orientation === 'image' ? 'sideways' : 'upright'),`PDF image probe did not see the fixture's lines; ${verdict}`);
     await tick();
     if (expectedRotation) require(document.querySelector(`[data-auto-rotation="${expectedRotation}"]`),'PDF automatic rotation status missing');
     else require(!document.querySelector('[data-auto-rotation]'),'Upright image was automatically rotated');
@@ -54,7 +57,8 @@ export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | '
     require(tab.framePage === 2 && tab.savedPosition?.kind === 'pdf' && tab.savedPosition.rotation === 0,'PDF reset lost the page or explicit zero rotation');
   }
   const metrics = {pages:tab.framePages,page:tab.framePage,headings:tab.frameToc.length,matches:tab.frameSearch.n,probe:tab.frameProbe,
-    rotation:tab.frameRotation,autoRotation:tab.frameAutoRotation,imageRotation:tab.frameImageRotation,detectedRotation,reversedRotation};
+    rotation:tab.frameRotation,autoRotation:tab.frameAutoRotation,imageRotation:tab.frameImageRotation,detectedRotation,reversedRotation,
+    orientation:tab.frameOrientation};
   await workspace.close(tab.id); await tick();
   require(!frame!.isConnected,'PDF iframe survived closing its tab');
   return metrics;

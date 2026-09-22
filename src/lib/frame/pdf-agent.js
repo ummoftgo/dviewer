@@ -1,15 +1,15 @@
 // Trusted viewer bridge; the PDF and this iframe still have no app capabilities.
-function orientationFromProfiles(rows, cols) {
-  if (!rows.length || !cols.length) return null;
-  const density = rows.reduce((sum,n) => sum + n,0) / (rows.length * cols.length);
-  if (density < 0.01) return null;
-  const energy = (profile,span) => profile.reduce((sum,n) => sum + (n / span - density) ** 2,0) / profile.length;
+function inkProfile(rows, cols) {
+  const ink = rows.length && cols.length ? rows.reduce((sum,n) => sum + n,0) / (rows.length * cols.length) : 0;
+  if (ink < 0.01) return {ink,rowEnergy:null,colEnergy:null,decision:null,reason:'sparse'};
+  const energy = (profile,span) => profile.reduce((sum,n) => sum + (n / span - ink) ** 2,0) / profile.length;
   const rowEnergy = energy(rows,cols.length), colEnergy = energy(cols,rows.length);
-  if (rowEnergy + colEnergy < 1e-6) return null;
+  if (rowEnergy + colEnergy < 1e-6) return {ink,rowEnergy,colEnergy,decision:null,reason:'sparse'};
   // ponytail: ink profiles cannot distinguish up from down; the pill offers a half-turn.
-  if (colEnergy >= rowEnergy * 2) return 270;
-  return rowEnergy >= colEnergy * 2 ? 0 : null;
+  const decision = colEnergy >= rowEnergy * 2 ? 270 : rowEnergy >= colEnergy * 2 ? 0 : null;
+  return {ink,rowEnergy,colEnergy,decision,reason:decision === 270 ? 'sideways' : decision === 0 ? 'upright' : 'ambiguous'};
 }
+const orientationFromProfiles = (rows, cols) => inkProfile(rows,cols).decision;
 (() => {
   const load = location.search;
   const send = value => parent.postMessage({...value, load}, '*');
@@ -140,19 +140,27 @@ function orientationFromProfiles(rows, cols) {
     return orientation(counts);
   }
   async function detectImageOrientation(pdf) {
-    let canvas, task, timer;
+    let canvas, task, timer, n = 1;
+    const start = performance.now(), late = () => performance.now() - start >= 200;
+    const round = value => value === null ? null : Math.round(value * 10000) / 10000;
+    // Every verdict reaches the parent, so a silent refusal can be told apart from a slow one.
+    const report = (reason,profile = {}) => {
+      if (failed || pdf !== app.pdfDocument) return;
+      send({type:'orientation',page:n,ms:round(performance.now() - start),ink:round(profile.ink ?? null),
+        rowEnergy:round(profile.rowEnergy ?? null),colEnergy:round(profile.colEnergy ?? null),decision:profile.decision ?? null,reason});
+    };
     try {
       canvas = document.createElement('canvas');
       const context = canvas.getContext('2d',{alpha:false,willReadFrequently:true});
-      if (!context) return 0;
-      const start = performance.now();
+      if (!context) { report('error'); return 0; }
       const timeout = new Promise((_,reject) => {
         cancelImageProbe = () => { const active = task; task = null; active?.cancel(); reject(new Error('image orientation cancelled')); };
         timer = setTimeout(cancelImageProbe,200);
       });
-      for (let n = 1; n <= Math.min(2,pdf.numPages); n++) {
+      for (; n <= Math.min(2,pdf.numPages); n++) {
         const page = await Promise.race([pdf.getPage(n),timeout]);
-        if (failed || pdf !== app.pdfDocument || performance.now() - start >= 200) return 0;
+        if (failed || pdf !== app.pdfDocument) return 0;
+        if (late()) { report('timeout'); return 0; }
         const base = page.getViewport({scale:1,rotation:0});
         const viewport = page.getViewport({scale:Math.min(1,256 / Math.max(base.width,base.height)),rotation:0});
         canvas.width = Math.max(1,Math.min(256,Math.ceil(viewport.width)));
@@ -160,21 +168,28 @@ function orientationFromProfiles(rows, cols) {
         task = page.render({canvas,viewport,background:'#ffffff',annotationMode:0});
         await Promise.race([task.promise,timeout]);
         task = null;
-        if (failed || pdf !== app.pdfDocument || performance.now() - start >= 200) return 0;
+        if (failed || pdf !== app.pdfDocument) return 0;
+        if (late()) { report('timeout'); return 0; }
         const {width,height} = canvas;
         const pixels = context.getImageData(0,0,width,height).data;
         let rows = new Uint32Array(height), cols = new Uint32Array(width);
+        // Outline glyphs of 0.7pt strokes shrink to grey at 256px; 128 kept too little of a cover page.
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
           const at = (y * width + x) * 4;
-          if (pixels[at] * 299 + pixels[at+1] * 587 + pixels[at+2] * 114 < 128000) { rows[y]++; cols[x]++; }
+          if (pixels[at] * 299 + pixels[at+1] * 587 + pixels[at+2] * 114 < 200000) { rows[y]++; cols[x]++; }
         }
         if (page.rotate % 180 !== 0) [rows,cols] = [cols,rows];
-        if (orientationFromProfiles(rows,cols) !== 270) return 0;
+        const profile = inkProfile(rows,cols);
+        if (late()) { report('timeout',profile); return 0; }
+        if (profile.decision !== 270) { report(n > 1 ? 'disagree' : profile.reason,profile); return 0; }
+        report('sideways',profile);
       }
-      if (performance.now() - start >= 200) return 0;
       automaticImage = true;
       return 270;
-    } catch { return 0; /* A failed or slow probe must not prevent opening the PDF. */ }
+    } catch {
+      // A failed or slow probe must not prevent opening the PDF.
+      report(late() ? 'timeout' : 'error'); return 0;
+    }
     finally {
       clearTimeout(timer); task?.cancel(); cancelImageProbe = undefined;
       if (canvas) { canvas.width = 0; canvas.height = 0; }

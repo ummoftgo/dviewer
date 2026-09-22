@@ -35,6 +35,7 @@
     target.frameServed = null; target.frameCsp = []; target.frameAgentStarted = false;
     target.frameStage = null;
     target.frameStall = null;
+    target.frameOrientation = null;
     const cspViolation = (event: SecurityPolicyViolationEvent) => {
       const entry = parentCspViolation(event.effectiveDirective, event.blockedURI);
       if (!target.frameCsp.includes(entry) && target.frameCsp.length < 4) target.frameCsp.push(entry);
@@ -120,6 +121,12 @@
         tab.frameImageRotation = message.image === true;
         tab.rememberPosition({kind:'pdf',page:tab.framePage,rotation:message.deg});
         break;
+      case 'orientation':
+        if (tab.kind !== 'pdf') break;
+        tab.frameOrientation = {page:message.page,ms:message.ms,ink:message.ink,rowEnergy:message.rowEnergy,
+          colEnergy:message.colEnergy,decision:message.decision,reason:message.reason};
+        console.info('[dviewer] PDF image orientation',JSON.stringify(tab.frameOrientation));
+        break;
       case 'pageText':
         if (tab.kind === 'pdf' && message.page === tab.framePage) tab.frameHasText = message.hasText;
         break;
@@ -187,6 +194,7 @@
   <div class="content" data-focus-toc class:with-toc={showToc && tab.frameToc.length > (tab.kind === 'pdf' ? 0 : 1)}>
     {#if tab.frameError}<p class="error" role="alert">{tab.frameError}</p>
     {:else if src}{#key src}<iframe bind:this={iframe} {src} sandbox="allow-scripts" title={tab.meta.title}
+      data-orientation={tab.frameOrientation ? JSON.stringify(tab.frameOrientation) : undefined}
       onload={() => { tab.frameLoaded = true; }}></iframe>{/key}{/if}
     {#if showToc && tab.frameToc.length > (tab.kind === 'pdf' ? 0 : 1)}<aside data-focus-chrome><Toc entries={tab.frameToc} {activeId} onSelect={id => {activeId=id;post({type:'goto',id});}} /></aside>{/if}
   </div>

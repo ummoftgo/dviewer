@@ -4,7 +4,7 @@ import {expect,test,vi} from 'vitest';
 import {parseFrameMessage,type FrameStall} from './messages';
 
 type TextPage = {rotate:number; items:unknown[]; styles?:Record<string,{vertical:boolean}>;
-  pixels?:'vertical'|'horizontal'|'blank'; render?:'fail'|'pending'; elapsed?:number};
+  pixels?:'vertical'|'horizontal'|'blank'; shade?:number; render?:'fail'|'pending'; elapsed?:number};
 const textItems = (a:number,b:number,n=20) => Array.from({length:n},() => ({str:'word',transform:[a,b,-b,a,0,0],fontName:'F1'}));
 function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}]) {
   const listeners = new Map<string,(event: unknown) => void>();
@@ -22,7 +22,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     const data = new Uint8ClampedArray(canvas.width * canvas.height * 4).fill(255);
     for (let y=0;y<canvas.height;y++) for (let x=0;x<canvas.width;x++) {
       if ((drawn.pixels === 'vertical' && x % 16 < 6) || (drawn.pixels === 'horizontal' && y % 16 < 6)) {
-        const at=(y * canvas.width+x)*4; data[at]=data[at+1]=data[at+2]=0;
+        const at=(y * canvas.width+x)*4; data[at]=data[at+1]=data[at+2]=drawn.shade ?? 0;
       }
     }
     return {data};
@@ -130,6 +130,57 @@ test('ink profile energy distinguishes stripes, rejects sparse and uniform pages
   expect(direction(Array(100).fill(1),[100,...Array(99).fill(0)])).toBe(270);
   expect(direction([0,...Array(99).fill(1)],[99,...Array(99).fill(0)])).toBeNull();
   expect(direction([],[])).toBeNull();
+});
+
+// Lines of words as a 0/1 grid: word blocks with gaps, short paragraph ends and blank lines, like the vector fixture.
+function wordPage(sideways:boolean) {
+  const width=128, height=200, ink:number[][]=Array.from({length:height},() => Array(width).fill(0));
+  let seed=7;
+  const random=() => (seed=(seed*1103515245+12345)%2147483648)/2147483648;
+  for (let line=0, top=6; top+3<=height-6; line++, top+=5) {
+    if (line%9===8) continue;
+    const end=line%9===7 ? 40+Math.floor(random()*60) : width-6;
+    for (let x=6; ;) {
+      const word=3+Math.floor(random()*8);
+      if (x+word>end) break;
+      for (let i=0;i<word;i++) for (let y=top;y<top+3;y++) ink[y][x+i]=random()<0.5 ? 1 : 0;
+      x+=word+2;
+    }
+  }
+  const grid=sideways ? Array.from({length:width},(_,y) => Array.from({length:height},(_,x) => ink[height-1-x][y])) : ink;
+  return {rows:grid.map(row => row.reduce((a,b) => a+b,0)),cols:grid[0].map((_,x) => grid.reduce((sum,row) => sum+row[x],0))};
+}
+
+test('word blocks decide by the direction of their lines, not by their gaps',() => {
+  const {orientationFromProfiles:direction}=viewer();
+  const upright=wordPage(false), sideways=wordPage(true);
+  expect(direction(upright.rows,upright.cols)).toBe(0);
+  expect(direction(sideways.rows,sideways.cols)).toBe(270);
+});
+
+test('grey outline strokes count as ink below a luminance of 200, and every verdict is reported',async () => {
+  for (const [shade,expected] of [[190,270],[210,0]] as const) {
+    const pdf=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical',shade}]); pdf.numPages(1);
+    await pdf.initialize(); await pdf.ready(); pdf.goto(1); pdf.loaded();
+    expect(pdf.messages.find(m=>m.type==='rotated'),String(shade)).toMatchObject({deg:expected}); pdf.close();
+  }
+  const vertical:TextPage={rotate:0,items:[],pixels:'vertical'}, horizontal:TextPage={rotate:0,items:[],pixels:'horizontal'};
+  for (const [pages,reasons] of [
+    [[vertical,vertical],['sideways','sideways']], [[horizontal],['upright']], [[vertical,horizontal],['sideways','disagree']],
+    [[{...vertical,pixels:'blank'}],['sparse']], [[{...vertical,render:'fail'}],['error']], [[{...vertical,elapsed:201}],['timeout']],
+  ] as [TextPage[],string[]][]) {
+    const pdf=viewer(undefined,false,pages); pdf.numPages(pages.length); await pdf.initialize(); await pdf.ready();
+    const verdicts=pdf.messages.filter(m=>m.type==='orientation') as unknown as Record<string,unknown>[];
+    expect(verdicts.map(m=>m.reason),reasons.join()).toEqual(reasons);
+    verdicts.forEach((m,i) => {
+      expect(m.page).toBe(i+1);
+      const {load:_,...message}=m;
+      expect(parseFrameMessage(message)).toEqual(message);
+      for (const key of ['ms','ink','rowEnergy','colEnergy']) if (m[key]!==null) expect(Math.round(Number(m[key])*1e4)/1e4).toBe(m[key]);
+    });
+    expect(verdicts.at(-1)!.decision).toBe({sideways:270,upright:0,disagree:0}[reasons.at(-1)!] ?? null);
+    pdf.close();
+  }
 });
 
 test('image orientation needs agreement, respects page Rotate and bounds rendering to the first two small canvases',async () => {
