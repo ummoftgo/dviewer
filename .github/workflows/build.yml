@@ -197,9 +197,10 @@ jobs:
       - name: Warm release build
         run: npm run tauri build -- --no-bundle ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
-      # Exercise WebKit before a tag, using the release binary built above.
+      # Exercise WebKit before a tag, using the release binary built above — and
+      # WebView2 without a GPU, which a desk rarely is: the PDF worker race that
+      # stopped the v0.23.0 rehearsal was only ever lost there.
       - name: Generate fixtures
-        if: runner.os != 'Windows'
         run: node scripts/gen-fixtures.mjs
 
       - name: Install xvfb
@@ -210,8 +211,8 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a dbus-run-session -- npm run smoke -- --release
 
-      - name: Smoke (macOS)
-        if: runner.os == 'macOS'
+      - name: Smoke
+        if: runner.os != 'Linux'
         run: npm run smoke -- --release
 
   # Tags only. Manual runs can opt in with the `bundle` input to rehearse a

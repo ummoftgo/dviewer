@@ -6,12 +6,12 @@
 
 | 계기 | 하는 일 |
 | --- | --- |
-| main 푸시 | 세 OS 테스트와 `warm`을 병렬 실행. warm은 번들 없이 release 앱을 빌드해 캐시를 예열하고, Linux·macOS에서 release 스모크도 실행 |
+| main 푸시 | 세 OS 테스트와 `warm`을 병렬 실행. warm은 번들 없이 release 앱을 빌드해 캐시를 예열하고, 세 OS 모두 release 스모크도 실행 |
 | PR | 테스트만. 세 러너에서 픽스처를 만든 뒤 `cargo test`(부재를 실패로 치는 `DVIEWER_FIXTURES=required` 로), 타입 체크와 프런트엔드 빌드는 Linux에서 한 번 |
 | `v*` 태그 | 동일 SHA의 성공한 서명 리허설 산출물을 재사용해 **초안 릴리스**를 만듦. 후보가 없으면 기존처럼 세 OS test·bundle을 실행 |
 | 수동 실행 | 기본은 테스트만. main에서 `bundle=true`면 세 OS 테스트·서명 번들·release 스모크를 수행하고 아티팩트로 남김. 다른 브랜치는 기존 비서명 번들 |
 
-잡 그래프는 main에서 `test ∥ warm`, 수동 리허설에서 `test ∥ bundle`입니다. 태그는 먼저 `reuse`가 후보를 고르고, 있으면 `reuse → release`(test·bundle 생략), 없으면 `reuse → (test ∥ bundle) → release`로 진행합니다. push와 workflow_dispatch는 동시성 그룹이 달라 서로 취소하지 않습니다. 판올림 커밋을 푸시한 직후 warm을 기다리지 않고 번들 리허설(`gh workflow run build.yml --ref main -f bundle=true`)을 시작합니다. 같은 SHA의 리허설에서 세 OS test·bundle·release 스모크가 모두 성공해야 태그를 만듭니다. 같은 이벤트·ref 안에서는 이전 실행을 계속 취소합니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행하고 macOS는 universal 바이너리를 디스플레이 래퍼 없이 실행해 WebKit 검사를 태그 전에 확인합니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
+잡 그래프는 main에서 `test ∥ warm`, 수동 리허설에서 `test ∥ bundle`입니다. 태그는 먼저 `reuse`가 후보를 고르고, 있으면 `reuse → release`(test·bundle 생략), 없으면 `reuse → (test ∥ bundle) → release`로 진행합니다. push와 workflow_dispatch는 동시성 그룹이 달라 서로 취소하지 않습니다. 판올림 커밋을 푸시한 직후 warm을 기다리지 않고 번들 리허설(`gh workflow run build.yml --ref main -f bundle=true`)을 시작합니다. 같은 SHA의 리허설에서 세 OS test·bundle·release 스모크가 모두 성공해야 태그를 만듭니다. 같은 이벤트·ref 안에서는 이전 실행을 계속 취소합니다. 서로 다른 태그의 캐시는 직접 공유되지 않지만 태그 빌드는 기본 브랜치 main의 캐시를 복원할 수 있습니다. warm과 bundle은 같은 `shared-key: bundle-<slug>`를 사용해 Rust 의존성 빌드를 재사용합니다. warm Linux는 이미 만든 release 바이너리를 Xvfb·D-Bus 세션에서 실행하고 macOS는 universal 바이너리를 디스플레이 래퍼 없이 실행해 WebKit 검사를 태그 전에 확인합니다. warm Windows도 같은 release 바이너리로 스모크를 돕니다(약 1분). CI 러너에는 GPU가 없어 WebView2가 소프트웨어로 그리는데, v0.23.0 리허설을 멈춘 PDF 워커 경쟁은 이 환경에서만 졌습니다. 번들 잡만 Windows 스모크를 돌면 태그 직전에야 드러나므로 main 푸시마다 봅니다. `cache-on-failure: true`는 스모크 실패 때도 캐시 저장 후처리를 실행하도록 하지만, concurrency 취소나 저장 실패까지 캐시 보존을 보장하지는 않습니다.
 
 어느 잡도 Parquet 예제를 컴파일하지 않습니다. 스모크와 `cargo test`가 읽는 `sample.parquet`·`columnar.zip`은 생성기가 `scripts/golden/`의 기준 파일을 복사합니다. 예전에는 test·warm·bundle 잡마다 이 단계가 26~133초였고, 그 재컴파일을 줄이려고 기능·`MACOSX_DEPLOYMENT_TARGET`을 tauri build와 맞추던 설정도 함께 없어졌습니다.
 

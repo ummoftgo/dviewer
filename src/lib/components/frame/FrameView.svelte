@@ -33,7 +33,7 @@
     target.frameReady = false; target.frameReadyLoad = ''; target.frameBlocked = 0; target.frameProbe = null;
     target.frameError = null; target.frameUrlPort = null; target.frameLoaded = false;
     target.frameServed = null; target.frameCsp = []; target.frameAgentStarted = false;
-    target.frameStage = null;
+    target.frameStages = [];
     target.frameStall = null;
     target.frameOrientation = null;
     const cspViolation = (event: SecurityPolicyViolationEvent) => {
@@ -87,7 +87,7 @@
     if (!message) return;
     switch (message.type) {
       case 'agentStart': tab.frameAgentStarted = true; break;
-      case 'stage': if (tab.kind === 'pdf') tab.frameStage = message.name; break;
+      case 'stage': if (tab.kind === 'pdf' && tab.frameStages.length < 16) tab.frameStages.push(message.name); break;
       case 'stall':
         if (tab.kind === 'pdf') { tab.frameStall = message.snapshot; refreshServed(tab,load); }
         break;

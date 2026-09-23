@@ -26,9 +26,9 @@ test('stall parsing bounds resources and values while retaining current-frame id
 test('timeout diagnostics include response order, missing paths, a bounded stall snapshot and the last orientation verdict',() => {
   const orientation={page:1,ms:12.3456,ink:0.0068,rowEnergy:null,colEnergy:null,decision:null,start:null,end:null,direction:null,reason:'sparse'} as const;
   const result=frameDiagnostic({frameOrientation:orientation,frameUrlPort:'43123',frameLoaded:true,frameReady:false,frameError:null,
-    frameCsp:[],frameAgentStarted:true,frameStage:'worker-imported',frameStall:snapshot,
+    frameCsp:[],frameAgentStarted:true,frameStages:['start','webviewerloaded','worker-start','initializedPromise','worker-imported'],frameStall:snapshot,
     frameServed:{html:1,agent:2,resource:21,last:[{sequence:24,path:'/_/pdfjs/web/locale/en-US/viewer.ftl',status:404}]}});
-  expect(result).toBe('(frame: url ok, port 43123, load yes, ready no, error -, served html 1 agent 2 resource 21, csp -, agent start yes, stage worker-imported, last: 24:/_/pdfjs/web/locale/en-US/viewer.ftl 404, stall '+JSON.stringify(snapshot)+', orientation '+JSON.stringify(orientation)+')');
+  expect(result).toBe('(frame: url ok, port 43123, load yes, ready no, error -, served html 1 agent 2 resource 21, csp -, agent start yes, stage start>webviewerloaded>worker-start>initializedPromise>worker-imported, last: 24:/_/pdfjs/web/locale/en-US/viewer.ftl 404, stall '+JSON.stringify(snapshot)+', orientation '+JSON.stringify(orientation)+')');
   expect(JSON.stringify(snapshot).length).toBeLessThanOrEqual(8192);
 });
 

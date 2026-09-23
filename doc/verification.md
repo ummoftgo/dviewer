@@ -2,6 +2,41 @@
 
 ← [README](../README.md)
 
+## PDF 워커 경쟁 — GPU 없는 WebView2
+
+v0.23.0 리허설(run 35886281635)의 Windows 번들 스모크는 `report.pdf` 만 통과하고 나머지 PDF 여섯이 60초 timeout 이었다. 재실행도 같았다. 진단은 모두 `stage worker-imported`·`stall -`·PDF 바이트 요청 없음이었다.
+
+**재현.** WebView2 에 `--disable-gpu` 를 주면 로컬에서도 결정적으로 멈춘다. 새 프로필 여부와는 관계없었다.
+
+```bash
+WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu npm run smoke -- --release
+```
+
+같은 환경 변수에 `--remote-debugging-port=9222` 를 더하면 멈춘 프레임을 CDP 로 볼 수 있다.
+- 메인 스레드는 응답했고 `PDFViewerApplication.initialized === true` 였다.
+- `pdfLoadingTask` 는 있었지만 `_transport` 가 없었다. `GetDocRequest` 에 대한 응답을 기다리는 상태다.
+
+같은 프레임에서 부트스트랩 방식의 새 워커로 `getDocument` 를 불러 원인을 확정했다.
+
+| 조건 | `new Worker` 직후 `PDFWorker({port})` | 워커의 첫 메시지 뒤 |
+|---|---|---|
+| GPU 끔 | 10초 동안 문서 없음 | `numPages 2`, 44ms |
+| GPU 켬 | 10초 동안 문서 없음 | `numPages 2`, 49ms |
+
+원인과 수정은 [구조](architecture.md) PDF 초기화 진단 절의 "워커 경쟁" 문단에 있다.
+
+| 항목 | 결과 |
+|---|---|
+| 고치기 전(1ee4034) `--disable-gpu` release 스모크 2회 | 2회 모두 PDF 7개가 60초 timeout, 나머지 49개와 왕복 2 통과 |
+| 고친 뒤 `--disable-gpu` release 스모크 | 픽스처 56개(PDF 7개 0.2~0.5초)와 왕복 2 통과, 21초 |
+| 고친 뒤 GPU 켠 debug 스모크 | 픽스처 56개와 왕복 2 통과, 24초 |
+| `DVIEWER_FIXTURES=required cargo test` | 556개 |
+| vitest · check | 413개 · 오류/경고 0, 4×487키 |
+| 깨뜨려: 부트스트랩에서 큐 등록 제거 | 새 재전달 시험 1개 실패(`['later']` 만 도착), 나머지 26개 통과 |
+| 깨뜨려: 모으기만 하고 재전달 안 함 | 같은 시험 1개 실패 |
+
+타임아웃 진단의 `stage` 는 이제 도착 순서 전체를 싣는다(예: `start>webviewerloaded>worker-start>initializedPromise>worker-imported`). 개발 기계는 GPU 가 있어 이 경쟁을 거의 늘 이기므로, warm 잡에 Windows release 스모크를 더해 main 푸시마다 GPU 없는 러너에서 본다. WebKit(macOS·Linux)은 같은 서명이었지만 이번에는 확인하지 않았다.
+
 ## 스모크 인스턴스 — 떠 있는 dviewer 옆에서 스모크
 
 2026-09-23 M43e 는 사용자 화면 확인용 dviewer 가 떠 있어 스모크를 약 1시간 45분 기다렸다. 왕복 검사 둘의 단일 인스턴스 잠금이 사용자 앱과 같은 identifier 였기 때문이다. 이제 러너가 모든 프로세스에 `DVIEWER_INSTANCE=smoke` 를 넘기고 앱은 identifier 를 `com.xenia.dviewer.smoke` 로 바꾼다(`cli::identifier`, 값 규칙 `[a-z][a-z0-9-]{0,31}`).

@@ -275,10 +275,20 @@ const IMAGE_PROBE_MS = 500;
       // Chromium rejects a blob:null module-worker entry point in opaque frames.
       // A classic Blob entry can import the same fixed ESM without changing CSP.
       // A rejected import() stays in the worker and does not fire its owner's error event.
+      // PDF.js starts listening only when its module has run, and the viewer's first
+      // messages (configure, GetDocRequest) can arrive before that. Unheard, they are
+      // lost and the document never opens — the race a GPU-less runner lost every time.
+      // So they wait here and are replayed, in order, once PDF.js is listening.
       const bootstrap = `const fail = cause => postMessage({type:'pdfWorkerError',detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
 addEventListener('unhandledrejection',event => fail(event.reason));
+const early = [], hold = event => early.push(event);
+addEventListener('message',hold);
 postMessage({type:'pdfWorkerStage',name:'worker-start'});
-import(${JSON.stringify(workerSrc)}).then(() => postMessage({type:'pdfWorkerStage',name:'worker-imported'}),fail);`;
+import(${JSON.stringify(workerSrc)}).then(() => {
+  removeEventListener('message',hold);
+  for (const event of early.splice(0)) dispatchEvent(new MessageEvent('message',{data:event.data,ports:[...event.ports]}));
+  postMessage({type:'pdfWorkerStage',name:'worker-imported'});
+},fail);`;
       workerUrl = URL.createObjectURL(new Blob([bootstrap],{type:'text/javascript'}));
       worker = new Worker(workerUrl);
       worker.addEventListener('error',event => error('pdfFailed',event.message || event.error));

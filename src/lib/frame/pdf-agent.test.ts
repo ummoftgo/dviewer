@@ -533,6 +533,30 @@ test('the real worker bootstrap forwards import rejections instead of leaving th
   expect(failure.detail).toBe('A dynamic import callback was not specified.');
 });
 
+// Windows CI and every WebKit run lost this race: GetDocRequest reached the worker
+// before PDF.js was listening, and the document never opened.
+test('messages sent before the worker module has run are replayed to it, in order and once',async () => {
+  const pdf=viewer(); await pdf.initialize();
+  const source=await pdf.bootstrap();
+  expect(source.split('import(')).toHaveLength(2);
+  const scope=new EventTarget(), heard:unknown[]=[], posted:{name?:string}[]=[];
+  let evaluate!:() => void;
+  // Stands in for import(): resolving it is pdf.worker.mjs running, which starts listening.
+  const load=() => new Promise<void>(resolve => {
+    evaluate=() => {scope.addEventListener('message',event => heard.push((event as MessageEvent).data)); resolve();};
+  });
+  runInNewContext(source.replace('import(','load('),{load,MessageEvent,postMessage:(data:{name?:string}) => posted.push(data),
+    addEventListener:scope.addEventListener.bind(scope),removeEventListener:scope.removeEventListener.bind(scope),
+    dispatchEvent:scope.dispatchEvent.bind(scope)});
+  const send=(data:unknown) => scope.dispatchEvent(new MessageEvent('message',{data}));
+  send('configure'); send('GetDocRequest');
+  expect(heard).toEqual([]);
+  evaluate(); await new Promise(resolve => setTimeout(resolve));
+  send('later');
+  expect(heard).toEqual(['configure','GetDocRequest','later']);
+  expect(posted.map(message => message.name)).toEqual(['worker-start','worker-imported']);
+});
+
 test('PDF goto arriving before ready survives pagesloaded arriving first',async () => {
   for (const target of [2,'o0']) {
     const pdf=viewer(); await pdf.initialize(); pdf.goto(target); pdf.loaded();

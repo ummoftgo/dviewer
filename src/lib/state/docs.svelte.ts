@@ -247,7 +247,9 @@ export class DocTab {
   frameServed = $state<ipc.FrameServed | null>(null);
   frameCsp = $state<string[]>([]);
   frameAgentStarted = $state(false);
-  frameStage = $state<PdfStage | null>(null);
+  // In arrival order: the last stage alone once read as "stopped at worker-imported"
+  // when the import had merely finished after initialisation.
+  frameStages = $state<PdfStage[]>([]);
   frameStall = $state<FrameStall | null>(null);
   frameOrientation = $state<FrameOrientation | null>(null);
   frameToc = $state<ipc.TocEntry[]>([]);
@@ -430,7 +432,7 @@ export class DocTab {
     this.frameBlocked = 0; this.frameProbe = null;
     this.frameError = null; this.frameUrlPort = null; this.frameLoaded = false;
     this.frameServed = null; this.frameCsp = []; this.frameAgentStarted = false;
-    this.frameStage = null;
+    this.frameStages = [];
     this.frameStall = null;
     this.frameOrientation = null;
     this.frameReadyLoad = '';
