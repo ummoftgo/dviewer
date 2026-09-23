@@ -24,7 +24,7 @@ test('stall parsing bounds resources and values while retaining current-frame id
 });
 
 test('timeout diagnostics include response order, missing paths, a bounded stall snapshot and the last orientation verdict',() => {
-  const orientation={page:1,ms:12.3456,ink:0.0068,rowEnergy:null,colEnergy:null,decision:null,reason:'sparse'} as const;
+  const orientation={page:1,ms:12.3456,ink:0.0068,rowEnergy:null,colEnergy:null,decision:null,start:null,end:null,direction:null,reason:'sparse'} as const;
   const result=frameDiagnostic({frameOrientation:orientation,frameUrlPort:'43123',frameLoaded:true,frameReady:false,frameError:null,
     frameCsp:[],frameAgentStarted:true,frameStage:'worker-imported',frameStall:snapshot,
     frameServed:{html:1,agent:2,resource:21,last:[{sequence:24,path:'/_/pdfjs/web/locale/en-US/viewer.ftl',status:404}]}});

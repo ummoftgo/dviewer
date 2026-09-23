@@ -3,9 +3,10 @@ import {workspace,type DocTab} from '../../state/docs.svelte';
 import {waitSearch} from '../markdown/searchSmoke';
 
 const require = (ok: unknown, why: string) => { if (!ok) throw new Error(why); };
-export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | 'image' | 'upright' = false) {
-  const image = orientation === 'image' || orientation === 'upright';
-  const expectedRotation = orientation === 'image' ? 270 : orientation === 'text' ? 90 : 0;
+export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | 'image' | 'image-ccw' | 'upright' = false) {
+  // 'image' lines begin at the top (turned clockwise, or no edge to vote), 'image-ccw' at the bottom.
+  const corrected = orientation === 'image' || orientation === 'image-ccw', image = corrected || orientation === 'upright';
+  const expectedRotation = orientation === 'image' ? 270 : orientation === 'image-ccw' || orientation === 'text' ? 90 : 0;
   let detectedRotation:number|undefined, reversedRotation:number|undefined;
   await waitSearch(() => tab.frameReady && tab.framePages === 2 && tab.frameProbe !== null,'PDF pages or probe missing',15000);
   require(tab.frameProbe === 'absent' || tab.frameProbe?.startsWith('rejected:'),'PDF isolation probe failed');
@@ -19,11 +20,11 @@ export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | '
       `PDF orientation mismatch: expected ${expectedRotation}, got ${tab.frameRotation}, auto ${tab.frameAutoRotation}; ${verdict}`);
     if (!expectedRotation) require(tab.frameRotation === undefined && tab.savedPosition?.kind === 'pdf' && tab.savedPosition.rotation === undefined,
       'PDF default rotation was saved as a choice');
-    if (image) require(tab.frameOrientation?.reason === (orientation === 'image' ? 'sideways' : 'upright'),`PDF image probe did not see the fixture's lines; ${verdict}`);
+    if (image) require(tab.frameOrientation?.reason === (corrected ? 'sideways' : 'upright'),`PDF image probe did not see the fixture's lines; ${verdict}`);
     await tick();
     if (expectedRotation) require(document.querySelector(`[data-auto-rotation="${expectedRotation}"]`),'PDF automatic rotation status missing');
     else require(!document.querySelector('[data-auto-rotation]'),'Upright image was automatically rotated');
-    require(tab.frameImageRotation === (orientation === 'image'),'PDF image correction provenance missing or incorrect');
+    require(tab.frameImageRotation === corrected,'PDF image correction provenance missing or incorrect');
   } else {
     require(tab.frameToc.length === 3 && tab.frameToc[1].text === 'Same page, another heading','PDF outline missing at ready');
     require(new Set(tab.frameToc.map(item => item.id)).size === 3,'PDF outline ids collided on the same page');
@@ -41,15 +42,16 @@ export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | '
   require(tab.savedPosition?.kind === 'pdf','PDF page position was not retained');
   if (orientation && expectedRotation) {
     require(tab.savedPosition?.kind === 'pdf' && tab.savedPosition.rotation === expectedRotation,'PDF automatic rotation was not retained');
-    if (orientation === 'image') {
+    if (corrected) {
+      const reversed = (expectedRotation + 180) % 360;
       const reverse = document.querySelector<HTMLButtonElement>('[data-action="pdf-rotation-reverse"]');
       require(reverse && document.querySelector('[data-image-rotation="true"]'),'PDF image correction controls missing');
       reverse!.click();
-      await waitSearch(() => tab.frameRotation === 90 && !tab.frameAutoRotation,'PDF reverse did not complete');
+      await waitSearch(() => tab.frameRotation === reversed && !tab.frameAutoRotation,'PDF reverse did not complete');
       reversedRotation=tab.frameRotation;
       await tick();
       require(tab.framePage === 2 && tab.frameImageRotation,'PDF reverse lost page or undo controls');
-      require(tab.savedPosition?.kind === 'pdf' && tab.savedPosition.rotation === 90,'PDF reversed direction was not retained');
+      require(tab.savedPosition?.kind === 'pdf' && tab.savedPosition.rotation === reversed,'PDF reversed direction was not retained');
     }
     const reset = document.querySelector<HTMLButtonElement>('[data-action="pdf-rotation-reset"]');
     require(reset,'PDF rotation reset button missing');

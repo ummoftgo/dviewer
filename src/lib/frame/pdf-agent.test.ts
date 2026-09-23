@@ -4,7 +4,7 @@ import {expect,test,vi} from 'vitest';
 import {parseFrameMessage,type FrameStall} from './messages';
 
 type TextPage = {rotate:number; items:unknown[]; styles?:Record<string,{vertical:boolean}>;
-  pixels?:'vertical'|'horizontal'|'blank'; shade?:number; render?:'fail'|'pending'; elapsed?:number};
+  pixels?:'vertical'|'horizontal'|'blank'|'top'|'bottom'|'left'|'cover'; shade?:number; render?:'fail'|'pending'; elapsed?:number};
 const textItems = (a:number,b:number,n=20) => Array.from({length:n},() => ({str:'word',transform:[a,b,-b,a,0,0],fontName:'F1'}));
 function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}]) {
   const listeners = new Map<string,(event: unknown) => void>();
@@ -16,12 +16,24 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   const attempts: number[] = [];
   const rotationAttempts:number[] = [], order:string[] = [], textPages:number[] = [];
   let rotation = 0, textFailure = false;
-  let drawn:TextPage, elapsed=0;
+  let drawn:TextPage, drawnRotation=0, elapsed=0;
+  // Ragged line lengths: a stripe's reach varies from half to 95% of the span.
+  const reach=(k:number,span:number) => Math.floor(span*(0.5+((k*37)%10)/20));
+  // Page-space ink; 'top'/'bottom' are lines running down that begin at one edge, 'left' lines running across.
+  const inked=(mode:TextPage['pixels'],x:number,y:number,w:number,h:number) =>
+    (mode==='vertical' && x%16<6) || (mode==='horizontal' && y%16<6)
+    || (mode==='top' && x%16<6 && y<reach(Math.floor(x/16),h)) || (mode==='bottom' && x%16<6 && y>=h-reach(Math.floor(x/16),h))
+    || (mode==='left' && y%16<6 && x<reach(Math.floor(y/16),w))
+    // A cover's few lines: begin at the bottom, ends differ by only 1.2% of the span per line.
+    || (mode==='cover' && x%16<6 && y>=h-Math.floor(h*(0.6+0.012*(Math.floor(x/16)%5))));
   const renders:{page:number;width:number;height:number;rotation:number;cancel:ReturnType<typeof vi.fn>;finish:() => void}[] = [];
   const canvas = {width:0,height:0,getContext:() => ({getImageData() {
     const data = new Uint8ClampedArray(canvas.width * canvas.height * 4).fill(255);
-    for (let y=0;y<canvas.height;y++) for (let x=0;x<canvas.width;x++) {
-      if ((drawn.pixels === 'vertical' && x % 16 < 6) || (drawn.pixels === 'horizontal' && y % 16 < 6)) {
+    const W=canvas.width, H=canvas.height, odd=drawnRotation%180!==0, pw=odd ? H : W, ph=odd ? W : H;
+    for (let y=0;y<H;y++) for (let x=0;x<W;x++) {
+      // Like PDF.js, the canvas shows the page turned clockwise by the viewport rotation.
+      const [px,py]=drawnRotation===90 ? [y,W-1-x] : drawnRotation===180 ? [W-1-x,H-1-y] : drawnRotation===270 ? [H-1-y,x] : [x,y];
+      if (inked(drawn.pixels,px,py,pw,ph)) {
         const at=(y * canvas.width+x)*4; data[at]=data[at+1]=data[at+2]=drawn.shade ?? 0;
       }
     }
@@ -58,9 +70,9 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     pdfDocument:{numPages:3,getOutline:async () => {if (outlineError) throw outlineError; return [{title:'Second',dest:[1]}];},
       getPage:async (n:number) => ({rotate:pages[(n-1) % pages.length].rotate,getTextContent:async () => {
         textPages.push(n); if (textFailure) throw new Error('text failed'); return pages[(n-1) % pages.length];
-      },getViewport:({scale,rotation}:{scale:number;rotation:number}) => ({width:320*scale,height:640*scale,rotation}),
+      },getViewport:({scale,rotation}:{scale:number;rotation:number}) => ({width:(rotation%180 ? 640 : 320)*scale,height:(rotation%180 ? 320 : 640)*scale,rotation}),
       render({viewport}:{viewport:{rotation:number}}) {
-        drawn=pages[(n-1) % pages.length]; elapsed+=drawn.elapsed ?? 0;
+        drawn=pages[(n-1) % pages.length]; drawnRotation=viewport.rotation; elapsed+=drawn.elapsed ?? 0;
         let finish!:() => void, reject!:(cause:Error) => void;
         const promise=new Promise<void>((resolve,fail) => {finish=resolve; reject=fail;});
         const cancel=vi.fn(() => reject(new Error('render cancelled')));
@@ -79,7 +91,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   };
   class Worker {addEventListener(name:string,listener:(event:unknown) => void) {workerListeners.set(name,listener);} terminate() {}}
   class WorkerUrl extends URL {static createObjectURL(blob:Blob) {workerBlob=blob; return 'blob:null/test';} static revokeObjectURL() {}}
-  const orientationFromProfiles = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\norientationFromProfiles;',{
+  const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges});',{
     parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}}},
     document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},createElement:() => canvas,addEventListener(_name:string,listener:() => void) {initialize=listener;}},
     navigator:{language:'en-GB',locale:'C'},
@@ -90,7 +102,8 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   });
   return {
     attempts,messages,errored,resourceEntries,rotationAttempts,order,textPages,renders,canvas,
-    orientationFromProfiles:orientationFromProfiles as (rows:number[],cols:number[]) => number|null,
+    orientationFromProfiles:pure.orientationFromProfiles as (rows:number[],cols:number[]) => number|null,
+    directionFromEdges:pure.directionFromEdges as (first:number[],last:number[]) => {start:number|null;end:number|null;direction:number|null},
     failText() {textFailure=true;},
     numPages(n:number) {app.pdfDocument.numPages=n; app.pagesCount=n;},
     bootstrap() {return workerBlob.text();},
@@ -151,6 +164,42 @@ function wordPage(sideways:boolean) {
   return {rows:grid.map(row => row.reduce((a,b) => a+b,0)),cols:grid[0].map((_,x) => grid.reduce((sum,row) => sum+row[x],0))};
 }
 
+test('the steadier edge of sideways lines is where they begin; weak or split edges give no vote',() => {
+  const {directionFromEdges:edges}=viewer();
+  const ragged=Array.from({length:40},(_,i) => 200+(i*37)%150), steady=Array.from({length:40},(_,i) => 10+(i%2));
+  expect(edges(steady,ragged)).toMatchObject({direction:270,start:0.5});
+  expect(edges(ragged,steady)).toMatchObject({direction:90,end:0.5});
+  // Stripes or a boxed image: both edges flat.
+  expect(edges(Array(40).fill(0),Array(40).fill(511))).toEqual({start:0,end:0,direction:null});
+  // Both ragged, like the user's page with screenshots (38, 39 at 256px).
+  expect(edges(ragged,ragged.map(v => v+1)).direction).toBeNull();
+  // The 4px floor and the 2x margin: [0,4,8] spreads 4, [0,1,2,3] spreads 1, [0,3,6,9] spreads 3.
+  expect(edges([0,1,2,3],[0,4,8]).direction).toBe(270);
+  expect(edges([0,1,2,3],[0,3,6]).direction).toBeNull();
+  expect(edges([0,0,0],[0,2,4]).direction).toBeNull();
+  expect(edges([0,3,6,9],[0,4,8]).direction).toBeNull();
+  expect(edges([],[])).toEqual({start:null,end:null,direction:null});
+});
+
+test('image correction turns by the voted side, composes /Rotate by drawing as displayed, and defaults to 270',async () => {
+  const page=(pixels:TextPage['pixels'],rotate=0):TextPage => ({rotate,items:[],pixels});
+  for (const [pages,expected,votes] of [
+    [[page('top'),page('top')],270,[270,270]], [[page('bottom'),page('bottom')],90,[90,90]],
+    [[page('left',90)],270,[270]], [[page('left',270)],90,[90]],
+    [[page('bottom'),page('vertical')],90,[90,null]], [[page('vertical'),page('vertical')],270,[null,null]],
+    [[page('top'),page('bottom')],270,[270,90]], [[page('cover')],90,[90]],
+  ] as [TextPage[],number,(number|null)[]][]) {
+    const pdf=viewer(undefined,false,pages); pdf.numPages(pages.length);
+    await pdf.initialize(); await pdf.ready(); pdf.goto(1); pdf.loaded();
+    const label=pages.map(p => `${p.pixels}/${p.rotate}`).join();
+    const verdicts=pdf.messages.filter(m=>m.type==='orientation') as unknown as Record<string,unknown>[];
+    expect(verdicts.map(m=>m.direction),label).toEqual(votes);
+    for (const m of verdicts) { const {load:_,...message}=m; expect(parseFrameMessage(message)).toEqual(message); }
+    expect(pdf.messages.find(m=>m.type==='rotated'),label).toEqual({type:'rotated',deg:expected,auto:true,image:true,load:'?g=0'});
+    pdf.close();
+  }
+});
+
 test('word blocks decide by the direction of their lines, not by their gaps',() => {
   const {orientationFromProfiles:direction}=viewer();
   const upright=wordPage(false), sideways=wordPage(true);
@@ -196,7 +245,10 @@ test('image orientation needs agreement, respects page Rotate and bounds renderi
     expect(pdf.messages.find(m=>m.type==='rotated')).toEqual({type:'rotated',deg:expected,auto:expected!==0,
       ...(expected ? {image:true} : {}),load:'?g=0'});
     expect(pdf.renders.length).toBeLessThanOrEqual(2);
-    for (const render of pdf.renders) expect(render).toMatchObject({width:128,height:256,rotation:0});
+    for (const render of pdf.renders) {
+      const rotate=pages[(render.page-1) % pages.length].rotate;
+      expect(render).toMatchObject(rotate ? {width:512,height:256,rotation:rotate} : {width:256,height:512,rotation:0});
+    }
     if (pages.length===3) expect(pdf.renders.map(r=>r.page)).toEqual([1,2]);
     expect(pdf.canvas.width).toBe(0); expect(pdf.canvas.height).toBe(0); pdf.close();
   }

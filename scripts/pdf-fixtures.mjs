@@ -26,14 +26,16 @@ const binary = (dict,bytes) => Buffer.concat([Buffer.from(`<< ${dict} /Length ${
 
 // Print To PDF of a font-less document: y-down pixel space, every glyph an outline path.
 // Strokes are 0.7pt and fill about a fifth of a glyph cell, so a 256px probe sees grey, not ink.
-// The sideways file is the landscape layout turned onto portrait paper; the upright one is portrait.
-function vectorPdf(sideways) {
+// The sideways files are the landscape layout turned onto portrait paper, clockwise ('cw', lines begin at the top)
+// or counter-clockwise ('ccw', lines begin at the bottom); the upright one (turn null) is portrait.
+function vectorPdf(turn) {
+  const sideways = turn !== null;
   let seed = 43;
   const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
   const w = 0.7 / 0.75, n = value => +value.toFixed(2);
   // Reading frame: rx along the lines, ry down the page as the reader sees it.
   const RW = sideways ? 1122.56 : 794.56, RH = sideways ? 794.56 : 1122.56;
-  const place = sideways ? (rx,ry) => [794.56 - ry,rx] : (rx,ry) => [rx,ry];
+  const place = turn === 'cw' ? (rx,ry) => [794.56 - ry,rx] : turn === 'ccw' ? (rx,ry) => [ry,1122.56 - rx] : (rx,ry) => [rx,ry];
   const ops = [];
   // (u,v) is glyph space: u along the line, v up from the baseline.
   const shapes = {
@@ -80,7 +82,7 @@ function vectorPdf(sideways) {
   // The images are screenshots of the same kind of page: 1787x603 as read, stored turned when sideways.
   const iw = sideways ? 603 : 1787, ih = sideways ? 1787 : 603, pixels = Buffer.alloc(iw * ih,255);
   const bar = (rx,ry,drx,dry) => {
-    const [x,y,dx,dy] = sideways ? [602 - (ry + dry) + 1,rx,dry,drx] : [rx,ry,drx,dry];
+    const [x,y,dx,dy] = turn === 'cw' ? [602 - (ry + dry) + 1,rx,dry,drx] : turn === 'ccw' ? [ry,1787 - (rx + drx),dry,drx] : [rx,ry,drx,dry];
     for (let j = Math.max(0,y); j < Math.min(ih,y + dy); j++) pixels.fill(30,j * iw + Math.max(0,x),j * iw + Math.min(iw,x + dx));
   };
   for (let row = 0, top = 20; top + 16 <= 603 - 20; row++, top += 24) {
@@ -103,9 +105,9 @@ function vectorPdf(sideways) {
   ops.length = 0;
   let cover = 0;
   for (const [baseline,size,share] of [[RH * 0.34,2.6,0.75],[RH * 0.34 + 42,2.6,0.55],[RH * 0.34 + 84,1.4,0.6],[RH * 0.34 + 110,1.4,0.4],
-    [RH * 0.78,1,0.35],[RH * 0.78 + 18,1,0.3],[RH * 0.78 + 36,1,0.25]]) {
+    [RH * 0.78,1,0.35],[RH * 0.78 + 18,1,0.3],[RH * 0.78 + 36,1,0.25],[RH * 0.78 + 54,1,0.3]]) {
     const span = (RW - 120) * share;
-    cover += line(baseline,(RW - span) / 2,(RW + span) / 2,size);
+    cover += line(baseline,RW * 0.12,RW * 0.12 + span,size);
   }
   const page1 = [flip,...ops].join('\n');
   // Page 2: a heading, the four screenshots in a 2x2 grid, then body text.
@@ -132,8 +134,8 @@ function vectorPdf(sideways) {
   ]);
 }
 export async function writePdfFixtures(out) {
-  for (const sideways of [true,false]) {
-    await writeFile(path.join(out,sideways ? 'sideways-vector.pdf' : 'upright-vector.pdf'),vectorPdf(sideways));
+  for (const [file,turn] of [['sideways-vector.pdf','cw'],['sideways-vector-ccw.pdf','ccw'],['upright-vector.pdf',null]]) {
+    await writeFile(path.join(out,file),vectorPdf(turn));
   }
   for (const sideways of [true,false]) {
     const width=96, height=160, pixels=Buffer.alloc(width*height,255);

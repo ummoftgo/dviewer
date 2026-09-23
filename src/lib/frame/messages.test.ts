@@ -110,12 +110,13 @@ test('only the documented search, source and focus shortcuts cross the frame bou
 });
 
 test('image orientation verdicts keep only known reasons, quarter decisions and non-negative measures', () => {
-  const verdict = {type:'orientation',page:1,ms:41.2345,ink:0.0204,rowEnergy:0.0005,colEnergy:0.0032,decision:270,reason:'sideways'};
+  const verdict = {type:'orientation',page:1,ms:41.2345,ink:0.0204,rowEnergy:0.0005,colEnergy:0.0032,decision:270,start:12.5,end:3,direction:90,reason:'sideways'};
   expect(parseFrameMessage({...verdict,extra:1})).toEqual(verdict);
-  const sparse = {...verdict,rowEnergy:null,colEnergy:null,decision:null,reason:'sparse'};
+  const sparse = {...verdict,rowEnergy:null,colEnergy:null,decision:null,start:null,end:null,direction:null,reason:'sparse'};
   expect(parseFrameMessage(sparse)).toEqual(sparse);
   for (const change of [{page:0},{page:1.5},{ms:null},{ms:-1},{ms:Infinity},{ink:NaN},{ink:'0.1'},{rowEnergy:-0.1},
-    {decision:90},{decision:'270'},{decision:undefined},{reason:'slow'},{reason:undefined}]) {
+    {decision:90},{decision:'270'},{decision:undefined},{start:-1},{end:NaN},{start:undefined},{direction:0},{direction:180},{direction:'90'},
+    {direction:undefined},{reason:'slow'},{reason:undefined}]) {
     expect(parseFrameMessage({...verdict,...change}),JSON.stringify(change)).toBeNull();
   }
 });

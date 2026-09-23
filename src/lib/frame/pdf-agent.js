@@ -5,11 +5,26 @@ function inkProfile(rows, cols) {
   const energy = (profile,span) => profile.reduce((sum,n) => sum + (n / span - ink) ** 2,0) / profile.length;
   const rowEnergy = energy(rows,cols.length), colEnergy = energy(cols,rows.length);
   if (rowEnergy + colEnergy < 1e-6) return {ink,rowEnergy,colEnergy,decision:null,reason:'sparse'};
-  // ponytail: ink profiles cannot distinguish up from down; the pill offers a half-turn.
+  // Ink profiles only say the lines run down the page; directionFromEdges picks which way.
   const decision = colEnergy >= rowEnergy * 2 ? 270 : rowEnergy >= colEnergy * 2 ? 0 : null;
   return {ink,rowEnergy,colEnergy,decision,reason:decision === 270 ? 'sideways' : decision === 0 ? 'upright' : 'ambiguous'};
 }
 const orientationFromProfiles = (rows, cols) => inkProfile(rows,cols).decision;
+// Left-aligned lines share their start and scatter their ends, so the steadier edge is where lines begin.
+// first/last are each inked column's first and last ink row at the 512px probe; spreads are MADs in pixels.
+function directionFromEdges(first, last) {
+  const median = values => {
+    const sorted = [...values].sort((a,b) => a - b), mid = sorted.length >> 1;
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  const spread = values => { const centre = median(values); return median(values.map(value => Math.abs(value - centre))); };
+  if (!first.length) return {start:null,end:null,direction:null};
+  const start = spread(first), end = spread(last), high = Math.max(start,end), low = Math.min(start,end);
+  // ponytail: a 4px floor at 512px and a 2x margin; justified text or a centred cover gives no vote, and 270 stays the default.
+  if (high < 4 || high < 2 * Math.max(low,0.5)) return {start,end,direction:null};
+  // Lines that begin at the top were turned clockwise: 270 undoes it; beginning at the bottom, 90.
+  return {start,end,direction:start < end ? 270 : 90};
+}
 // A six-page outline-glyph document took 140ms here; 200 left too little for a slower PC.
 const IMAGE_PROBE_MS = 500;
 (() => {
@@ -150,8 +165,10 @@ const IMAGE_PROBE_MS = 500;
     const report = (reason,profile = {}) => {
       if (failed || pdf !== app.pdfDocument) return;
       send({type:'orientation',page:n,ms:round(performance.now() - start),ink:round(profile.ink ?? null),
-        rowEnergy:round(profile.rowEnergy ?? null),colEnergy:round(profile.colEnergy ?? null),decision:profile.decision ?? null,reason});
+        rowEnergy:round(profile.rowEnergy ?? null),colEnergy:round(profile.colEnergy ?? null),decision:profile.decision ?? null,
+        start:round(profile.start ?? null),end:round(profile.end ?? null),direction:profile.direction ?? null,reason});
     };
+    const votes = [];
     try {
       canvas = document.createElement('canvas');
       const context = canvas.getContext('2d',{alpha:false,willReadFrequently:true});
@@ -164,10 +181,11 @@ const IMAGE_PROBE_MS = 500;
         const page = await Promise.race([pdf.getPage(n),timeout]);
         if (failed || pdf !== app.pdfDocument) return 0;
         if (late()) { report('timeout'); return 0; }
-        const base = page.getViewport({scale:1,rotation:0});
-        const viewport = page.getViewport({scale:Math.min(1,256 / Math.max(base.width,base.height)),rotation:0});
-        canvas.width = Math.max(1,Math.min(256,Math.ceil(viewport.width)));
-        canvas.height = Math.max(1,Math.min(256,Math.ceil(viewport.height)));
+        // Drawn as displayed with /Rotate, so rows, columns and the reading direction need no remapping.
+        const base = page.getViewport({scale:1,rotation:page.rotate});
+        const viewport = page.getViewport({scale:Math.min(1,512 / Math.max(base.width,base.height)),rotation:page.rotate});
+        canvas.width = Math.max(1,Math.min(512,Math.ceil(viewport.width)));
+        canvas.height = Math.max(1,Math.min(512,Math.ceil(viewport.height)));
         task = page.render({canvas,viewport,background:'#ffffff',annotationMode:0});
         await Promise.race([task.promise,timeout]);
         task = null;
@@ -175,20 +193,26 @@ const IMAGE_PROBE_MS = 500;
         if (late()) { report('timeout'); return 0; }
         const {width,height} = canvas;
         const pixels = context.getImageData(0,0,width,height).data;
-        let rows = new Uint32Array(height), cols = new Uint32Array(width);
-        // Outline glyphs of 0.7pt strokes shrink to grey at 256px; 128 kept too little of a cover page.
+        const rows = new Uint32Array(height), cols = new Uint32Array(width);
+        const first = new Int32Array(width).fill(-1), last = new Int32Array(width);
+        // Outline glyphs of 0.7pt strokes shrink to grey when scaled down; 128 kept too little of a cover page.
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
           const at = (y * width + x) * 4;
-          if (pixels[at] * 299 + pixels[at+1] * 587 + pixels[at+2] * 114 < 200000) { rows[y]++; cols[x]++; }
+          if (pixels[at] * 299 + pixels[at+1] * 587 + pixels[at+2] * 114 < 200000) {
+            rows[y]++; cols[x]++; if (first[x] < 0) first[x] = y; last[x] = y;
+          }
         }
-        if (page.rotate % 180 !== 0) [rows,cols] = [cols,rows];
         const profile = inkProfile(rows,cols);
         if (late()) { report('timeout',profile); return 0; }
         if (profile.decision !== 270) { report(n > 1 ? 'disagree' : profile.reason,profile); return 0; }
-        report('sideways',profile);
+        const inked = [...cols.keys()].filter(x => cols[x] >= 2);
+        const edges = directionFromEdges(inked.map(x => first[x]),inked.map(x => last[x]));
+        if (edges.direction !== null) votes.push(edges.direction);
+        report('sideways',{...profile,...edges});
       }
       automaticImage = true;
-      return 270;
+      // Agreeing votes choose the side; none or a split keeps the old default, which the pill can reverse.
+      return votes.length && votes.every(vote => vote === votes[0]) ? votes[0] : 270;
     } catch {
       // A failed or slow probe must not prevent opening the PDF.
       report(late() ? 'timeout' : 'error'); return 0;

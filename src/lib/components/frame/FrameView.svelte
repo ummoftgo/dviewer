@@ -119,7 +119,7 @@
       case 'orientation':
         if (tab.kind !== 'pdf') break;
         tab.frameOrientation = {page:message.page,ms:message.ms,ink:message.ink,rowEnergy:message.rowEnergy,
-          colEnergy:message.colEnergy,decision:message.decision,reason:message.reason};
+          colEnergy:message.colEnergy,decision:message.decision,start:message.start,end:message.end,direction:message.direction,reason:message.reason};
         console.info('[dviewer] PDF image orientation',JSON.stringify(tab.frameOrientation));
         break;
       case 'pageText':
