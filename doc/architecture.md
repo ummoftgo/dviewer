@@ -543,6 +543,8 @@ dviewer --new --open=a.csv             # 탭이 아니라 새 창으로
 
 창 크기·위치·최대화 상태는 `tauri-plugin-window-state` 가 종료할 때 저장하고 다음 실행에 복원합니다.
 
+**단일 인스턴스의 잠금 이름은 identifier 입니다.** Windows 의 명명 뮤텍스, Linux 의 DBus 이름(`<identifier>.SingleInstance`), macOS 의 `/tmp` 소켓이 모두 `app.config().identifier` 에서 나옵니다. 앱 데이터 폴더(store·WebView2 프로필)도 마찬가지입니다. 그래서 환경 변수 `DVIEWER_INSTANCE` 가 `[a-z][a-z0-9-]{0,31}` 이면 실행 초기에 identifier 를 `com.xenia.dviewer.<값>` 으로 바꿉니다(`cli::identifier`). 그 밖의 값은 모르는 플래그처럼 무시합니다. 첫 글자가 문자인 것은 DBus 이름의 요소가 숫자로 시작할 수 없기 때문입니다. 이름 붙은 인스턴스는 독자가 띄운 dviewer 와 인자를 주고받지 않고 설정도 나누지 않습니다. 스모크 러너가 자기가 띄우는 모든 프로세스에 `DVIEWER_INSTANCE=smoke` 를 넘기는 이유입니다 — 전에는 dviewer 가 떠 있으면 왕복 검사 둘이 그 창과 잠금을 다퉈 성립하지 않았고, 세션·책갈피 검사는 독자의 store 에 앞값을 적어 두었다가 `finally` 에서 되돌리는 식으로 버텼습니다(중간에 죽으면 되돌리지 못했습니다). 파일 연결은 설치 때 정해지는 정적 설정이라 실행 중 identifier 와 관계가 없고, 업데이트는 스모크에서 시작하지 않습니다.
+
 ### 창과 문서
 
 창은 자기가 연 문서를 소유하고, 죽을 때 데리고 갑니다. 문서를 닫는 것은 보통 프론트인데, 파괴된 창은 그럴 기회를 얻지 못하기 때문입니다 — 그대로 두면 그 문서의 mmap 과 색인이 앱이 끝날 때까지 남습니다.

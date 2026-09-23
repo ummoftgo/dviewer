@@ -63,6 +63,14 @@ const HANDOFF_TIMEOUT_MS = 60_000;
  */
 const READY_TIMEOUT_MS = 60_000;
 
+/**
+ * Every process this starts is a named instance, which gives it its own
+ * single-instance lock and its own data folder (`cli::identifier`). Without it
+ * the hand-off checks would talk to whatever dviewer the reader has open, and
+ * the sweep would read and write the reader's settings.
+ */
+const INSTANCE_ENV = { ...process.env, DVIEWER_INSTANCE: "smoke" };
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const execFileAsync = promisify(execFile);
 
@@ -85,7 +93,7 @@ function fail(message) {
 /** Start the app and wait for it to end, or kill it when the clock runs out. */
 function run(args, timeoutMs, onSpawn = () => {}) {
   return new Promise((resolve) => {
-    const child = spawn(exe, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: false });
+    const child = spawn(exe, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: false, env: INSTANCE_ENV });
     onSpawn(child.pid);
     let stderr = "";
     child.stderr?.on("data", (chunk) => {
@@ -125,7 +133,8 @@ async function results(file, streaming = false) {
  * Wait until the listening process has said it is listening.
  *
  * `gone` means it ended before it got there, which on this check means
- * something else already held the single-instance lock.
+ * something else already held the smoke instance's lock — a dviewer left over
+ * from an earlier smoke, since the reader's own app holds a different one.
  */
 async function waitForListening(file, ended) {
   const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -240,9 +249,9 @@ for (const [label, extra] of [
   const ready = await waitForListening(out, () => listenerEnded);
   if (ready === "gone") {
     // The listener holds the single-instance lock, so it must still be running.
-    // If it is not, something else already held it — an open dviewer — and this
-    // check would be measuring that instead.
-    fail(`${label}: dviewer 가 이미 떠 있습니다. 닫고 다시 돌려 주세요.`);
+    // If it is not, something else already held it — a smoke-instance dviewer
+    // an earlier run left behind — and this check would be measuring that.
+    fail(`${label}: 앞선 스모크의 dviewer 가 아직 떠 있습니다. 닫고 다시 돌려 주세요.`);
     continue;
   }
   if (ready === "timeout") {

@@ -63,6 +63,15 @@ pub fn run() {
         smoke.as_ref().map(|s| &s.mode),
         Some(crate::cli::SmokeMode::Run { .. })
     );
+    // Before any plugin reads it: the single-instance lock and the data folder
+    // are both named after the identifier, and the smoke passes
+    // `DVIEWER_INSTANCE=smoke` to every process it starts so that its hand-off
+    // checks happen among themselves and not with the reader's open dviewer.
+    let mut context = tauri::generate_context!();
+    let instance = std::env::var("DVIEWER_INSTANCE").ok();
+    context.config_mut().identifier =
+        cli::identifier(&context.config().identifier, instance.as_deref());
+
     let mut builder = tauri::Builder::default();
 
     if !sweeping {
@@ -251,7 +260,7 @@ pub fn run() {
             commands::smoke_done,
             commands::smoke_close_self,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             #[cfg(target_os = "macos")]

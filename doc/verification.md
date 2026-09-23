@@ -2,6 +2,21 @@
 
 ← [README](../README.md)
 
+## 스모크 인스턴스 — 떠 있는 dviewer 옆에서 스모크
+
+2026-09-23 M43e 는 사용자 화면 확인용 dviewer 가 떠 있어 스모크를 약 1시간 45분 기다렸다. 왕복 검사 둘의 단일 인스턴스 잠금이 사용자 앱과 같은 identifier 였기 때문이다. 이제 러너가 모든 프로세스에 `DVIEWER_INSTANCE=smoke` 를 넘기고 앱은 identifier 를 `com.xenia.dviewer.smoke` 로 바꾼다(`cli::identifier`, 값 규칙 `[a-z][a-z0-9-]{0,31}`).
+
+재현은 변경 전 release 빌드의 사본(`.agent-works/screen/dviewer.exe`)으로 `columns.csv` 를 열어 둔 채 새 debug 스모크를 돌렸다. 넘어온 파일은 탭을 늘리지 않고(이미 열린 `sample.md` 면 기존 탭을 활성화한다) 세션 active 와 recents 맨 앞을 바꾸므로, 사용자 store 의 두 값을 스모크 전후로 비교했다. 사본은 사용자 store 를 쓰므로 시험 전 백업하고 끝난 뒤 되돌려 SHA-256 일치를 확인했다.
+
+| 항목 | 결과 |
+|---|---|
+| `DVIEWER_FIXTURES=required cargo test` | 556개 통과(identifier 규칙 1개 추가) |
+| vitest · check | 412개 · 오류/경고 0, 4×487키 |
+| A: 사본을 띄운 채 debug 스모크 | 픽스처 56개와 왕복 2 통과. 사용자 앱 active `columns.csv`·recents 맨 앞 불변 |
+| B: 러너가 환경 변수를 넘기지 않게 | 픽스처 56개 통과, 왕복 2개 모두 실패(듣는 쪽이 잠금을 얻지 못하고 종료). 사용자 recents 맨 앞이 스모크의 `upright-vector.pdf` 로 바뀜 |
+
+B 의 recents 변화는 이전 스모크가 늘 하던 일이다. 사용자 store 의 recents 맨 앞에는 09-23 22:13 M43e 스모크가 ms 간격으로 연 픽스처들이 이미 쌓여 있었다. 세션·책갈피 검사는 앞값을 적어 두었다가 `finally` 에서 되돌렸으므로 스모크가 기대던 기존 상태는 없었다. 분리 뒤 스모크 store(`%APPDATA%\com.xenia.dviewer.smoke`)에는 recents 20개만 남고 session·bookmarks 는 null 이다. WebView2 프로필(`%LOCALAPPDATA%\com.xenia.dviewer.smoke`, 14MB)도 따로 생긴다. CI 에는 떠 있는 앱이 없으므로 세 OS 는 "깨지지 않았는가"만 확인한다.
+
 ## M43e — 누운 방향의 부호
 
 M43d 뒤 사용자 문서는 가로로 섰지만 180도 거꾸로였다(정답 90, 기본 270). 판정 해상도를 긴 변 512로 올리고 같은 픽셀에서 글줄의 가지런한 가장자리로 90·270을 고른다. 표가 없거나 엇갈리면 270이다. 진단 `orientation`에 `start`·`end`(MAD px)와 `direction`을 더했다.

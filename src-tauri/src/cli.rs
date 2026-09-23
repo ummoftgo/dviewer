@@ -164,6 +164,32 @@ fn unquote(value: &str) -> String {
         .to_owned()
 }
 
+/// The identifier a run uses, given the configured one and `DVIEWER_INSTANCE`.
+///
+/// The identifier names the single-instance lock on every platform (a named
+/// mutex on Windows, a DBus name on Linux, a socket in `/tmp` on macOS) and
+/// the app's data folder. A named instance therefore neither hands its
+/// arguments to, nor receives them from, the dviewer the reader has open, and
+/// keeps its own settings — which is what lets the smoke run beside it.
+///
+/// Only `[a-z][a-z0-9-]{0,31}` is taken; anything else is ignored rather than
+/// refused, like an unknown flag. The first character is a letter because a
+/// DBus name element may not start with a digit.
+pub fn identifier(configured: &str, instance: Option<&str>) -> String {
+    match instance {
+        Some(name)
+            if name.len() <= 32
+                && name.starts_with(|c: char| c.is_ascii_lowercase())
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') =>
+        {
+            format!("{configured}.{name}")
+        }
+        _ => configured.to_owned(),
+    }
+}
+
 /// Shells vary in how much quoting survives, so a value that arrives still
 /// wrapped in quotes is unwrapped rather than treated as part of the path.
 fn push(into: &mut Vec<String>, value: &str) {
@@ -329,6 +355,20 @@ mod tests {
         let launch = parsed(&[]);
         assert!(launch.request.is_empty());
         assert!(!launch.new_window);
+    }
+
+    #[test]
+    fn a_named_instance_gets_its_own_identifier() {
+        let base = "com.xenia.dviewer";
+        assert_eq!(identifier(base, None), base);
+        assert_eq!(identifier(base, Some("smoke")), "com.xenia.dviewer.smoke");
+        assert_eq!(identifier(base, Some("a1-b")), "com.xenia.dviewer.a1-b");
+        let longest = format!("a{}", "b".repeat(31));
+        assert_eq!(identifier(base, Some(&longest)), format!("{base}.{longest}"));
+        // Everything else leaves the reader's identifier alone.
+        for bad in ["", "1smoke", "-smoke", "Smoke", "smo.ke", "smo ke", "스모크", &format!("{longest}c")] {
+            assert_eq!(identifier(base, Some(bad)), base, "{bad:?}");
+        }
     }
 
     /// What the frontend receives, so the two ends agree on the field names.
