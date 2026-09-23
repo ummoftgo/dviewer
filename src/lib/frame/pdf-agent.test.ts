@@ -95,7 +95,9 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}}},
     document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},createElement:() => canvas,addEventListener(_name:string,listener:() => void) {initialize=listener;}},
     navigator:{language:'en-GB',locale:'C'},
-    performance:{now:() => Date.now()+elapsed,getEntriesByType(type:string) {return type === 'navigation' ? [{responseStatus:200}] : resourceEntries;}},
+    // Only the rendered pages move this clock: real time spent drawing on a slow
+    // runner would otherwise push a 450ms page past the 500ms budget.
+    performance:{now:() => elapsed,getEntriesByType(type:string) {return type === 'navigation' ? [{responseStatus:200}] : resourceEntries;}},
     location:{search:'?g=0',href:'http://127.0.0.1:123/a/_/pdfjs/web/viewer.html'},
     Worker,URL:WorkerUrl,Blob,setTimeout,clearTimeout,
     addEventListener(name:string,listener:(event:unknown) => void) {listeners.set(name,listener);},
@@ -293,7 +295,7 @@ test('reversing an image correction retains its pill provenance until undo, whil
 test('failed or synchronously slow image probes do not rotate or continue sampling',async () => {
   for (const page of [
     {rotate:0,items:[],pixels:'vertical',render:'fail'},
-    {rotate:0,items:[],pixels:'vertical',elapsed:501},
+    {rotate:0,items:[],pixels:'vertical',elapsed:500},
   ] as TextPage[]) {
     const pdf=viewer(undefined,false,[page]); await pdf.initialize(); await pdf.ready(); pdf.goto(2); pdf.loaded();
     expect(pdf.renders).toHaveLength(1);
@@ -302,7 +304,7 @@ test('failed or synchronously slow image probes do not rotate or continue sampli
     expect(pdf.canvas.width).toBe(0); pdf.close();
   }
   // A 140ms real document must fit: just under the 500ms budget still corrects.
-  const slow=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical',elapsed:450}]); slow.numPages(1);
+  const slow=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical',elapsed:499}]); slow.numPages(1);
   await slow.initialize(); await slow.ready(); slow.goto(1); slow.loaded();
   expect(slow.messages.find(m=>m.type==='rotated')).toMatchObject({deg:270,auto:true,image:true}); slow.close();
 });
