@@ -96,10 +96,7 @@
         clearTimeout(deadline); tab.frameToc = message.headings; tab.frameReadyLoad = load; tab.frameReady = true;
         if (tab.kind === 'pdf') {
           tab.framePages = message.pages!; tab.frameContentLoaded = true;
-          const pos = tab.pendingPosition;
-          const page = Math.max(1,Math.min(tab.framePages,pos?.kind === 'pdf' ? pos.page : tab.framePage));
-          const rotation = pos?.kind === 'pdf' ? pos.rotation : tab.frameRotation;
-          post({type:'goto',page,...(rotation === undefined ? {} : {rotation})});
+          post(tab.pdfGoto());
         }
         if (tab.frameSearch.query) find(1);
         break;
@@ -113,13 +110,11 @@
           if (message.n !== expected) break;
           tab.finishPosition(expected > 1);
         }
-        tab.rememberPosition({kind:'pdf',page:message.n,...(tab.frameRotation === undefined ? {} : {rotation:tab.frameRotation})});
+        tab.rememberPosition(tab.pdfPosition(message.n));
         break;
       case 'rotated':
         if (tab.kind !== 'pdf') break;
-        tab.frameRotation = message.deg; tab.frameAutoRotation = message.auto;
-        tab.frameImageRotation = message.image === true;
-        tab.rememberPosition({kind:'pdf',page:tab.framePage,rotation:message.deg});
+        tab.pdfRotated(message.deg,message.auto,message.image === true);
         break;
       case 'orientation':
         if (tab.kind !== 'pdf') break;

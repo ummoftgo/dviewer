@@ -32,6 +32,48 @@ test('restoring a PDF keeps its page through the frame view contract', async () 
   }
 });
 
+async function restorePdf(saved: DocTab) {
+  const snapshot = captureSession([saved],saved.id);
+  const again = tab(file('/scan.pdf')); again.meta.kind = 'pdf'; again.meta.view = 'frame';
+  vi.mocked(getValue).mockResolvedValue(snapshot);
+  vi.spyOn(workspace,'openPath').mockResolvedValue(again);
+  vi.spyOn(workspace,'activate').mockImplementation(() => {});
+  vi.spyOn(workspace,'openLaunch').mockResolvedValue();
+  await new Session(workspace).start({files:[],urls:[]},true,false);
+  again.framePages = 2;
+  return {pos:readSession(snapshot).tabs[0].pos, again};
+}
+function openedPdf() {
+  const pdf = tab(file('/scan.pdf')); pdf.meta.kind = 'pdf'; pdf.meta.view = 'frame'; pdf.framePages = 2;
+  expect(pdf.pdfGoto()).toEqual({type:'goto',page:1});
+  return pdf;
+}
+
+test('a PDF opened without a detected turn saves no rotation, so the restored goto leaves correction to the probe', async () => {
+  const pdf = openedPdf();
+  // The agent acknowledges its default angle when nothing was detected (the probe gave up before M43d).
+  pdf.pdfRotated(0,false,false);
+  expect(pdf.frameRotation).toBeUndefined();
+  pdf.framePage = 2; pdf.rememberPosition(pdf.pdfPosition(2));
+  const {pos,again} = await restorePdf(pdf);
+  expect(pos).toEqual({kind:'pdf',page:2});
+  expect(again.pdfGoto()).toEqual({type:'goto',page:2});
+});
+
+test('a zero chosen by undo is saved and still wins after a restore and its echo', async () => {
+  const pdf = openedPdf();
+  pdf.pdfRotated(270,true,true);
+  pdf.pdfRotated(0,false,false);
+  pdf.framePage = 2; pdf.rememberPosition(pdf.pdfPosition(2));
+  const {pos,again} = await restorePdf(pdf);
+  expect(pos).toEqual({kind:'pdf',page:2,rotation:0});
+  expect(again.pdfGoto()).toEqual({type:'goto',page:2,rotation:0});
+  // The agent echoes the restored zero; it must not be mistaken for an unchosen default.
+  again.pdfRotated(0,false,false); again.finishPosition(true);
+  again.framePage = 2; again.rememberPosition(again.pdfPosition(2));
+  expect(captureSession([again],again.id).tabs[0].pos).toEqual({kind:'pdf',page:2,rotation:0});
+});
+
 test('positions round trip and broken positions preserve the source tab', () => {
   const page = tab(file('/position.md'));
   page.rememberPosition({kind:'prose',heading:'section',ratio:0.4});

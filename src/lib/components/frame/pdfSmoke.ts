@@ -10,12 +10,15 @@ export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | '
   await waitSearch(() => tab.frameReady && tab.framePages === 2 && tab.frameProbe !== null,'PDF pages or probe missing',15000);
   require(tab.frameProbe === 'absent' || tab.frameProbe?.startsWith('rejected:'),'PDF isolation probe failed');
   if (orientation) {
-    await waitSearch(() => tab.frameRotation !== undefined,'PDF orientation response missing');
-    detectedRotation=tab.frameRotation;
+    // An upright result leaves the viewer default unrecorded; the page acknowledgement follows the rotation reply.
+    await waitSearch(() => tab.frameRotation !== undefined || (expectedRotation === 0 && tab.savedPosition?.kind === 'pdf'),'PDF orientation response missing');
+    detectedRotation=tab.frameRotation ?? 0;
     // The probe's own verdict travels with every failure, so a refusal says whether it was slow, grey or split.
     const verdict = `orientation ${JSON.stringify(tab.frameOrientation)}`;
-    require(tab.frameRotation === expectedRotation && tab.frameAutoRotation === (expectedRotation !== 0),
+    require((tab.frameRotation ?? 0) === expectedRotation && tab.frameAutoRotation === (expectedRotation !== 0),
       `PDF orientation mismatch: expected ${expectedRotation}, got ${tab.frameRotation}, auto ${tab.frameAutoRotation}; ${verdict}`);
+    if (!expectedRotation) require(tab.frameRotation === undefined && tab.savedPosition?.kind === 'pdf' && tab.savedPosition.rotation === undefined,
+      'PDF default rotation was saved as a choice');
     if (image) require(tab.frameOrientation?.reason === (orientation === 'image' ? 'sideways' : 'upright'),`PDF image probe did not see the fixture's lines; ${verdict}`);
     await tick();
     if (expectedRotation) require(document.querySelector(`[data-auto-rotation="${expectedRotation}"]`),'PDF automatic rotation status missing');

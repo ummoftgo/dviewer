@@ -10,6 +10,8 @@ function inkProfile(rows, cols) {
   return {ink,rowEnergy,colEnergy,decision,reason:decision === 270 ? 'sideways' : decision === 0 ? 'upright' : 'ambiguous'};
 }
 const orientationFromProfiles = (rows, cols) => inkProfile(rows,cols).decision;
+// A six-page outline-glyph document took 140ms here; 200 left too little for a slower PC.
+const IMAGE_PROBE_MS = 500;
 (() => {
   const load = location.search;
   const send = value => parent.postMessage({...value, load}, '*');
@@ -141,7 +143,8 @@ const orientationFromProfiles = (rows, cols) => inkProfile(rows,cols).decision;
   }
   async function detectImageOrientation(pdf) {
     let canvas, task, timer, n = 1;
-    const start = performance.now(), late = () => performance.now() - start >= 200;
+    // The first page is already on screen; only ready (outline, goto) waits for this budget.
+    const start = performance.now(), late = () => performance.now() - start >= IMAGE_PROBE_MS;
     const round = value => value === null ? null : Math.round(value * 10000) / 10000;
     // Every verdict reaches the parent, so a silent refusal can be told apart from a slow one.
     const report = (reason,profile = {}) => {
@@ -155,7 +158,7 @@ const orientationFromProfiles = (rows, cols) => inkProfile(rows,cols).decision;
       if (!context) { report('error'); return 0; }
       const timeout = new Promise((_,reject) => {
         cancelImageProbe = () => { const active = task; task = null; active?.cancel(); reject(new Error('image orientation cancelled')); };
-        timer = setTimeout(cancelImageProbe,200);
+        timer = setTimeout(cancelImageProbe,IMAGE_PROBE_MS);
       });
       for (; n <= Math.min(2,pdf.numPages); n++) {
         const page = await Promise.race([pdf.getPage(n),timeout]);

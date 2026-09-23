@@ -220,6 +220,27 @@ export class DocTab {
     this.pendingPosition = undefined;
     if (moved) this.positionRestoredAt = Date.now();
   }
+
+  /** The PDF goto sent at ready; a rotation it carries is a choice and is kept as one. */
+  pdfGoto() {
+    const pos = this.pendingPosition;
+    const page = Math.max(1,Math.min(this.framePages,pos?.kind === 'pdf' ? pos.page : this.framePage));
+    const rotation = pos?.kind === 'pdf' ? pos.rotation : this.frameRotation;
+    if (rotation !== undefined) this.frameRotation = rotation;
+    return {type:'goto' as const,page,...(rotation === undefined ? {} : {rotation})};
+  }
+
+  pdfPosition(page: number): Position {
+    return {kind:'pdf',page,...(this.frameRotation === undefined ? {} : {rotation:this.frameRotation})};
+  }
+
+  pdfRotated(deg: number, auto: boolean, image: boolean) {
+    this.frameAutoRotation = auto; this.frameImageRotation = image;
+    // A first 0 nobody chose is the viewer's default; saving it would outvote automatic correction on restore.
+    if (this.frameRotation === undefined && !auto && deg === 0) return;
+    this.frameRotation = deg;
+    this.rememberPosition(this.pdfPosition(this.framePage));
+  }
   frameError = $state<string | null>(null);
   frameUrlPort = $state<string | null>(null);
   frameLoaded = $state(false);

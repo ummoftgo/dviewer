@@ -167,7 +167,7 @@ test('grey outline strokes count as ink below a luminance of 200, and every verd
   const vertical:TextPage={rotate:0,items:[],pixels:'vertical'}, horizontal:TextPage={rotate:0,items:[],pixels:'horizontal'};
   for (const [pages,reasons] of [
     [[vertical,vertical],['sideways','sideways']], [[horizontal],['upright']], [[vertical,horizontal],['sideways','disagree']],
-    [[{...vertical,pixels:'blank'}],['sparse']], [[{...vertical,render:'fail'}],['error']], [[{...vertical,elapsed:201}],['timeout']],
+    [[{...vertical,pixels:'blank'}],['sparse']], [[{...vertical,render:'fail'}],['error']], [[{...vertical,elapsed:501}],['timeout']],
   ] as [TextPage[],string[]][]) {
     const pdf=viewer(undefined,false,pages); pdf.numPages(pages.length); await pdf.initialize(); await pdf.ready();
     const verdicts=pdf.messages.filter(m=>m.type==='orientation') as unknown as Record<string,unknown>[];
@@ -241,7 +241,7 @@ test('reversing an image correction retains its pill provenance until undo, whil
 test('failed or synchronously slow image probes do not rotate or continue sampling',async () => {
   for (const page of [
     {rotate:0,items:[],pixels:'vertical',render:'fail'},
-    {rotate:0,items:[],pixels:'vertical',elapsed:201},
+    {rotate:0,items:[],pixels:'vertical',elapsed:501},
   ] as TextPage[]) {
     const pdf=viewer(undefined,false,[page]); await pdf.initialize(); await pdf.ready(); pdf.goto(2); pdf.loaded();
     expect(pdf.renders).toHaveLength(1);
@@ -249,6 +249,10 @@ test('failed or synchronously slow image probes do not rotate or continue sampli
     expect(pdf.messages.find(m=>m.type==='rotated')).toMatchObject({deg:0,auto:false});
     expect(pdf.canvas.width).toBe(0); pdf.close();
   }
+  // A 140ms real document must fit: just under the 500ms budget still corrects.
+  const slow=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical',elapsed:450}]); slow.numPages(1);
+  await slow.initialize(); await slow.ready(); slow.goto(1); slow.loaded();
+  expect(slow.messages.find(m=>m.type==='rotated')).toMatchObject({deg:270,auto:true,image:true}); slow.close();
 });
 
 test('image probe deadline and closing cancel the active render and discard partial evidence',async () => {
@@ -259,7 +263,10 @@ test('image probe deadline and closing cancel the active render and discard part
       await pdf.initialize(); const ready=pdf.ready(); await vi.advanceTimersByTimeAsync(0);
       expect(pdf.renders).toHaveLength(1);
       if (stop==='close') {pdf.close(); await vi.advanceTimersByTimeAsync(0);}
-      else {await vi.advanceTimersByTimeAsync(200); await ready; pdf.goto(2); pdf.loaded();}
+      else {
+        await vi.advanceTimersByTimeAsync(499); expect(pdf.renders[0].cancel).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1); await ready; pdf.goto(2); pdf.loaded();
+      }
       expect(pdf.renders[0].cancel).toHaveBeenCalledTimes(1);
       expect(pdf.renders).toHaveLength(1); expect(pdf.canvas.width).toBe(0);
       expect(pdf.messages.some(m=>m.type==='rotated' && m.auto)).toBe(false);
