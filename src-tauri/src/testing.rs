@@ -38,8 +38,8 @@ fn fixture_with(required: bool, name: &str) -> Option<PathBuf> {
     assert!(
         !required,
         "{REQUIRED}=required, but ../fixtures/{name} is not there. \
-         `node scripts/gen-fixtures.mjs` writes the fixtures; the Parquet one \
-         comes from `cargo run --example parquet -- write ../fixtures`."
+         `node scripts/gen-fixtures.mjs` writes the fixtures, and copies the \
+         Parquet ones from `scripts/golden/`."
     );
     None
 }

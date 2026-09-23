@@ -8,7 +8,7 @@
  * while and eat disk. Everything lands in ./fixtures, which is git-ignored.
  */
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import path from "node:path";
 import { writePdfFixtures } from './pdf-fixtures.mjs';
@@ -1386,8 +1386,8 @@ const SMOKE = [
   { file: "archive.zip", expect: "archive", then: "openEntry" },
   // An archive holding one document opens that document, so what these two
   // assert is the *inner* format — a workbook and a columnar file read out of
-  // a buffer rather than a path. `columnar.zip` comes from the Parquet example
-  // for the same reason `sample.parquet` does.
+  // a buffer rather than a path. `columnar.zip` is a golden file for the same
+  // reason `sample.parquet` is.
   { file: "workbook.zip", expect: "collection" },
   { file: "columnar.zip", expect: "collection" },
   { file: "database.zip", expect: "collection" },
@@ -1409,23 +1409,23 @@ const SMOKE = [
 ];
 
 /**
- * The one fixture this script cannot write.
+ * The fixtures this script cannot write, copied from golden files.
  *
  * A Parquet file is a thrift-encoded footer over compressed column chunks, so
  * writing one by hand would mean reimplementing the format in order to test
- * reading it. The crate that reads it also writes it, so an example does:
- *
- *   cd src-tauri && cargo run --release --example parquet -- write ../fixtures
- *
- * It stays in the manifest because opening one is a path worth sweeping. If it
- * is absent the smoke run says so, which is the right place for that to fail.
+ * reading it. The crate that reads it also writes it, so the Parquet example
+ * wrote these once and they are committed under `scripts/golden/`. Copying
+ * them spares every CI job compiling that example; a fixed file read by a
+ * newer reader is a compatibility check besides. The example says how to
+ * write them again.
  */
-const FROM_ELSEWHERE = new Set(["sample.parquet", "columnar.zip"]);
+for (const name of ["sample.parquet", "columnar.zip"]) {
+  await copyFile(path.join(import.meta.dirname, "golden", name), path.join(OUT, name));
+  console.log(`  ${name}  (golden)`);
+}
 
 const present = new Set(await (await import("node:fs/promises")).readdir(OUT));
-const missing = SMOKE.filter(
-  (step) => !present.has(step.file) && !FROM_ELSEWHERE.has(step.file),
-);
+const missing = SMOKE.filter((step) => !present.has(step.file));
 if (missing.length > 0) {
   // Louder than a comment, and fatal: a manifest naming something that was
   // never written would fail the smoke run as if the app were broken. This

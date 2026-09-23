@@ -1,6 +1,6 @@
 //! Writing the Parquet fixtures, and timing what reading them costs.
 //!
-//!   cargo run --release --example parquet -- write ../fixtures
+//!   cargo run --release --example parquet -- write ../scripts/golden
 //!   cargo run --release --example parquet -- write ../fixtures --huge
 //!   cargo run --release --example parquet -- read ../fixtures/huge.parquet "항목 1999999"
 //!
@@ -10,6 +10,16 @@
 //! reader against it, which proves nothing. The crate that reads them writes
 //! them, and the assertion that matters is that what comes back is what the
 //! grid should show.
+//!
+//! `sample.parquet` and `columnar.zip` are committed as golden files under
+//! `scripts/golden/`, and the generator copies them into `fixtures/` — so no
+//! one compiles this example just to open them. Writing them again is the
+//! first command above, and the only way to: the tests in `src/parquet.rs`
+//! assert what `sample` writes, so whoever changes `sample` writes the golden
+//! files again in the same commit. Nothing checks that they agree; a newer
+//! crate writing different bytes is no reason to, since a fixed file read by
+//! a newer reader is itself a compatibility test. `--huge` and `read` are for
+//! measuring and stay out of the repository.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};

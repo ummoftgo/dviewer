@@ -962,7 +962,7 @@ vitest 때와 같은 절차로, 두 가지를 일부러 깨뜨렸습니다: 매�
 
 **검사 잡은 `cargo test` 앞에 픽스처를 만듭니다.** 그전까지는 만들지 않았고, 그래서 `xlsx` · `parquet` 의 **열한 개가 세 러너 모두에서 한 번도 돌지 않았습니다.** 그 테스트들은 픽스처가 없으면 `return` 으로 빠져나가 — 막 클론한 사람이 Node 를 깔기 전에도 `cargo test` 를 할 수 있게 하려는 거래입니다 — 아무것도 단언하지 않은 채 성공을 보고했습니다. 픽스처가 없으면 **통과하는** 테스트는 CI 에서는 테스트가 아닙니다.
 
-두 읽기 다 필요하므로 어느 쪽인지를 짐작하지 않고 말하게 합니다. **`DVIEWER_FIXTURES=required`** 가 설정되어 있으면 픽스처 부재가 패닉이고(`src-tauri/src/testing.rs`), 없으면 지금처럼 조용히 비킵니다 — 로컬 동작은 그대로입니다. 검사 잡의 `cargo test` 에만 그 변수를 겁니다. Parquet 픽스처를 쓰는 예제는 번들 잡과 달리 `--release` 없이 돌립니다 — 이 잡에는 재사용할 릴리스 빌드가 없고, dev 프로필이면 바로 뒤 `cargo test` 가 컴파일할 것을 나눠 씁니다. 그리고 Node 가 세 러너 모두에 있어야 합니다 — 생성기가 `node:sqlite` 를 쓰므로 22.5+ 가 필요하고 러너 기본은 20 입니다.
+두 읽기 다 필요하므로 어느 쪽인지를 짐작하지 않고 말하게 합니다. **`DVIEWER_FIXTURES=required`** 가 설정되어 있으면 픽스처 부재가 패닉이고(`src-tauri/src/testing.rs`), 없으면 지금처럼 조용히 비킵니다 — 로컬 동작은 그대로입니다. 검사 잡의 `cargo test` 에만 그 변수를 겁니다. Parquet 픽스처는 생성기가 `scripts/golden/` 의 기준 파일을 복사하므로 이 잡은 예제를 컴파일하지 않습니다. 그리고 Node 가 세 러너 모두에 있어야 합니다 — 생성기가 `node:sqlite` 를 쓰므로 22.5+ 가 필요하고 러너 기본은 20 입니다.
 
 잡는지도 두 방향으로 확인했습니다. `fixtures` 를 지우고 `DVIEWER_FIXTURES=required` 로 돌리면 **12개**가 붉어집니다 — 그 열한 개와, 같은 정책을 따르게 만든 헬퍼 자신의 테스트 하나. 변수 없이 같은 상태로 돌리면 전부 통과합니다.
 
@@ -1123,10 +1123,16 @@ cd src-tauri && cargo run --release --example render -- ../fixtures/sample.md ou
 
 인코딩은 실제 바이트로 확인합니다 — `cp949.csv`, `utf16.csv`, `utf8bom.csv` 를 열면 도구 모음이 각각 EUC-KR / UTF-16 LE / UTF-8 을 표시하고 세 파일 모두 `id | 이름 | 메모` 로 읽힙니다.
 
-Parquet 픽스처만 생성기 밖에 있습니다. thrift 로 인코딩된 푸터 위에 압축된 열 덩어리라, 손으로 쓰는 것은 읽는 쪽을 시험하려고 형식을 다시 구현하는 일이 됩니다. 읽는 크레이트가 쓰기도 하므로 example 이 만듭니다:
+Parquet 픽스처 둘(`sample.parquet`·`columnar.zip`)은 생성기가 쓰지 않고 `scripts/golden/` 의 기준 파일을 복사합니다. thrift 로 인코딩된 푸터 위에 압축된 열 덩어리라, 손으로 쓰는 것은 읽는 쪽을 시험하려고 형식을 다시 구현하는 일이 됩니다. 읽는 크레이트가 쓰기도 하므로 example 이 한 번 써서 저장소에 넣었습니다. 예전에는 CI 잡마다 이 예제를 컴파일했습니다(잡당 26~133초). 고정된 파일을 새 판의 크레이트가 읽는 것은 그 자체로 읽기 호환 시험이라, 판이 올라 쓰는 바이트가 달라져도 기준 파일을 맞추지 않습니다. 다만 `src/parquet.rs` 의 테스트가 예제 `sample()` 이 쓰는 내용을 단언하므로, `sample()` 을 고치면 같은 커밋에서 기준 파일을 다시 씁니다:
 
 ```bash
-cd src-tauri && cargo run --release --example parquet -- write ../fixtures [--huge]
+cd src-tauri && cargo run --release --example parquet -- write ../scripts/golden
+```
+
+실측용 `huge.parquet` 는 여전히 예제가 `fixtures/` 에 씁니다:
+
+```bash
+cd src-tauri && cargo run --release --example parquet -- write ../fixtures --huge
 ```
 
 압축 파일 쪽은 목록 만들기와 항목 하나 꺼내기를 잽니다:
@@ -1147,7 +1153,7 @@ cd src-tauri && cargo run --release --example archive -- ../fixtures/archive.zip
 
 `fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시, 그리고 **값 뒤의 덧말** 셋 — 닫는 괄호 뒤·한 줄에 둘·쉼표 뒤)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), `archive.zip`(json·log·md·csv·`.log.gz`·중첩 zip·잠김 플래그), `korean-names.zip`(플래그 없는 CP949 이름), `zip64.zip`(작지만 zip64 끝 레코드), `single.zip`·`single-locked.zip`(투명 해제가 되는 쪽과 목록으로 후퇴하는 쪽), `workbook.zip`·`columnar.zip`·`database.zip`(**압축 안의 통합 문서·컬럼 파일·데이터베이스** — 항목이 하나라 투명 해제되므로 뜨는 것은 압축 목록이 아니라 그 안쪽 형식이어야 합니다), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
 
-`sample.xlsx` 의 바이트는 `archive.zip` 의 `data/sales.xlsx` 와 `workbook.zip` 에도 그대로 들어갑니다. 같은 워크북을 파일로 한 번, 압축 항목으로 한 번 보내는 것이 요점입니다 — 다른 길로 왔을 뿐 같은 것이어야 합니다. `columnar.zip` 은 `sample.parquet` 과 같은 이유로 Rust 예제가 씁니다(생성기가 감쌀 대상을 만들지 못합니다). `sample.sqlite` 도 같습니다 — `archive.zip` 의 `data/app.sqlite` 와 `database.zip` 이 그 바이트입니다. `node:sqlite` 는 파일에만 쓰므로 쓴 뒤 다시 읽어 넣습니다.
+`sample.xlsx` 의 바이트는 `archive.zip` 의 `data/sales.xlsx` 와 `workbook.zip` 에도 그대로 들어갑니다. 같은 워크북을 파일로 한 번, 압축 항목으로 한 번 보내는 것이 요점입니다 — 다른 길로 왔을 뿐 같은 것이어야 합니다. `columnar.zip` 은 `sample.parquet` 과 같은 이유로 Rust 예제가 쓴 기준 파일입니다(생성기가 감쌀 대상을 만들지 못합니다). `sample.sqlite` 도 같습니다 — `archive.zip` 의 `data/app.sqlite` 와 `database.zip` 이 그 바이트입니다. `node:sqlite` 는 파일에만 쓰므로 쓴 뒤 다시 읽어 넣습니다.
 
 ## M19 — 배열·맵 격자와 정렬·필터
 

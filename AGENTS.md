@@ -39,7 +39,7 @@ npm run check                              # svelte-check + i18n 4로케일 키 
 npm run smoke                              # 실제 바이너리로 픽스처 전수 열기 + 단일 인스턴스 왕복 둘
 ```
 
-- **픽스처는 생성기가 만든다.** `node scripts/gen-fixtures.mjs` 와 `cd src-tauri && cargo run --release --example parquet -- write ../fixtures`. `fixtures/` 는 gitignore 대상이고, **거기 있는 파일을 훑어 목록이나 매니페스트를 만들지 마라** — 옛 생성기가 남긴 유령 파일이 섞인다. 목록의 출처는 언제나 생성기 코드다. `--huge` 는 실측용 대용량(1.5GB 남짓)이다.
+- **픽스처는 생성기가 만든다.** `node scripts/gen-fixtures.mjs` 하나로 만든다. Parquet 둘(`sample.parquet`·`columnar.zip`)은 생성기가 `scripts/golden/` 의 기준 파일을 복사한다 — 예제 `sample()` 을 고쳤을 때만 `cd src-tauri && cargo run --release --example parquet -- write ../scripts/golden` 으로 다시 써서 같은 커밋에 넣는다. `fixtures/` 는 gitignore 대상이고, **거기 있는 파일을 훑어 목록이나 매니페스트를 만들지 마라** — 옛 생성기가 남긴 유령 파일이 섞인다. 목록의 출처는 언제나 생성기 코드다. `--huge` 는 실측용 대용량(1.5GB 남짓)이다.
 - 업데이트를 바꾸면 `scripts/test-updater-signature.mjs`와 Windows 포터블·NSIS의 실제 갱신을 반복한다([절차](doc/verification.md#업데이트-끝까지-시험)). 시험키만 격리 생성할 수 있고 종료 후 제거한다. `--smoke`와 공개키 없는 빌드는 업데이트 네트워크 작업을 시작하지 않는다.
 - **`DVIEWER_FIXTURES=required cargo test`** 로 돌리면 픽스처가 없을 때 조용히 건너뛰는 테스트(xlsx·parquet 11개)가 실패로 바뀐다. CI 가 그렇게 돈다. 로컬 최종 확인도 그렇게 하라.
 - **`cargo test` 는 한 번.** 예전엔 세 번이었다 — 같은 임시 디렉터리 태그를 쓰는 두 테스트가 순서에 따라 가끔만 붉어졌기 때문인데, 지금은 태그가 겹치면 그 자리에서 패닉하므로 한 번으로 보인다. 비결정적 실패가 실제로 보일 때만 반복한다. sqlite.rs 의 `temp_dir` 태그를 새로 낼 때는 `grep 'temp_dir("'` 로 중복을 먼저 본다.

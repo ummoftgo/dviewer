@@ -585,10 +585,11 @@ mod tests {
 
     // --- against the fixture ------------------------------------------------
     //
-    // `cargo run --example parquet -- write ../fixtures` writes it, and the
-    // repository does not keep it. Without it there is nothing to assert, so
-    // these step aside rather than fail — unless the run says the fixtures are
-    // required. See `crate::testing`.
+    // `node scripts/gen-fixtures.mjs` copies it from `scripts/golden/`, where
+    // the Parquet example wrote it; what these assert is what that example's
+    // `sample` writes. Without it there is nothing to assert, so these step
+    // aside rather than fail — unless the run says the fixtures are required.
+    // See `crate::testing`.
 
     fn fixture() -> Option<ParquetDoc> {
         Some(ParquetDoc::open(Arc::new(mapped()?)).expect("open"))

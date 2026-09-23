@@ -7,3 +7,5 @@
 *.png binary
 *.ico binary
 *.icns binary
+*.parquet binary
+*.zip binary
