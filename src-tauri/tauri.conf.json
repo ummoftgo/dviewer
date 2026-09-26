@@ -57,6 +57,11 @@
     ],
     "macOS": {
       "signingIdentity": "-"
+    },
+    "linux": {
+      "rpm": {
+        "compression": { "type": "xz", "level": 3 }
+      }
     }
   }
 }

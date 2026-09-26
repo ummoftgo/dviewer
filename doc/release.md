@@ -43,6 +43,10 @@ OS마다 설치본과 포터블을 함께 냅니다.
 
 macOS는 `universal-apple-darwin` 하나로 Apple Silicon과 Intel을 모두 덮습니다. Linux는 `ubuntu-22.04` 에서 빌드합니다 — glibc는 위로만 호환되므로 빌드에 쓴 배포판이 실행 가능한 가장 낮은 배포판을 정합니다.
 
+`.rpm` 은 xz 레벨 3으로 압축합니다(`bundle.linux.rpm.compression`). tauri-bundler 2.9.4의 기본은 gzip 6인데, v0.23.0 리허설에서 rpm 한 개에 47초가 걸렸습니다. 같은 43.8MB 바이너리를 gzip 6으로 압축만 하면 로컬에서 1.0초이니, 시간은 압축이 아니라 번들러가 쓰는 `rpm` 0.16.1 크레이트의 `Sha256Writer`에서 나옵니다. 이 writer는 받은 버퍼를 통째로 해시한 뒤 압축기에 넘기는데, 압축기가 일부만 받으면 `write_all`이 나머지로 다시 부르고 그때마다 남은 전체를 또 해시합니다. 출력 버퍼만큼만 받는 gzip·zstd에서는 해시량이 제곱으로 늘고, 입력을 거의 한 번에 받는 xz에서는 늘지 않습니다. 최신 `rpm` 크레이트(0.28)에는 이 writer가 없지만 번들러가 0.16에 묶여 있습니다. 로컬 실측(tauri-cli와 같은 `opt-level="s"` + LTO)은 gzip 6이 23.0초·17.6MB, zstd 10이 14.0초·16.0MB, xz 3이 5.3초·15.0MB, xz 6이 9.9초·14.2MB였습니다. xz 페이로드는 rpm 4.7(2009)부터 읽으므로 호환이 좁아지지 않습니다. zstd는 `rpmlib(PayloadIsZstd)`를 요구해 rpm 4.14 미만을 거절합니다.
+
+AppImage는 linuxdeploy(gtk 플러그인)와 appimagetool(mksquashfs, 기본 zstd)이 만들고 리허설에서 약 120초가 걸립니다. 내역은 번들러가 `--verbose`에서만 linuxdeploy 출력을 내보내므로, Linux 번들 빌드에 `--verbose`를 켜 두었습니다. 압축 방식(`LDAI_COMP`)은 나눠 본 수치 없이 바꾸지 않습니다.
+
 포터블 압축은 OS마다 다른 도구를 씁니다. macOS는 `zip` 이 아니라 `ditto` 인데, `.app` 은 심볼릭 링크와 실행 권한을 가진 디렉터리라 일반 zip으로 감으면 푼 쪽이 실행되지 않습니다. Windows 포터블은 파일 하나입니다 — 프런트엔드가 실행 파일 안에 들어가 있고 옆에 딸려 나가는 것이 없습니다.
 
 포터블은 "설치가 필요 없다"는 뜻이지 "흔적을 남기지 않는다"는 뜻은 아닙니다. 설정은 `tauri-plugin-store` 를 통해 OS의 설정 디렉터리에 그대로 저장됩니다.
