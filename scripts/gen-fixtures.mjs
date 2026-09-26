@@ -38,13 +38,24 @@ async function readFixture(name, forWhat) {
   }
 }
 
-/** Write chunks with backpressure so a 600MB file does not buffer in memory. */
+/**
+ * Write chunks with backpressure so a 600MB file does not buffer in memory.
+ *
+ * The chunks are gathered into ~1MB strings first. Handed over one by one, a
+ * million twenty-byte items were a million stream writes, and `wide.json`
+ * alone took six seconds waiting on them.
+ */
 async function writeStream(name, chunks) {
   const stream = createWriteStream(path.join(OUT, name));
+  let pending = "";
   for (const chunk of chunks) {
-    if (!stream.write(chunk)) await once(stream, "drain");
+    pending += chunk;
+    if (pending.length < 1 << 20) continue;
+    const full = !stream.write(pending);
+    pending = "";
+    if (full) await once(stream, "drain");
   }
-  stream.end();
+  stream.end(pending);
   await once(stream, "finish");
   console.log(`  ${name}`);
 }
@@ -633,6 +644,12 @@ async function sampleDatabase() {
   const file = path.join(OUT, "sample.sqlite");
   await rm(file, { force: true });
   const db = new DatabaseSync(file);
+  // Each insert below is its own transaction, and each would wait for the
+  // disk and create and delete a journal file — two and a half seconds for 250
+  // rows. Neither setting is stored in the file, so its bytes stay as they
+  // were; a transaction around the inserts would not, since the header counts
+  // how many there were.
+  db.exec("PRAGMA synchronous = OFF; PRAGMA journal_mode = MEMORY");
   db.exec(`
     CREATE TABLE customers (
       id INTEGER PRIMARY KEY,
