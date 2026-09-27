@@ -3,7 +3,9 @@ import {frameDiagnosticText} from './diagnostics';
 import {isPdfRotation} from '../position';
 
 export const PDF_STAGES = ['start','webviewerloaded','worker-start','worker-imported','initializedPromise',
-  'documentinit','pagesinit','pagesloaded','onePageRendered'] as const;
+  'documentinit','pagesinit','pagesloaded','onePageRendered',
+  // Observations: what the agent had to fill in, and a text extraction that failed.
+  'filled-stream-iterator','filled-sum-precise','filled-regexp-escape','text-failed'] as const;
 export type PdfStage = typeof PDF_STAGES[number];
 export type InitStep = 'not-started' | 'pending' | 'resolved' | 'rejected';
 export interface FrameStallSnapshot {

@@ -25,6 +25,43 @@ function directionFromEdges(first, last) {
   // Lines that begin at the top were turned clockwise: 270 undoes it; beginning at the bottom, 90.
   return {start,end,direction:start < end ? 270 : 90};
 }
+// PDF.js 6 uses these without a guard, and WebKit (Safari, WebKitGTK) lacks some:
+// getTextContent iterates a ReadableStream with `for await`, so without the
+// iterator every text extraction throws. Filled only where missing, in the page
+// and in the worker bootstrap; returns what it filled so the smoke can say so.
+function installMissing(scope) {
+  const filled = [], define = (owner,name,value) => Object.defineProperty(owner,name,{value,writable:true,configurable:true});
+  const stream = scope.ReadableStream?.prototype;
+  if (stream && !stream[Symbol.asyncIterator]) {
+    const values = function ({preventCancel = false} = {}) {
+      const reader = this.getReader();
+      return {
+        async next() {
+          try { const result = await reader.read(); if (result.done) reader.releaseLock(); return result; }
+          catch (cause) { reader.releaseLock(); throw cause; }
+        },
+        async return(value) {
+          if (preventCancel) reader.releaseLock();
+          else { const cancelled = reader.cancel(value); reader.releaseLock(); await cancelled; }
+          return {done:true,value};
+        },
+        [Symbol.asyncIterator]() { return this; },
+      };
+    };
+    define(stream,'values',values); define(stream,Symbol.asyncIterator,values);
+    filled.push('stream-iterator');
+  }
+  if (!scope.Math.sumPrecise) {
+    // PDF.js sums byte sizes: integers, where a plain sum is already exact.
+    define(scope.Math,'sumPrecise',items => { let sum = 0; for (const item of items) sum += item; return sum; });
+    filled.push('sum-precise');
+  }
+  if (!scope.RegExp.escape) {
+    define(scope.RegExp,'escape',text => String(text).replace(/[\\^$.*+?()[\]{}|/]/g,'\\$&'));
+    filled.push('regexp-escape');
+  }
+  return filled;
+}
 // A six-page outline-glyph document took 140ms here; 200 left too little for a slower PC.
 const IMAGE_PROBE_MS = 500;
 (() => {
@@ -49,6 +86,10 @@ const IMAGE_PROBE_MS = 500;
   addEventListener('error',event => error('pdfFailed',event.message || event.error));
   addEventListener('unhandledrejection',event => error('pdfFailed',event.reason));
   stage('start');
+  for (const name of installMissing(globalThis)) stage(`filled-${name}`);
+  // Once: a swallowed text failure is otherwise invisible, and it is what WebKit hit.
+  let textFailedSent = false;
+  const textFailed = () => { if (!textFailedSent) { textFailedSent = true; stage('text-failed'); } };
   function observe(owner, method, step) {
     const original = owner[method];
     owner[method] = async function (...args) {
@@ -152,7 +193,7 @@ const IMAGE_PROBE_MS = 500;
           counts[((angle - page.rotate + 360) % 360) / 90]++;
         }
       }
-    } catch { return 0; /* Text extraction failure only disables automatic correction. */ }
+    } catch { textFailed(); return 0; /* Text extraction failure only disables automatic correction. */ }
     if (textCount < 20 && !rotationApplied && pendingRotation === null) return detectImageOrientation(pdf);
     return orientation(counts);
   }
@@ -228,7 +269,7 @@ const IMAGE_PROBE_MS = 500;
     try {
       const content = await (await app.pdfDocument.getPage(page)).getTextContent();
       if (generation === textGeneration && ready) send({type:'pageText',page,hasText:content.items.some(item => typeof item.str === 'string' && item.str.trim())});
-    } catch { /* A failed text extraction is not proof of an image-only page. */ }
+    } catch { textFailed(); /* A failed text extraction is not proof of an image-only page. */ }
   }
   async function documentReady() {
     try {
@@ -279,7 +320,8 @@ const IMAGE_PROBE_MS = 500;
       // messages (configure, GetDocRequest) can arrive before that. Unheard, they are
       // lost and the document never opens — the race a GPU-less runner lost every time.
       // So they wait here and are replayed, in order, once PDF.js is listening.
-      const bootstrap = `const fail = cause => postMessage({type:'pdfWorkerError',detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
+      const bootstrap = `(${installMissing})(globalThis);
+const fail = cause => postMessage({type:'pdfWorkerError',detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
 addEventListener('unhandledrejection',event => fail(event.reason));
 const early = [], hold = event => early.push(event);
 addEventListener('message',hold);

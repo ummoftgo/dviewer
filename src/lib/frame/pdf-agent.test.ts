@@ -91,7 +91,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   };
   class Worker {addEventListener(name:string,listener:(event:unknown) => void) {workerListeners.set(name,listener);} terminate() {}}
   class WorkerUrl extends URL {static createObjectURL(blob:Blob) {workerBlob=blob; return 'blob:null/test';} static revokeObjectURL() {}}
-  const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges});',{
+  const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges,installMissing});',{
     parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}}},
     document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},createElement:() => canvas,addEventListener(_name:string,listener:() => void) {initialize=listener;}},
     navigator:{language:'en-GB',locale:'C'},
@@ -105,6 +105,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   return {
     attempts,messages,errored,resourceEntries,rotationAttempts,order,textPages,renders,canvas,
     orientationFromProfiles:pure.orientationFromProfiles as (rows:number[],cols:number[]) => number|null,
+    installMissing:pure.installMissing as (scope:object) => string[],
     directionFromEdges:pure.directionFromEdges as (first:number[],last:number[]) => {start:number|null;end:number|null;direction:number|null},
     failText() {textFailure=true;},
     numPages(n:number) {app.pdfDocument.numPages=n; app.pagesCount=n;},
@@ -499,9 +500,44 @@ test('PDF startup stages survive parsing even before ready',async () => {
   pdf.workerEvent('message',{data:{type:'pdfWorkerStage',name:'worker-start'}});
   pdf.workerEvent('message',{data:{type:'pdfWorkerStage',name:'worker-imported'}});
   const stages=pdf.messages.filter(message => message.type === 'stage');
-  expect(stages.map(message => message.name)).toEqual(['start','webviewerloaded','initializedPromise','pagesinit','pagesloaded',
+  // What had to be filled depends on the engine running the test; it follows 'start'.
+  const names=stages.map(message => message.name as string);
+  const filled=names.filter(name => name.startsWith('filled-'));
+  expect(names.slice(1,1 + filled.length)).toEqual(filled);
+  expect(names.filter(name => !name.startsWith('filled-'))).toEqual(['start','webviewerloaded','initializedPromise','pagesinit','pagesloaded',
     'documentinit','onePageRendered','worker-start','worker-imported']);
   for (const message of stages) expect(parseFrameMessage(message)).toEqual({type:'stage',name:message.name});
+});
+
+// WebKit has no ReadableStream async iterator, and PDF.js's getTextContent
+// iterates one with `for await`: every text extraction threw, which is what
+// stopped text presence, orientation and the image probe on macOS and Linux.
+test('missing engine features are filled, only where missing, and behave',async () => {
+  const {installMissing}=viewer();
+  const chunks=['a','b','c'];
+  let cancelled:unknown='never';
+  class Stream {
+    getReader() {
+      let i=0;
+      return {read:async () => i < chunks.length ? {done:false,value:chunks[i++]} : {done:true,value:undefined},
+        cancel:async (reason:unknown) => {cancelled=reason;}, releaseLock() {}};
+    }
+  }
+  const scope={ReadableStream:Stream,Math:{} as Record<string,unknown>,RegExp:{} as Record<string,unknown>};
+  expect(installMissing(scope)).toEqual(['stream-iterator','sum-precise','regexp-escape']);
+  const seen:string[]=[];
+  for await (const chunk of new Stream() as unknown as AsyncIterable<string>) seen.push(chunk);
+  expect(seen).toEqual(['a','b','c']);
+  for await (const chunk of new Stream() as unknown as AsyncIterable<string>) {seen.push(chunk); break;}
+  expect(cancelled).toBeUndefined();
+  expect((scope.Math.sumPrecise as (values:number[]) => number)([4,8,12])).toBe(24);
+  const escape=scope.RegExp.escape as (text:string) => string;
+  expect(new RegExp(`^${escape('a.b*(c)[d]{e}|f/g\\h$')}$`,'u').test('a.b*(c)[d]{e}|f/g\\h$')).toBe(true);
+  // Present features are left alone.
+  const own=() => 0;
+  const native={ReadableStream:{prototype:{[Symbol.asyncIterator]:own}},Math:{sumPrecise:own},RegExp:{escape:own}};
+  expect(installMissing(native)).toEqual([]);
+  expect(native.Math.sumPrecise).toBe(own);
 });
 
 test('PDF failures preserve bounded detail from the viewer, worker and global handlers',async () => {

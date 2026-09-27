@@ -280,7 +280,8 @@ export async function runSmoke(): Promise<void> {
         // Which WebKit or WebView2 a failure happened in: PDF.js 6 uses
         // Promise.try and the like unguarded, so on WebKit the version is the
         // first thing a failing line has to say.
-        error: outcome.ok ? outcome.error : `${outcome.error ?? '-'} [engine ${navigator.userAgent.slice(0, 200)}]`,
+        error: outcome.ok ? outcome.error : `${outcome.error ?? '-'} [engine ${navigator.userAgent.slice(0, 200)}]`
+          + (tab?.frameStages.length ? ` [stages ${tab.frameStages.join('>')}]` : ''),
         ms: Date.now() - started,
       },
       outcome.ok,
