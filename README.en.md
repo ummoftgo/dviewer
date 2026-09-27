@@ -203,3 +203,7 @@ The technical documentation lives in `doc/` (Korean).
 - Entries do not appear in recent documents. That list reopens things by file path, and an entry has none.
 - The encoding of names inside an archive is a guess. Being wrong costs nothing: entries are identified by their number in the table of contents, not by their name.
 - No editing or saving. This is a read-only viewer.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

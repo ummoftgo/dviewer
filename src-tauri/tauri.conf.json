@@ -48,6 +48,7 @@
       { "ext": ["sqlite", "sqlite3", "db3"], "name": "SQLite database", "description": "SQLite database", "role": "Viewer", "mimeType": "application/vnd.sqlite3" }
     ],
     "targets": "all",
+    "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
