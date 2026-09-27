@@ -132,6 +132,11 @@ export async function checkToc(tab: DocTab): Promise<void> {
     require(nav.scrollTop > 0, 'TOC did not resume following after pointer exit');
     buttons[1].focus({ preventScroll: true });
     await frame();
+    // What the button sees when the window loses focus to another one: a
+    // focusout naming nothing, while it keeps the document's focus. Dispatched
+    // here so the check does not depend on whether another window happened to
+    // take the foreground mid-run, which is what made it fail now and then.
+    buttons[1].dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
     nav.scrollTop = 0;
     buttons[middle].click();
     await waitCurrent(middle);
@@ -143,8 +148,16 @@ export async function checkToc(tab: DocTab): Promise<void> {
       require(performance.now() < deadline, 'TOC click did not settle');
     }
     require(buttons[middle].getAttribute('aria-current') === 'true', 'TOC lost the clicked heading after native scroll rounding');
-    require(nav.scrollTop === 0, 'TOC moved while keyboard focus was inside');
+    require(nav.scrollTop === 0, `TOC moved while keyboard focus was inside (window focused: ${document.hasFocus()}, focus in TOC: ${nav.contains(document.activeElement)})`);
+    // Focus really leaving the list, unlike the window losing it above: the
+    // list follows the reading position again.
     buttons[1].blur();
+    await frame();
+    scroller.scrollTop = scroller.scrollHeight;
+    await waitCurrent(buttons.length - 1);
+    await frame();
+    await frame();
+    require(nav.scrollTop > 0, 'TOC did not resume following after focus left it');
     await changeTheme(settings.resolvedTheme === 'dark' ? 'light' : 'dark');
     scroller.scrollTop = 0;
     await waitCurrent(0);

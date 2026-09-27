@@ -13,6 +13,19 @@
   let hovering = $state(false);
   let focused = $state(false);
 
+  /**
+   * Whether keyboard focus is still in the list after it left one button.
+   *
+   * Moving within the list names the next button. Leaving the page for another
+   * window names nothing either, but the button keeps the document's focus and
+   * gets it back on return — so that is not leaving the list, and the list must
+   * not jump to the current heading while the reader is away.
+   */
+  function stillInside(event: FocusEvent): boolean {
+    const next = event.relatedTarget ?? document.activeElement;
+    return next instanceof Node && !!nav?.contains(next);
+  }
+
   $effect(() => {
     const host = nav, id = activeId;
     if (!host || hovering || focused || !id) return;
@@ -34,7 +47,7 @@
 <nav data-focus-chrome aria-label={t("markdown.toc")} bind:this={nav}
   onmouseenter={() => { hovering = true; }} onmouseleave={() => { hovering = false; }}
   onfocusin={() => { focused = true; }}
-  onfocusout={(event) => { focused = event.relatedTarget instanceof Node && !!nav?.contains(event.relatedTarget); }}>
+  onfocusout={(event) => { focused = stillInside(event); }}>
   <h2>{t("markdown.toc")}</h2>
   <ul>
     {#each entries as entry (entry.id)}
