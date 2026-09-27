@@ -294,10 +294,9 @@ jobs:
 
       # `bundle.targets: "all"` means deb+rpm+AppImage, msi+nsis, or app+dmg
       # depending on the runner. `npm run build` runs first via
-      # `beforeBuildCommand`. On Linux `--verbose` lets linuxdeploy's own lines
-      # through, the only way to see where the AppImage's two minutes go.
+      # `beforeBuildCommand`.
       - name: Build bundles
-        run: npm run tauri build -- --config "${{ github.workspace }}/updater-build.json" ${{ matrix.target && format('--target {0}', matrix.target) || '' }} ${{ runner.os == 'Linux' && '--verbose' || '' }}
+        run: npm run tauri build -- --config "${{ github.workspace }}/updater-build.json" ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
         env:
           # appimagetool cannot mount its own image on a runner without FUSE.
           APPIMAGE_EXTRACT_AND_RUN: 1
