@@ -2,6 +2,26 @@
 
 ← [README](../README.md)
 
+## M48 — 셀 상세 패널
+
+새 픽스처 `cell-detail.csv` 는 격자 미리보기(1,000자)보다 긴 5,000자 값을 담는다. 여기에 빈칸 셋(빈 필드·따옴표만 있는 빈 필드·짧은 행), JSON 객체, 여러 줄 값, 공백 없는 긴 URL 을 더했다. 스모크의 `cellDetail` 단계는 다음 순서로 확인한다.
+
+1. 패널 열림 상태를 검사가 정하고, 끝나면 복원한다.
+2. 잘린 긴 칸을 누른 뒤 툴바의 셀 상세 버튼을 누른다.
+3. `data-ready` 를 기다린 뒤 `.value` 의 DOM 텍스트 길이가 5,000인지 단언한다.
+4. 빈 필드·따옴표 빈 필드·짧은 행이 각각 `empty`·`empty`·`missing` 으로 읽히는지, JSON 칸에 JSON 보기 버튼이 있는지, 닫기 버튼이 패널을 닫는지 본다.
+
+NULL 은 CSV 에 없으므로 Rust(SQLite·Parquet)와 vitest 에서 확인한다.
+
+| 항목 | 결과 |
+|---|---|
+| `DVIEWER_FIXTURES=required cargo test` | 560개(+4: CSV 빈칸/없음, JSONL 없는 키, JSON 배열 없는 키, SQLite 줄바꿈·NULL·상한) |
+| vitest | 419개(+6, `cellDetail.test.ts`) |
+| check | 오류/경고 0, 4×499키 |
+| Windows debug 스모크 | 픽스처 57개와 왕복 2 통과, `cellDetail` 89ms |
+
+깨뜨려 확인은 네 가지를 했다. vitest 는 NULL 판별을 뺀 변형과 프런트 8MiB 상한을 우회한 변형에서 각각 1개가 붉어졌다. cargo 는 SQLite 텍스트를 격자용 `cell_of` 로 되돌린 변형과 CSV 짧은 행을 빈 문자열로 되돌린 변형을 한 번에 돌렸다. 결과는 557 통과·3 실패였다(SQLite 전체 값 1개, CSV 빈칸/없음 2개).
+
 ## PDF 워커 경쟁 — GPU 없는 WebView2
 
 v0.23.0 리허설(run 35886281635)의 Windows 번들 스모크는 `report.pdf` 만 통과하고 나머지 PDF 여섯이 60초 timeout 이었다. 재실행도 같았다. 진단은 모두 `stage worker-imported`·`stall -`·PDF 바이트 요청 없음이었다.
@@ -1186,7 +1206,7 @@ cd src-tauri && cargo run --release --example archive -- ../fixtures/archive.zip
 
 프론트의 트리와 거르기는 10만 항목에서 만들기 78ms, 거르기 12ms 입니다 (거르기 입력에는 120ms 디바운스가 있습니다).
 
-`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시, 그리고 **값 뒤의 덧말** 셋 — 닫는 괄호 뒤·한 줄에 둘·쉼표 뒤)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), `archive.zip`(json·log·md·csv·`.log.gz`·중첩 zip·잠김 플래그), `korean-names.zip`(플래그 없는 CP949 이름), `zip64.zip`(작지만 zip64 끝 레코드), `single.zip`·`single-locked.zip`(투명 해제가 되는 쪽과 목록으로 후퇴하는 쪽), `workbook.zip`·`columnar.zip`·`database.zip`(**압축 안의 통합 문서·컬럼 파일·데이터베이스** — 항목이 하나라 투명 해제되므로 뜨는 것은 압축 목록이 아니라 그 안쪽 형식이어야 합니다), 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
+`fixtures/` 에는 형식마다 까다로운 부분을 담은 표본이 있습니다 — `sample.csv`(값 안의 쉼표·따옴표·개행, 짧은 행), `semicolon.csv`(확장자와 다른 구분자), `sample.xml`(속성·CDATA·주석·이름공간·혼합 내용·빈 요소), `sample.yaml`(앵커·여러 문서·문자열 아닌 키), `sample.toml`(날짜·배열 테이블), `wide.json`(루트 배열 100만), `deep.json`(깊이 500), `stream.jsonl`(중첩 객체·배열·null 이 섞인 레코드), `broken.json`(중간 절단), `sample.jsonc`(주석·후행 쉼표·문자열 안의 주석 표시, 그리고 **값 뒤의 덧말** 셋 — 닫는 괄호 뒤·한 줄에 둘·쉼표 뒤)와 그 엄격한 쌍둥이 `strict.json`, 확장자만 `.json` 인 `settings.json`, `sample.sqlite`(rowid 테이블·WITHOUT ROWID·뷰·BLOB·NULL 과 빈 문자열이 나란히), `sample.xlsx`(수식·날짜·시각만 든 칸·불리언·빈 칸·개행이 든 값, 그리고 **C4 에서 시작하는 둘째 시트**), `huge.xlsx`(공유 문자열이 메모리에서 부푸는 것을 재기 위한 25만 행), `sample.parquet`(**두 행씩 세 행 그룹** — 경계를 넘는 창을 잡으려고, 열 가운데의 NULL·타임스탬프·날짜·미리보기보다 긴 바이너리), `archive.zip`(json·log·md·csv·`.log.gz`·중첩 zip·잠김 플래그), `korean-names.zip`(플래그 없는 CP949 이름), `zip64.zip`(작지만 zip64 끝 레코드), `single.zip`·`single-locked.zip`(투명 해제가 되는 쪽과 목록으로 후퇴하는 쪽), `workbook.zip`·`columnar.zip`·`database.zip`(**압축 안의 통합 문서·컬럼 파일·데이터베이스** — 항목이 하나라 투명 해제되므로 뜨는 것은 압축 목록이 아니라 그 안쪽 형식이어야 합니다), 셀 상세 패널이 구분해야 하는 빈칸 셋과 긴 값·JSON·여러 줄 값을 담은 `cell-detail.csv`, 그리고 렌더링 기능을 한 번에 훑는 `sample.md`.
 
 `sample.xlsx` 의 바이트는 `archive.zip` 의 `data/sales.xlsx` 와 `workbook.zip` 에도 그대로 들어갑니다. 같은 워크북을 파일로 한 번, 압축 항목으로 한 번 보내는 것이 요점입니다 — 다른 길로 왔을 뿐 같은 것이어야 합니다. `columnar.zip` 은 `sample.parquet` 과 같은 이유로 Rust 예제가 쓴 기준 파일입니다(생성기가 감쌀 대상을 만들지 못합니다). `sample.sqlite` 도 같습니다 — `archive.zip` 의 `data/app.sqlite` 와 `database.zip` 이 그 바이트입니다. `node:sqlite` 는 파일에만 쓰므로 쓴 뒤 다시 읽어 넣습니다.
 

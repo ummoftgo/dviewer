@@ -107,10 +107,11 @@ impl Grid for JsonArrayGrid {
         } else {
             match self.fields(id)[column as usize - usize::from(self.map)] {
                 Some(node) => jsonl::node_text(&self.tree.bytes, node, MAX_CELL_TEXT_BYTES),
-                None => (String::new(), false),
+                // An element without this key: drawn empty, but not an empty value.
+                None => return Ok(CellText::missing()),
             }
         };
-        Ok(CellText { text, truncated })
+        Ok(CellText { text, truncated, ..CellText::default() })
     }
 
     fn row_text(&self, row: u32) -> Result<CellText> {
@@ -127,7 +128,7 @@ impl Grid for JsonArrayGrid {
             truncated |= cell.truncated || end < cell.text.len();
             if text.len() >= MAX_CELL_TEXT_BYTES { truncated |= column + 1 < self.column_count(); break; }
         }
-        Ok(CellText { text, truncated })
+        Ok(CellText { text, truncated, ..CellText::default() })
     }
 
     fn search(&self, query: &str, case_sensitive: bool, how: Interpretation, cancel: &AtomicBool) -> Result<TableSearch> {
@@ -179,6 +180,12 @@ mod tests {
         assert_eq!(grid.cell_text(3, 0).unwrap().text, "[4]");
     }
     #[test]
+    fn an_element_without_the_key_is_missing_not_empty() {
+        let grid = grid(r#"[{"a":1,"b":""},{"a":2}]"#);
+        assert_eq!(grid.cell_text(0, 1).unwrap(), CellText::default());
+        assert_eq!(grid.cell_text(1, 1).unwrap(), CellText::missing());
+    }
+    #[test]
     fn map_keys_are_a_separate_column() {
         let grid = grid(r#"{"a":{"n":1},"b":{"n":2}}"#);
         assert_eq!(grid.columns(), ["key", "n"]);
@@ -195,7 +202,7 @@ mod tests {
         for (column, cell) in line.iter().enumerate() {
             assert_eq!(page.rows[0].cells[column].text, cell.text);
             assert_eq!(grid.cell_text(0, column as u32).unwrap().text,
-                jsonl::value_text(record.as_bytes(), 0, record.len() as u32, &layout, column, MAX_CELL_TEXT_BYTES).unwrap().0);
+                jsonl::value_text(record.as_bytes(), 0, record.len() as u32, &layout, column, MAX_CELL_TEXT_BYTES).unwrap().text);
         }
         assert_eq!(page.rows[0].cells[1].text, r#"["x",{"a":1}]"#);
         assert_eq!(grid.cell_text(0, 0).unwrap().text, "a\nb\"c");

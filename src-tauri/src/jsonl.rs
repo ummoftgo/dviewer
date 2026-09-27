@@ -12,7 +12,7 @@
 //! and a tree node are the same bytes.
 
 use crate::tree::scanner::{scan, Kind, Node, ScanLimits};
-use crate::table::{TableCell, CELL_PREVIEW_CHARS};
+use crate::table::{CellText, TableCell, CELL_PREVIEW_CHARS};
 use crate::tree::text;
 
 /// How much of the front of the document the guess is made from.
@@ -191,7 +191,7 @@ pub fn value_text(
     layout: &JsonlLayout,
     column: usize,
     max_bytes: usize,
-) -> Option<(String, bool)> {
+) -> Option<CellText> {
     let line = &bytes[start as usize..end as usize];
     if column >= layout.column_count() {
         return None;
@@ -201,15 +201,20 @@ pub fn value_text(
         // The whole line, in the column it was put in. See `split`.
         let truncated = line.len() > max_bytes;
         let shown = &line[..line.len().min(max_bytes)];
-        return (column == 0)
-            .then(|| (String::from_utf8_lossy(shown).into_owned(), truncated))
-            .or(Some((String::new(), false)));
+        return Some(if column == 0 {
+            CellText { text: String::from_utf8_lossy(shown).into_owned(), truncated, ..CellText::default() }
+        } else {
+            CellText::missing()
+        });
     };
 
     Some(match by_column(line, &nodes, 0, layout)[column] {
-        Some(node) => node_text(line, node, max_bytes),
-        // A key this record does not have. Empty, like the cell.
-        None => (String::new(), false),
+        Some(node) => {
+            let (text, truncated) = node_text(line, node, max_bytes);
+            CellText { text, truncated, ..CellText::default() }
+        }
+        // A key this record does not have: drawn empty, but not an empty value.
+        None => CellText::missing(),
     })
 }
 

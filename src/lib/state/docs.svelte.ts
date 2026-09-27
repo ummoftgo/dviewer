@@ -331,6 +331,9 @@ export class DocTab {
   frozenCount = $state(0);
   revealedColumn = $state<number | null>(null);
   selectedCell = $state<CellSelection | null>(null);
+  /** The selected cell's whole value, docked beside the grid. Off by default:
+   *  a grid wants its width, where a tree's key/value table earns it. */
+  showCellDetail = $state(false);
   tableScrollTop = $state(0);
   /** Cell the grid should jump to; cleared by the view once honoured. */
   pendingCell = $state<{ row: number; column: number } | null>(null);

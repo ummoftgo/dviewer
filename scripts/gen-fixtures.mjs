@@ -587,6 +587,24 @@ await writeFile(path.join(OUT, 'columns.csv'), [
 ].join('\n'));
 console.log('  columns.csv (hide, reorder, frozen columns)');
 
+// The cell detail panel. Row 1 is longer than the grid's 1,000-character
+// preview, so the panel shows more than the cell; rows 2–4 are the three
+// blanks the grid cannot tell apart (empty, quoted empty, a row that stops
+// short). The rest are for reading: JSON, several lines, one long token.
+// The smoke run asserts the long value's length, so keep it at 5,000.
+await writeFile(path.join(OUT, 'cell-detail.csv'), [
+  'id,값,종류',
+  `1,${'셀 상세 long-value '.repeat(400).slice(0, 5000)},긴 값`,
+  '2,,빈 칸',
+  '3,"",따옴표만 있는 빈 칸',
+  '4',
+  '5,"{""items"":[1,2,3],""이름"":{""깊이"":""값""}}",JSON',
+  '6,"첫 줄\n둘째 줄\n\n넷째 줄",여러 줄',
+  `7,https://example.com/${'segment-'.repeat(60)}end?query=${'x'.repeat(80)},한 토큰`,
+  '',
+].join('\n'));
+console.log('  cell-detail.csv');
+
 // Encodings a spreadsheet actually produces. Written as bytes rather than
 // strings because the point is what lands on disk, not what Node holds.
 await writeFile(
@@ -1372,6 +1390,7 @@ const SMOKE = [
   { file: "sample.toml", expect: "tree" },
   { file: "sample.xml", expect: "tree" },
   { file: "sample.csv", expect: "table", then: "toggleHeader" },
+  { file: "cell-detail.csv", expect: "table", then: "cellDetail" },
   { file: "semicolon.csv", expect: "table" },
   { file: "reading.txt", expect: "table", then: "textReading" },
   { file: "big.log", expect: "table", then: "textRawVirtual" },

@@ -109,7 +109,7 @@ fn main() {
     println!(
         "칸 복사   {:.1}ms ({})",
         at.elapsed().as_secs_f64() * 1000.0,
-        cell.map(|(text, _)| text).unwrap_or_default()
+        cell.map(|cell| cell.text).unwrap_or_default()
     );
 
     if let Some(query) = query {

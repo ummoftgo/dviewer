@@ -175,11 +175,52 @@ pub struct TableCell {
 }
 
 /// One value in full, for copying — not the line the grid draws.
-#[derive(Debug, Clone, Serialize)]
+///
+/// The cell detail panel reads the same thing, and has to say which of three
+/// kinds of nothing an empty `text` is: a stored empty string, a database NULL,
+/// or a field this row does not have at all (a short CSV row, a JSON object
+/// without the key). Only the reader knows, so it says so here.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CellText {
     pub text: String,
     pub truncated: bool,
+    pub null: bool,
+    pub missing: bool,
+}
+
+impl CellText {
+    /// A value, cut to `MAX_CELL_TEXT_BYTES` on a character boundary.
+    pub fn capped(text: String) -> Self {
+        let kept = crate::grid::order::prefix(&text, MAX_CELL_TEXT_BYTES).len();
+        let truncated = kept < text.len();
+        let mut text = text;
+        text.truncate(kept);
+        CellText { text, truncated, ..Self::default() }
+    }
+
+    /// Stored text, cut before it is decoded so a huge value is never copied
+    /// whole. A cut through a character drops the partial character rather than
+    /// decoding it as a replacement.
+    pub fn capped_bytes(bytes: &[u8]) -> Self {
+        let cut = bytes.len() > MAX_CELL_TEXT_BYTES;
+        let mut shown = &bytes[..bytes.len().min(MAX_CELL_TEXT_BYTES)];
+        if cut {
+            if let Err(error) = std::str::from_utf8(shown) {
+                if error.error_len().is_none() {
+                    shown = &shown[..error.valid_up_to()];
+                }
+            }
+        }
+        // Invalid bytes decode to three-byte replacements, so cap again.
+        let mut cell = Self::capped(String::from_utf8_lossy(shown).into_owned());
+        cell.truncated |= cut;
+        cell
+    }
+
+    pub fn missing() -> Self {
+        CellText { missing: true, ..Self::default() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -509,7 +550,7 @@ impl TableDoc {
     }
 
     /// A cell's actual text, for copying — escapes resolved, quotes stripped.
-    pub fn cell_text(&self, row: u32, column: u32) -> Option<(String, bool)> {
+    pub fn cell_text(&self, row: u32, column: u32) -> Option<CellText> {
         if column >= self.columns() { return None; }
         let record = row.checked_add(self.header_offset())?;
         let (start, end) = self.record_span(record)?;
@@ -526,17 +567,16 @@ impl TableDoc {
                 MAX_CELL_TEXT_BYTES,
             );
         }
-        let span = record_fields(&self.bytes, start, end, &self.reading())
+        // A short row draws as empty cells, but there is nothing there to copy.
+        let Some(span) = record_fields(&self.bytes, start, end, &self.reading())
             .into_iter()
             .nth(column as usize)
-            .unwrap_or((end, end)); // A short row has the same empty cells as its page.
-        Some(decode_cell(
-            &self.bytes,
-            span,
-            &self.reading(),
-            usize::MAX,
-            MAX_CELL_TEXT_BYTES,
-        ))
+        else {
+            return Some(CellText::missing());
+        };
+        let (text, truncated) =
+            decode_cell(&self.bytes, span, &self.reading(), usize::MAX, MAX_CELL_TEXT_BYTES);
+        Some(CellText { text, truncated, ..CellText::default() })
     }
 
     /// A whole record, verbatim — the line as the file wrote it.
@@ -951,14 +991,13 @@ impl crate::grid::Grid for TableDoc {
     }
 
     fn cell_text(&self, row: u32, column: u32) -> Result<CellText> {
-        let (text, truncated) = TableDoc::cell_text(self, row, column).ok_or(Error::NoSuchCell)?;
-        Ok(CellText { text, truncated })
+        TableDoc::cell_text(self, row, column).ok_or(Error::NoSuchCell)
     }
 
     fn row_text(&self, row: u32) -> Result<CellText> {
         Ok(CellText {
             text: TableDoc::row_text(self, row).ok_or(Error::NoSuchRow)?,
-            truncated: false,
+            ..CellText::default()
         })
     }
 
@@ -1212,7 +1251,7 @@ mod tests {
         // grid already uses. `row_text` gives the bytes back as they are.
         assert_eq!(texts(&doc.page(0, 10).rows[0]), ["a,b\\tc;d|e"]);
         assert_eq!(doc.row_text(0).expect("row"), "a,b\tc;d|e");
-        assert_eq!(doc.cell_text(1, 0).expect("cell").0, "second,line");
+        assert_eq!(doc.cell_text(1, 0).expect("cell").text, "second,line");
     }
 
     /// Text has no header to promote, and asking for one changes nothing.
@@ -1331,9 +1370,22 @@ mod tests {
     #[test]
     fn copying_a_cell_gives_its_real_text() {
         let doc = doc("a,b\n\"x\ny\",2\n", b',');
-        let (text, truncated) = doc.cell_text(0, 0).expect("cell");
-        assert_eq!(text, "x\ny");
-        assert!(!truncated);
+        let cell = doc.cell_text(0, 0).expect("cell");
+        assert_eq!(cell.text, "x\ny");
+        assert!(!cell.truncated);
+    }
+
+    /// Three cells that all draw as nothing, and the panel has to tell them
+    /// apart: an empty field, a quoted empty field, and a field the row stops
+    /// short of.
+    #[test]
+    fn an_empty_field_is_not_a_missing_one() {
+        let doc = doc("a,b,c\n1,,\"\"\n2\n", b',');
+        let empty = CellText::default();
+        assert_eq!(doc.cell_text(0, 1), Some(empty.clone()));
+        assert_eq!(doc.cell_text(0, 2), Some(empty));
+        assert_eq!(doc.cell_text(1, 1), Some(CellText::missing()));
+        assert_eq!(doc.cell_text(1, 2), Some(CellText::missing()));
     }
 
     #[test]
@@ -1359,7 +1411,7 @@ mod tests {
         let page = doc.page(0, 10);
         assert_eq!(texts(&page.rows[0]), ["1", "", "", ""]);
         assert_eq!(texts(&page.rows[1]), ["2", "3", "4", "5"]);
-        assert_eq!(doc.cell_text(0, 3), Some((String::new(), false)));
+        assert_eq!(doc.cell_text(0, 3), Some(CellText::missing()));
         assert!(doc.cell_text(0, 4).is_none());
         assert!(doc.cell_text(2, 0).is_none());
         let order = crate::grid::order::Order::build(&doc,
@@ -1501,7 +1553,7 @@ mod tests {
         let doc = TableDoc::build(decoded.bytes, Records::Delimited { delimiter }, |_| {}, &|| false).expect("build");
         assert_eq!(doc.header(), vec!["id", "이름"]);
         assert_eq!(texts(&doc.page(0, 10).rows[0]), ["1", "가나다"]);
-        assert_eq!(doc.cell_text(1, 1).expect("cell").0, "라마바");
+        assert_eq!(doc.cell_text(1, 1).expect("cell").text, "라마바");
     }
 
     /// UTF-16 is the other one a spreadsheet produces, and there the raw bytes
@@ -1635,8 +1687,8 @@ mod tests {
     #[test]
     fn copying_gives_the_value_and_the_line() {
         let doc = jsonl_doc(RECORDS);
-        assert_eq!(doc.cell_text(1, 1).expect("cell").0, "error");
-        assert_eq!(doc.cell_text(2, 3).expect("cell").0, "");
+        assert_eq!(doc.cell_text(1, 1).expect("cell").text, "error");
+        assert_eq!(doc.cell_text(2, 3).expect("cell").text, "");
         assert_eq!(
             doc.row_text(2).expect("row"),
             "{\"at\":\"01:04\",\"msg\":\"끝\"}"
@@ -1670,9 +1722,9 @@ mod tests {
         assert_eq!(shown[0].text, "a\\nb");
 
         // What the clipboard gets is the value.
-        assert_eq!(doc.cell_text(0, 0).expect("cell").0, "a\nb");
-        assert_eq!(doc.cell_text(0, 1).expect("cell").0, "한");
-        assert_eq!(doc.cell_text(0, 2).expect("cell").0, "say \"hi\"");
+        assert_eq!(doc.cell_text(0, 0).expect("cell").text, "a\nb");
+        assert_eq!(doc.cell_text(0, 1).expect("cell").text, "한");
+        assert_eq!(doc.cell_text(0, 2).expect("cell").text, "say \"hi\"");
 
         // And the tree, over the same bytes, agrees.
         let line = "{\"msg\":\"a\\nb\"}";
@@ -1684,7 +1736,7 @@ mod tests {
             &|| false,
         )
         .expect("tree");
-        assert_eq!(tree.node_text(1).expect("node").0, doc.cell_text(0, 0).expect("cell").0);
+        assert_eq!(tree.node_text(1).expect("node").0, doc.cell_text(0, 0).expect("cell").text);
         assert_eq!(tree.rows(1, 1)[0].value.as_deref(), Some(shown[0].text.as_str()));
     }
 
@@ -1696,13 +1748,23 @@ mod tests {
             "{\"n\":1.5,\"b\":true,\"z\":null,\"a\":[1,\"x\\ny\"],\"o\":{\"k\":\"v\"}}\n\
              {\"n\":2,\"b\":false,\"z\":null,\"a\":[],\"o\":{}}\n",
         );
-        assert_eq!(doc.cell_text(0, 0).expect("cell").0, "1.5");
-        assert_eq!(doc.cell_text(0, 1).expect("cell").0, "true");
-        assert_eq!(doc.cell_text(0, 2).expect("cell").0, "null");
+        assert_eq!(doc.cell_text(0, 0).expect("cell").text, "1.5");
+        assert_eq!(doc.cell_text(0, 1).expect("cell").text, "true");
+        assert_eq!(doc.cell_text(0, 2).expect("cell").text, "null");
         // A nested value is JSON text, so its own escapes stay escaped —
         // resolving them would produce something that is no longer JSON.
-        assert_eq!(doc.cell_text(0, 3).expect("cell").0, "[1,\"x\\ny\"]");
-        assert_eq!(doc.cell_text(0, 4).expect("cell").0, "{\"k\":\"v\"}");
+        assert_eq!(doc.cell_text(0, 3).expect("cell").text, "[1,\"x\\ny\"]");
+        assert_eq!(doc.cell_text(0, 4).expect("cell").text, "{\"k\":\"v\"}");
+        // JSON's null is a value the file wrote, not a database NULL.
+        assert!(!doc.cell_text(0, 2).expect("cell").null);
+    }
+
+    /// A record without a key is not a record whose value is the empty string.
+    #[test]
+    fn a_key_a_record_does_not_have_is_missing_not_empty() {
+        let doc = jsonl_doc("{\"a\":1,\"b\":\"\"}\n{\"a\":2}\n");
+        assert_eq!(doc.cell_text(0, 1), Some(CellText::default()));
+        assert_eq!(doc.cell_text(1, 1), Some(CellText::missing()));
     }
 
 
@@ -1724,8 +1786,8 @@ mod tests {
 
         // Copying a container gives the same JSON; copying the string gives
         // the value.
-        assert_eq!(doc.cell_text(0, 0).expect("cell").0, "[\"a\",\"b\"]");
-        assert_eq!(doc.cell_text(0, 2).expect("cell").0, "q\"x");
+        assert_eq!(doc.cell_text(0, 0).expect("cell").text, "[\"a\",\"b\"]");
+        assert_eq!(doc.cell_text(0, 2).expect("cell").text, "q\"x");
     }
 
     // --- patterns in a grid -------------------------------------------------
@@ -1839,7 +1901,7 @@ mod tests {
             assert_eq!(cell.text.chars().count(), size.min(1_000));
             assert_eq!(cell.truncated, size > 1_000);
             assert!(cell.preview_bytes.is_none());
-            assert_eq!(doc.cell_text(0, 0).unwrap().0, value);
+            assert_eq!(doc.cell_text(0, 0).unwrap().text, value);
         }
     }
 

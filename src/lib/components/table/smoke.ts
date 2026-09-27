@@ -105,3 +105,53 @@ export async function checkTextRawVirtual(tab: DocTab): Promise<void> {
     await tick();
   }
 }
+
+/** The long value in `cell-detail.csv`; the generator keeps it at this length. */
+const CELL_DETAIL_LONG = 5000;
+
+/**
+ * The cell detail panel, opened the way a reader opens it: select a cell, press
+ * the toolbar button. Whether the panel was open is decided here and put back
+ * afterwards, and every assertion is on what the panel drew, after it said the
+ * value on screen is the selected cell's.
+ */
+export async function checkCellDetail(tab: DocTab): Promise<{ valueLength: number }> {
+  const shown = tab.showCellDetail, selected = tab.selectedCell;
+  try {
+    tab.showCellDetail = false;
+    tab.selectedCell = null;
+    await tick();
+    const rows = () => document.querySelectorAll<HTMLElement>('main .grid .body .row');
+    await waitFor(() => rows().length >= 7, 'cell detail grid did not render');
+    const cell = (row: number) => rows()[row].querySelector<HTMLElement>('[role="gridcell"][data-column="1"]')!;
+    const panel = () => document.querySelector<HTMLElement>('main .cell-detail');
+    if (cell(0).dataset.truncated !== 'true') throw new Error('long cell was not a cut preview');
+    cell(0).click();
+    await tick();
+    const toggle = document.querySelector<HTMLButtonElement>('[data-action="cell-detail"]');
+    if (!toggle) throw new Error('grid toolbar has no cell detail button');
+    toggle.click();
+    await waitFor(() => panel()?.dataset.ready === 'true', 'cell detail did not read the long value');
+    const valueLength = panel()!.querySelector('.value')?.textContent?.length ?? -1;
+    if (panel()!.dataset.kind !== 'value' || valueLength !== CELL_DETAIL_LONG) {
+      throw new Error(`cell detail showed ${valueLength} of ${CELL_DETAIL_LONG} characters`);
+    }
+    const expect = async (row: number, kind: string) => {
+      cell(row).click();
+      await waitFor(() => panel()?.dataset.ready === 'true' && panel()?.dataset.kind === kind, `row ${row + 1} did not read as ${kind}`);
+    };
+    await expect(1, 'empty');
+    await expect(2, 'empty');
+    await expect(3, 'missing');
+    await expect(4, 'value');
+    if (!panel()!.querySelector('[data-action="cell-json"]')) throw new Error('a JSON value offered no JSON view');
+    panel()!.querySelector<HTMLButtonElement>('[data-action="cell-detail-close"]')!.click();
+    await tick();
+    if (panel() || tab.showCellDetail) throw new Error('cell detail did not close');
+    return { valueLength };
+  } finally {
+    tab.showCellDetail = shown;
+    tab.selectedCell = selected;
+    await tick();
+  }
+}

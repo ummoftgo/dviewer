@@ -495,11 +495,7 @@ impl Grid for SqliteGrid {
         if column as usize >= self.columns.len() {
             return Err(Error::NoSuchCell);
         }
-        let cell = self.with_row(row, |found| cell_of(found, column as usize, usize::MAX))?;
-        Ok(CellText {
-            text: cell.text,
-            truncated: cell.truncated,
-        })
+        self.with_row(row, |found| full_value(found, column as usize))
     }
 
     fn search(
@@ -528,7 +524,7 @@ impl Grid for SqliteGrid {
         })?;
         Ok(CellText {
             text,
-            truncated: false,
+            ..CellText::default()
         })
     }
 }
@@ -636,6 +632,23 @@ fn cell_of(row: &rusqlite::Row<'_>, column: usize, max_chars: usize) -> Result<T
                 truncated,
                 null: false, preview_bytes: Some(crate::grid::BINARY_PREVIEW_BYTES),
             }
+        }
+    })
+}
+
+/// One value whole, for copying and the cell detail panel.
+///
+/// Not `cell_of` with no limit: that draws a newline as `␊` so a cell stays one
+/// line high, and a copied value came out with the symbol instead of the break.
+/// Text is capped at `MAX_CELL_TEXT_BYTES` like every other grid's.
+fn full_value(row: &rusqlite::Row<'_>, column: usize) -> Result<CellText> {
+    use rusqlite::types::ValueRef;
+    Ok(match row.get_ref(column).map_err(query_failed)? {
+        ValueRef::Null => CellText { null: true, ..CellText::default() },
+        ValueRef::Text(bytes) => CellText::capped_bytes(bytes),
+        _ => {
+            let cell = cell_of(row, column, usize::MAX)?;
+            CellText { text: cell.text, truncated: cell.truncated, ..CellText::default() }
         }
     })
 }
@@ -1126,6 +1139,32 @@ lines', 'tab\there', -7, 0.5, x'');",
 
         assert!(matches!(grid.cell_text(0, 9), Err(Error::NoSuchCell)));
         assert!(matches!(grid.row_text(500), Err(Error::NoSuchRow)));
+    }
+
+    /// The whole value, as the cell detail panel and the clipboard want it: a
+    /// real newline rather than the grid's `␊`, NULL said rather than shown as
+    /// an empty string, and the same 8 MiB ceiling every other grid has. The
+    /// long value is three-byte characters, so the ceiling falls inside one.
+    #[test]
+    fn a_whole_value_keeps_its_newlines_its_null_and_its_ceiling() {
+        let dir = temp_dir("grid-full-value");
+        let long = "가".repeat(crate::table::MAX_CELL_TEXT_BYTES / 3 + 1);
+        let grid = grid_over(
+            &dir,
+            &format!("CREATE TABLE t (a TEXT, b TEXT, c TEXT, d TEXT); \
+                      INSERT INTO t VALUES ('two\nlines', NULL, '', '{long}');"),
+            "t",
+        );
+
+        let lines = grid.cell_text(0, 0).expect("text");
+        assert_eq!(lines, CellText { text: "two\nlines".into(), ..CellText::default() });
+        assert_eq!(grid.cell_text(0, 1).expect("null"), CellText { null: true, ..CellText::default() });
+        assert_eq!(grid.cell_text(0, 2).expect("empty"), CellText::default());
+
+        let cut = grid.cell_text(0, 3).expect("long");
+        assert!(cut.truncated);
+        assert_eq!(cut.text.len(), crate::table::MAX_CELL_TEXT_BYTES / 3 * 3);
+        assert!(cut.text.chars().all(|c| c == '가'), "no partial character decoded");
     }
 
     /// A table whose name needs quoting is still one name.

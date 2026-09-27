@@ -12,6 +12,7 @@
   import Icon from "../Icon.svelte";
   import { n, t, type MessageKey } from "../../i18n";
   import DataGrid from "../grid/DataGrid.svelte";
+  import GridDock from "../grid/GridDock.svelte";
   import { resetColumns } from '../grid/columns';
   import { previewBadge, cellTitle } from "../grid/preview";
   import SearchBar from "../grid/SearchBar.svelte";
@@ -271,24 +272,40 @@
       >
         {t("table.copyRow")}
       </button>
+      <!-- Last and labelled, like the tree's key/value table: the way in to a
+           panel has to say what it is and whether it is open. -->
+      <button
+        class="btn toggle"
+        class:on={tab.showCellDetail}
+        aria-pressed={tab.showCellDetail}
+        data-action="cell-detail"
+        title={t("cellDetail.toggle", { action: tab.showCellDetail ? t("state.hide") : t("state.show") })}
+        onclick={() => (tab.showCellDetail = !tab.showCellDetail)}
+      >
+        <Icon name="list" size={13} />
+        {t("cellDetail")}
+        <span class="state">{tab.showCellDetail ? t("state.on") : t("state.off")}</span>
+      </button>
     </div>
 
     <GridControls {tab} {columnName} bind:this={controls} />
     {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
-    <DataGrid
-      bind:this={grid}
-      widthMode={tab.tableWidthMode}
-      {tab}
-      {rowCount}
-      {columnCount}
-      {columnName}
-      onsort={(column) => void controls?.sortColumn(column)}
-      onsortTo={(sort) => void controls?.sortTo(sort)}
-      onfilterColumn={(column) => controls?.filterColumn(column)}
-      onfilterClear={() => void controls?.clearFilter()}
-      cellTone={levelTone}
-      label={t("table.label", { title: tab.meta.title })}
-    />
+    <GridDock {tab} {columnName}>
+      <DataGrid
+        bind:this={grid}
+        widthMode={tab.tableWidthMode}
+        {tab}
+        {rowCount}
+        {columnCount}
+        {columnName}
+        onsort={(column) => void controls?.sortColumn(column)}
+        onsortTo={(sort) => void controls?.sortTo(sort)}
+        onfilterColumn={(column) => controls?.filterColumn(column)}
+        onfilterClear={() => void controls?.clearFilter()}
+        cellTone={levelTone}
+        label={t("table.label", { title: tab.meta.title })}
+      />
+    </GridDock>
 
     <div class="status">
       {#if tab.hiddenColumns.length}<span>{t('grid.visibleCopy')}</span>{/if}

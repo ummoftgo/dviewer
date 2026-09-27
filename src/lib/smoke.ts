@@ -18,7 +18,7 @@ import {checkBookmarks} from './bookmarksSmoke';
 import { checkHtmlFrame } from "./components/frame/smoke";
 import {checkPdfFrame} from './components/frame/pdfSmoke';
 import { frameDiagnostic } from './frame/diagnostics';
-import { checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
+import { checkCellDetail, checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
 import { checkCollectionWidths } from "./components/collection/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
@@ -126,6 +126,7 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
     await checkTextRawVirtual(tab);
     return { ok: true, stage: what };
   }
+  if (what === 'cellDetail') return { ok: true, stage: what, metrics: await checkCellDetail(tab) };
   if (what === "textReading") {
     await checkTextReading(tab);
     return { ok: true, stage: what };

@@ -1,4 +1,4 @@
-import { gridCellText, gridRowText, type CellText } from '../../ipc';
+import { gridCellText, gridRowText, gridRows, type CellText } from '../../ipc';
 import type { DocTab } from '../../state/docs.svelte';
 import { visibleColumns } from './columns';
 
@@ -27,6 +27,18 @@ export async function rowText(tab: DocTab, row: number | Promise<number>, count:
     return value;
   });
   return result;
+}
+
+/**
+ * One cell whole, for the detail panel — the same read "copy value" makes.
+ * A selection whose page has scrolled away no longer knows its source row, so
+ * the display row is looked up again.
+ */
+export async function cellValue(tab: DocTab, row: number, column: number, sourceRow?: number)
+  : Promise<{ sourceRow: number; value: CellText }> {
+  const source = sourceRow ?? (await gridRows(tab.id, row, 1)).rows[0]?.index;
+  if (source === undefined) throw { code: 'noSuchRow' };
+  return { sourceRow: source, value: await gridCellText(tab.id, source, column) };
 }
 
 export async function projectedRowText(columns: readonly number[], readCell: (column: number) => Promise<CellText>,

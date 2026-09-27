@@ -267,9 +267,14 @@ impl Grid for ParquetDoc {
         let field = self
             .field(&held, offset, column as usize)
             .ok_or(Error::NoSuchCell)?;
-        Ok(CellText {
-            text: full_text(&field),
-            truncated: false,
+        Ok(match &field {
+            Field::Null => CellText { null: true, ..CellText::default() },
+            // Hex is already cut to fit, and says whether it was.
+            Field::Bytes(bytes) => {
+                let (text, truncated) = hex_cell(bytes.data(), false);
+                CellText { text, truncated, ..CellText::default() }
+            }
+            other => CellText::capped(full_text(other)),
         })
     }
 
@@ -285,7 +290,7 @@ impl Grid for ParquetDoc {
             .join("\t");
         Ok(CellText {
             text,
-            truncated: false,
+            ..CellText::default()
         })
     }
 
@@ -641,6 +646,7 @@ mod tests {
         assert!(missing.null);
         assert_eq!(missing.text, "");
         assert_eq!(text_of(&doc, 5, 1), "");
+        assert!(doc.cell_text(5, 1).expect("cell").null, "and says so when read whole");
 
         // Bytes are hex, cut with their size, and whole when copied.
         assert_eq!(shown(&doc, 0, 5).text, "x'010203'");

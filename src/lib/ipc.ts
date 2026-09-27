@@ -405,6 +405,11 @@ export interface TableSearchResult {
 export interface CellText {
   text: string;
   truncated: boolean;
+  /** A database NULL. `text` is empty, and is not the empty string. */
+  null?: boolean;
+  /** A field this row does not have: a short CSV row, a JSON object without
+   *  the key. Drawn as an empty cell, but there is no value. */
+  missing?: boolean;
 }
 
 export interface FontFamily {

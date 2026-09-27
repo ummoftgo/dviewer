@@ -32,6 +32,7 @@
   import { copyMenuItems } from "./actions";
   import type { MenuItem } from "../menu";
   import { settings } from "../../state/settings.svelte";
+  import { SHOWN_CHARS } from "../../cellDetail";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -90,8 +91,6 @@ b` there is
 
   type FullValue = { text: string; truncated: boolean } | { error: string };
 
-  /** Enough to read. A value past this is a document, not a field. */
-  const SHOWN_CHARS = 20_000;
 
   // The same entries the tree offers, from the same code — see actions.ts.
   const menuItems = $derived.by((): MenuItem[] => (menu ? copyMenuItems(docId, menu.row) : []));

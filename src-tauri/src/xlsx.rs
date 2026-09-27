@@ -285,7 +285,7 @@ impl Grid for XlsxGrid {
         }
         Ok(CellText {
             text: self.text_at(row as usize, column as usize),
-            truncated: false,
+            ..CellText::default()
         })
     }
 
@@ -301,7 +301,7 @@ impl Grid for XlsxGrid {
             .join("\t");
         Ok(CellText {
             text,
-            truncated: false,
+            ..CellText::default()
         })
     }
 
