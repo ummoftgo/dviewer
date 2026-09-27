@@ -194,8 +194,15 @@ jobs:
             libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev
       - run: npm ci
+      # The Rust half of THIRD-PARTY-NOTICES (scripts/notices.mjs). Pinned, and
+      # required below: a build that ships or smokes must carry the notices.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
       - name: Warm release build
         run: npm run tauri build -- --no-bundle ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        env:
+          DVIEWER_NOTICES: required
 
       # Exercise WebKit before a tag, using the release binary built above — and
       # WebView2 without a GPU, which a desk rarely is: the PDF worker race that
@@ -275,6 +282,12 @@ jobs:
 
       - run: npm ci
 
+      # The Rust half of THIRD-PARTY-NOTICES (scripts/notices.mjs). Pinned, and
+      # required below: a build that ships or smokes must carry the notices.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+
       - name: Prepare release or rehearsal signing
         shell: bash
         run: |
@@ -300,6 +313,7 @@ jobs:
         env:
           # appimagetool cannot mount its own image on a runner without FUSE.
           APPIMAGE_EXTRACT_AND_RUN: 1
+          DVIEWER_NOTICES: required
           TAURI_SIGNING_PRIVATE_KEY: ${{ env.SIGNED_BUNDLE == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.SIGNED_BUNDLE == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
 

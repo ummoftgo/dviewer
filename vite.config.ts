@@ -1,11 +1,33 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { bundledPackages } from "./src/lib/notices";
 
 const host = process.env.TAURI_DEV_HOST;
 
+/**
+ * Records which npm packages the build actually bundled — devDependencies
+ * included when imported, nothing that was only installed. scripts/notices.mjs
+ * turns the list into the JavaScript half of THIRD-PARTY-NOTICES. Workers are
+ * separate bundles, so their modules are added to the same set.
+ */
+const bundled = new Set<string>();
+function noticesModules(): Plugin {
+  return {
+    name: "dviewer-notices",
+    apply: "build",
+    generateBundle() {
+      for (const id of this.getModuleIds()) bundled.add(id);
+      mkdirSync("node_modules/.cache/dviewer-notices", { recursive: true });
+      writeFileSync("node_modules/.cache/dviewer-notices/npm.json", JSON.stringify(bundledPackages(bundled), null, 1));
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte(), noticesModules()],
+  worker: { plugins: () => [noticesModules()] },
 
   // Vite options tailored for Tauri development, applied in `tauri dev` / `tauri build`.
   // 1. prevent Vite from obscuring rust errors

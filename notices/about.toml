@@ -1,0 +1,37 @@
+# cargo-about: the Rust half of THIRD-PARTY-NOTICES (scripts/notices.mjs runs it).
+#
+# `accepted` is a policy, not a description: a new dependency under a licence
+# that is not listed here fails the build, and the list grows only on purpose.
+# The set is what `cargo tree` found across the three shipped targets
+# (.agent-works/20260927-report-notices.md), MPL-2.0 included — file-level
+# copyleft, satisfied here by the notice and the crates.io source.
+accepted = [
+    "MIT",
+    "MIT-0",
+    "MITNFA",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "MPL-2.0",
+    "CC0-1.0",
+    "Unlicense",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+]
+
+# What is shipped: the Windows, Linux and both macOS builds (universal).
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+
+# Only what ends up in the binary.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
