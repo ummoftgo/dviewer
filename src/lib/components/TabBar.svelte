@@ -141,11 +141,12 @@
           {:else}
             <span class="kind" data-kind={tab.kind}>{kindBadge(tab.meta.badgeKind ?? tab.kind)}</span>
           {/if}
-          <!-- Two spans so the browser cuts the middle: the head is allowed to
-               shrink and ellipsise, the tail never is. -->
+          <!-- Two spans so the browser cuts the middle: the head gives way
+               first, the tail only when nothing else is left. The tail cuts
+               from its left, so what survives is still the extension. -->
           <span class="title">
             <span class="head">{name.head}</span>
-            {#if name.tail}<span class="tail">{name.tail}</span>{/if}
+            {#if name.tail}<span class="tail"><span dir="ltr">{name.tail}</span></span>{/if}
           </span>
           {#if hint}
             <span class="hint">{hint}</span>
@@ -260,11 +261,17 @@
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    max-width: 14rem;
-    /* Below this a tab is a badge and a close button, which names nothing.
-       Holding the floor is what makes the strip overflow — and overflowing is
-       what makes it scroll, which it never did while tabs kept shrinking. */
-    min-width: 7.5rem;
+    /* In `em`, the tab's own text size, so the room grows with the interface
+       font setting and not only with the scale — the name is set in that font.
+
+       The floor holds a tail at its widest in everyday use — four Korean
+       characters, each about 1em, before `.parquet` (about 4.2em) — with room
+       for the `…`, the badge, the close button, gaps and padding: about 15em.
+       Below that a tab stops naming what it holds. Holding the floor is what
+       makes the strip overflow — and overflowing is what makes it scroll,
+       which it never did while tabs kept shrinking. */
+    max-width: 24em;
+    min-width: 15em;
     padding: 0 0.4rem 0 0.6rem;
     border-right: 1px solid var(--border);
     color: var(--text-secondary);
@@ -326,21 +333,36 @@
     color: var(--json-bool);
   }
 
+  /* Clipped: whatever the name cannot fit is cut here, never painted over the
+     hint or the close button. */
   .title {
     display: flex;
     min-width: 0;
+    overflow: hidden;
     white-space: nowrap;
   }
 
-  /* The only part that gives way, and the `…` lands where it is cut. */
+  /* The first part to give way, and the `…` lands where it is cut. A shrink
+     factor this large leaves the tail almost whole until the head is gone. */
   .head {
+    flex-shrink: 1000;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
+  /* The last to give way, once the head is gone. Its factor stays at 1 on
+     purpose: flex hands out only that fraction of the overflow when the
+     factors left sum to less than one, so a small factor here would leave the
+     tail overflowing. Right to left so the cut and its `…` land at the front,
+     and the extension stays; the inner `dir="ltr"` keeps the name itself
+     reading left to right. */
   .tail {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
   }
 
   /* The folder (or host, or archive) that tells this tab from its namesake.

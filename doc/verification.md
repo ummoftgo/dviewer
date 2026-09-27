@@ -24,6 +24,26 @@ macOS·Linux 의 PDF 는 `stage worker-imported` 뒤 멈춰 Windows 전용으로
 
 rebase 뒤 스모크는 화면 확인용 dviewer 가 `fixtures/sample.sqlite` 를 열고 있어 생성기가 그 파일을 지우지 못했다. 그래서 `.agent-works/pdf-webkit/altroot` 를 작업 디렉터리로 픽스처를 만들고, `DVIEWER_EXE` 로 같은 debug 바이너리를 가리켜 돌렸다.
 
+## 탭 폭 — 한글 이름이 닫기 버튼 위로
+
+생성기에 한글 이름·한글 끝부분·긴 확장자 조합 파일 넷을 더했다(`서비스 본부 개편 운영안 초안.md`, `월간 보고서 최종본.jsonc`, `고객 명단 정리 작업본 전체.csv`, golden 사본인 `분기별 매출 집계 원본 데이터.parquet`). 스모크는 이것들을 거의 끝에 연다. 그때는 앞선 픽스처가 모두 탭으로 열려 있어 스트립이 가득 차고, 모든 탭이 최소 폭이다. `tabWidths` 단계는 먼저 스트립이 넘치는지 확인한다. 넘치지 않으면 최소 폭 상태가 아니므로 실패로 친다. 그다음 탭마다 `.kind`·`.title`·`.head`·`.tail`·`.hint` 의 상자가 탭 왼쪽 끝과 닫기 버튼 왼쪽 끝 사이에 있는지 단언한다. 비교하는 요소는 모두 자기 내용을 자르는 요소라, 상자 끝이 곧 그림 끝이다. 창 폭에도 글꼴에도 기대지 않는 기하다.
+
+| 항목 | 결과 |
+|---|---|
+| Windows debug 스모크 | 픽스처 61개(+4)와 왕복 2 통과, `tabWidths` 24ms. 같은 코드로 두 번 더 돌려 둘 다 통과 |
+| `DVIEWER_FIXTURES=required cargo test` | 560개(Rust 변경 없음) |
+| vitest · check | 419개 · 오류/경고 0, 4×499키 |
+
+깨뜨려 확인(프런트 재빌드와 스모크):
+
+| 변형 | 결과 |
+|---|---|
+| B1: `TabBar.svelte` 를 main 의 것으로 | `tabWidths` 실패 — `서비스 본부 개편 운영안 초안.md` 의 tail 이 닫기 버튼을 넘었다 |
+| B3: 새 구조에 옛 폭(7.5rem·14rem)만 되돌림, tail 비율 0.001 이던 첫 구현 | 같은 실패. 비율 합이 1 미만이면 flex 가 넘친 양에 그 합을 곱한 만큼만 나눠 준다(architecture 참고) |
+| B3: 새 구조(head 1000·tail 1)에 옛 폭만 되돌림 | 통과. 폭과 관계없이 구조만으로 넘침이 막힌다 |
+
+정상 실행 한 번에서 `long-markdown.md` 의 `markdownBenchmark` 가 "TOC moved while keyboard focus was inside" 로 한 번 실패했다. 이 검사는 탭 스트립과 관계없는 목차 포커스 타이밍 검사다. 같은 코드로 다시 빌드해 두 번 더 돌렸을 때는 둘 다 통과했다.
+
 ## M48 — 셀 상세 패널
 
 새 픽스처 `cell-detail.csv` 는 격자 미리보기(1,000자)보다 긴 5,000자 값을 담는다. 여기에 빈칸 셋(빈 필드·따옴표만 있는 빈 필드·짧은 행), JSON 객체, 여러 줄 값, 공백 없는 긴 URL 을 더했다. 스모크의 `cellDetail` 단계는 다음 순서로 확인한다.

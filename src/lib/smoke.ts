@@ -19,6 +19,7 @@ import { checkHtmlFrame } from "./components/frame/smoke";
 import {checkPdfFrame} from './components/frame/pdfSmoke';
 import { frameDiagnostic } from './frame/diagnostics';
 import { checkCellDetail, checkTextReading, checkTextRawVirtual } from "./components/table/smoke";
+import { checkTabWidths } from "./tabsSmoke";
 import { checkCollectionWidths } from "./components/collection/smoke";
 import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
@@ -126,6 +127,7 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
     await checkTextRawVirtual(tab);
     return { ok: true, stage: what };
   }
+  if (what === 'tabWidths') return { ok: true, stage: what, metrics: await checkTabWidths() };
   if (what === 'cellDetail') return { ok: true, stage: what, metrics: await checkCellDetail(tab) };
   if (what === "textReading") {
     await checkTextReading(tab);

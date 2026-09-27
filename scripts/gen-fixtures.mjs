@@ -605,6 +605,21 @@ await writeFile(path.join(OUT, 'cell-detail.csv'), [
 ].join('\n'));
 console.log('  cell-detail.csv');
 
+// Tab names that are wide at the end: Korean characters are about twice a Latin
+// letter's width, and the tab keeps a name's last four characters and its
+// extension whole. Opened near the end of the smoke run, when every tab is at
+// its narrowest, where a tail too wide for its tab used to paint over the close
+// button. The Parquet one is the golden sample under another name.
+const WIDE_TAB_NAMES = {
+  '서비스 본부 개편 운영안 초안.md': '# 서비스 본부 개편 운영안\n\n초안입니다.\n',
+  '월간 보고서 최종본.jsonc': '{\n  // 월간 보고서\n  "월": 9,\n}\n',
+  '고객 명단 정리 작업본 전체.csv': '번호,이름\n1,김하늘\n',
+};
+for (const [name, body] of Object.entries(WIDE_TAB_NAMES)) {
+  await writeFile(path.join(OUT, name), body);
+  console.log(`  ${name}`);
+}
+
 // Encodings a spreadsheet actually produces. Written as bytes rather than
 // strings because the point is what lands on disk, not what Node holds.
 await writeFile(
@@ -1431,6 +1446,14 @@ const SMOKE = [
   { file: "zip64.zip", expect: "archive" },
   { file: "single.zip", expect: "tree" },
   { file: "single-locked.zip", expect: "archive" },
+  // Late on purpose: by now every earlier fixture is an open tab, so the
+  // strip is full and the tabs are at their narrowest. The last one checks
+  // that no tab draws its name past its close button.
+  { file: '서비스 본부 개편 운영안 초안.md', expect: 'prose' },
+  { file: '월간 보고서 최종본.jsonc', expect: 'tree' },
+  { file: '고객 명단 정리 작업본 전체.csv', expect: 'table' },
+  { file: '분기별 매출 집계 원본 데이터.parquet', expect: 'collection', then: 'tabWidths' },
+
   // Keep the isolated HTML frame last while investigating macOS slowdown.
   { file: "report.html", expect: "frame", then: "htmlFrame" },
   { file: 'report.pdf', expect: 'frame', then: 'pdfFrame' },
@@ -1457,6 +1480,8 @@ for (const name of ["sample.parquet", "columnar.zip"]) {
   await copyFile(path.join(import.meta.dirname, "golden", name), path.join(OUT, name));
   console.log(`  ${name}  (golden)`);
 }
+await copyFile(path.join(import.meta.dirname, "golden", "sample.parquet"), path.join(OUT, "분기별 매출 집계 원본 데이터.parquet"));
+console.log("  분기별 매출 집계 원본 데이터.parquet  (golden)");
 
 const present = new Set(await (await import("node:fs/promises")).readdir(OUT));
 const missing = SMOKE.filter((step) => !present.has(step.file));
