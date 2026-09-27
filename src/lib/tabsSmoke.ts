@@ -49,27 +49,34 @@ async function waitFor(condition: () => boolean, message: string) {
 }
 
 /**
- * The strip's `‹` and `›`: each shows only on a side with tabs past the edge,
- * and pressing one moves the strip that way. Run with the strip full; where it
- * was scrolled is put back afterwards. Only attributes, scroll positions and
- * clicks — the arrows appear once the strip's own scroll event has been
- * measured, which is what is waited for.
+ * The strip's `‹` and `›`: beside the strip rather than over its tabs, both
+ * standing while it overflows, the one at an end disabled. Pressing one moves
+ * the strip that way. Run with the strip full; where it was scrolled is put
+ * back afterwards. Only attributes, boxes, scroll positions and clicks — the
+ * states change once the strip's own scroll event has been measured, which is
+ * what is waited for.
  */
 export async function checkTabArrows(): Promise<{ moved: number }> {
   const strip = document.querySelector<HTMLElement>('.tabbar .strip');
   if (!strip) throw new Error('no tab strip');
   if (strip.scrollWidth <= strip.clientWidth + 1) throw new Error('tab strip is not full, so there is nothing to scroll');
   const arrow = (side: 'before' | 'after') => document.querySelector<HTMLButtonElement>(`[data-action="tab-scroll-${side}"]`);
+  const before = arrow('before'), after = arrow('after');
+  if (!before || !after) throw new Error('a full strip should show both arrows');
+  const box = strip.getBoundingClientRect();
+  if (before.getBoundingClientRect().right > box.left + 0.5 || after.getBoundingClientRect().left < box.right - 0.5) {
+    throw new Error('the arrows are drawn over the tabs rather than beside the strip');
+  }
   const saved = strip.scrollLeft;
   try {
     strip.scrollLeft = 0;
-    await waitFor(() => !arrow('before') && !!arrow('after'), 'at the start, only the › arrow should show');
-    arrow('after')!.click();
-    await waitFor(() => strip.scrollLeft > 0 && !!arrow('before'), '› did not scroll the strip or bring up ‹');
+    await waitFor(() => before.disabled && !after.disabled, 'at the start, ‹ should be disabled and › live');
+    after.click();
+    await waitFor(() => strip.scrollLeft > 0 && !before.disabled, '› did not scroll the strip or wake ‹');
     const moved = strip.scrollLeft;
     strip.scrollLeft = strip.scrollWidth;
-    await waitFor(() => !arrow('after') && !!arrow('before'), 'at the end, only the ‹ arrow should show');
-    arrow('before')!.click();
+    await waitFor(() => after.disabled && !before.disabled, 'at the end, › should be disabled and ‹ live');
+    before.click();
     await waitFor(() => strip.scrollLeft < strip.scrollWidth - strip.clientWidth - 1, '‹ did not scroll the strip back');
     return { moved: Math.round(moved) };
   } finally {

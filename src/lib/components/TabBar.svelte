@@ -127,6 +127,22 @@
 </script>
 
 <div class="tabbar">
+  <!-- Beside the strip, not over it: drawn on top of the tabs they were hard to
+       tell from them. Both stand for as long as the strip overflows, and the
+       side already at its end is disabled rather than removed, so the tabs do
+       not shift sideways the moment the reader reaches an end. -->
+  {#if overflowing}
+    <button
+      class="icon-btn edge before"
+      data-action="tab-scroll-before"
+      disabled={!hiddenBefore}
+      title={t("tab.scrollBefore")}
+      aria-label={t("tab.scrollBefore")}
+      onclick={() => page(-1)}
+    >
+      <Icon name="chevron-left" size={14} />
+    </button>
+  {/if}
   <div class="wrap" class:before={hiddenBefore} class:after={hiddenAfter}>
     <div class="strip" bind:this={strip} role="tablist" onwheel={onWheel} onscroll={measure}>
       {#each tabs as tab (tab.key)}
@@ -172,33 +188,19 @@
         </div>
       {/each}
     </div>
-    <!-- Only on a side that has tabs past the edge, and drawn over the fade
-         rather than beside the strip, so a full strip loses no width to them.
-         The fade stays: it shows a tab cut off, the arrow says there is more
-         and takes you there. -->
-    {#if hiddenBefore}
-      <button
-        class="edge before"
-        data-action="tab-scroll-before"
-        title={t("tab.scrollBefore")}
-        aria-label={t("tab.scrollBefore")}
-        onclick={() => page(-1)}
-      >
-        <Icon name="chevron-left" size={14} />
-      </button>
-    {/if}
-    {#if hiddenAfter}
-      <button
-        class="edge after"
-        data-action="tab-scroll-after"
-        title={t("tab.scrollAfter")}
-        aria-label={t("tab.scrollAfter")}
-        onclick={() => page(1)}
-      >
-        <Icon name="chevron-right" size={14} />
-      </button>
-    {/if}
   </div>
+  {#if overflowing}
+    <button
+      class="icon-btn edge after"
+      data-action="tab-scroll-after"
+      disabled={!hiddenAfter}
+      title={t("tab.scrollAfter")}
+      aria-label={t("tab.scrollAfter")}
+      onclick={() => page(1)}
+    >
+      <Icon name="chevron-right" size={14} />
+    </button>
+  {/if}
 
   <!-- Only when scrolling is the alternative. On a strip that fits, every tab
        is already on screen and a list of them would say nothing twice. -->
@@ -446,33 +448,20 @@
     color: var(--text);
   }
 
+  /* A rule between the button and the strip, so the arrow reads as a control
+     of the strip rather than as the first or last tab. */
   .edge {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--tab-fade);
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-  }
-
-  .edge:hover {
-    background: var(--bg-hover);
-    color: var(--text);
+    align-self: stretch;
+    height: auto;
+    border-radius: 0;
   }
 
   .edge.before {
-    left: 0;
+    border-right-color: var(--border);
   }
 
   .edge.after {
-    right: 0;
+    border-left-color: var(--border);
   }
 
   .list,
