@@ -64,6 +64,11 @@ function installMissing(scope) {
 }
 // A six-page outline-glyph document took 140ms here; 200 left too little for a slower PC.
 const IMAGE_PROBE_MS = 500;
+// The image probe runs only in Chromium (WebView2). On WebKit it failed on CI two rounds
+// running: pictures missing from the probe's canvas once in two, and without the worker's
+// ImageBitmaps no verdict at all. There only the text-based check runs, and the verdict
+// says why the image one did not.
+const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAgent ?? '');
 (() => {
   const load = location.search;
   const send = value => parent.postMessage({...value, load}, '*');
@@ -210,6 +215,7 @@ const IMAGE_PROBE_MS = 500;
         start:round(profile.start ?? null),end:round(profile.end ?? null),direction:profile.direction ?? null,reason});
     };
     const votes = [];
+    if (!imageProbeEngine(navigator.userAgent)) { report('skipped-engine'); return 0; }
     try {
       canvas = document.createElement('canvas');
       const context = canvas.getContext('2d',{alpha:false,willReadFrequently:true});

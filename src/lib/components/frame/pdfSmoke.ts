@@ -5,8 +5,12 @@ import {waitSearch} from '../markdown/searchSmoke';
 const require = (ok: unknown, why: string) => { if (!ok) throw new Error(why); };
 export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | 'image' | 'image-ccw' | 'upright' = false) {
   // 'image' lines begin at the top (turned clockwise, or no edge to vote), 'image-ccw' at the bottom.
-  const corrected = orientation === 'image' || orientation === 'image-ccw', image = corrected || orientation === 'upright';
-  const expectedRotation = orientation === 'image' ? 270 : orientation === 'image-ccw' || orientation === 'text' ? 90 : 0;
+  const image = orientation === 'image' || orientation === 'image-ccw' || orientation === 'upright';
+  // WebKit runs only the text-based check (pdf-agent's imageProbeEngine): an image fixture
+  // stays as it is and its verdict says why.
+  const skipped = image && !/\b(?:Chrome|Chromium|Edg)\//.test(navigator.userAgent);
+  const corrected = (orientation === 'image' || orientation === 'image-ccw') && !skipped;
+  const expectedRotation = skipped ? 0 : orientation === 'image' ? 270 : orientation === 'image-ccw' || orientation === 'text' ? 90 : 0;
   let detectedRotation:number|undefined, reversedRotation:number|undefined;
   await waitSearch(() => tab.frameReady && tab.framePages === 2 && tab.frameProbe !== null,'PDF pages or probe missing',15000);
   require(tab.frameProbe === 'absent' || tab.frameProbe?.startsWith('rejected:'),'PDF isolation probe failed');
@@ -20,7 +24,8 @@ export async function checkPdfFrame(tab: DocTab, orientation: false | 'text' | '
       `PDF orientation mismatch: expected ${expectedRotation}, got ${tab.frameRotation}, auto ${tab.frameAutoRotation}; ${verdict}`);
     if (!expectedRotation) require(tab.frameRotation === undefined && tab.savedPosition?.kind === 'pdf' && tab.savedPosition.rotation === undefined,
       'PDF default rotation was saved as a choice');
-    if (image) require(tab.frameOrientation?.reason === (corrected ? 'sideways' : 'upright'),`PDF image probe did not see the fixture's lines; ${verdict}`);
+    if (image) require(tab.frameOrientation?.reason === (skipped ? 'skipped-engine' : corrected ? 'sideways' : 'upright'),
+      skipped ? `PDF image probe was not skipped on this engine; ${verdict}` : `PDF image probe did not see the fixture's lines; ${verdict}`);
     await tick();
     if (expectedRotation) require(document.querySelector(`[data-auto-rotation="${expectedRotation}"]`),'PDF automatic rotation status missing');
     else require(!document.querySelector('[data-auto-rotation]'),'Upright image was automatically rotated');

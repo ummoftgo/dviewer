@@ -865,3 +865,9 @@ PDF.js의 initializedPromise는 initialize 성공 때만 resolve되고 실패 �
 PDF는 세 OS 모두에서 연다. 한때 Windows로 제한했지만, WebKit의 정지는 위의 워커 경쟁이었고 남은 실패는 아래의 엔진 기능 부족이었다. 제한과 그것에만 쓰이던 `Error::Unsupported`, 파일 선택기의 조건, 생성기의 win32 조건은 모두 걷었다.
 
 **없는 엔진 기능은 없을 때만 채운다.** PDF.js 6은 최신 기능 몇 가지를 확인 없이 쓴다. 그중 `getTextContent`가 ReadableStream을 `for await`로 도는 것이 WebKit에서 치명적이었다. 반복자가 없어 텍스트 추출이 매번 던졌고, 에이전트가 그 실패를 삼켜 글자 유무·텍스트 방향 판정·이미지 판정이 모두 비었다. 그래서 에이전트의 `installMissing`이 ReadableStream의 `values`·`[Symbol.asyncIterator]`, `Math.sumPrecise`(PDF.js는 정수 크기 합에만 쓴다), `RegExp.escape`(찾기)를 페이지와 워커 부트스트랩에서 없을 때만 채운다. PDF.js legacy 빌드는 core-js로 같은 일을 더 넓게 하지만 크기와 속도를 치르므로 필요한 것만 채운다. 채우지 않는 `Promise.try`(메시지 처리기)·`Uint8Array.fromBase64`(서명)는 엔진에 있어야 하며 이것이 macOS의 요구 판을 정한다. 채운 것은 `filled-*` 단계로, 삼킨 텍스트 실패는 `text-failed` 단계로 부모에 알려 스모크 실패 줄의 단계 순서에 나타난다. 이 경로는 세 OS 스모크(PDF 7개)가 확인한다.
+
+**이미지 방향 판정은 Chromium(WebView2)에서만 한다.** WebKit 에서는 텍스트 판정만 하고, 이미지 판정은 `skipped-engine` 사유로 판정 진단을 남긴 채 교정 없이 끝난다(`imageProbeEngine`). 스모크의 이미지 분기 다섯도 WebKit 에서는 이 사유와 교정 없음을 단언한다. 두 라운드의 CI 전용 실패 뒤 릴리스 관문 규칙에 따라 정했다.
+1. warm(Linux) main 53830f3 에서 sideways-vector-ccw 2쪽이 한 번은 270, 재실행은 90 이었다. 실패 쪽 잉크는 0.1006 으로 정상(로컬 Windows 0.1477)보다 32% 적었고, 끝 행 편차가 1 에서 102.5 로 벌어졌다. 아래 절반의 이미지 둘이 빠진 채 캔버스를 읽은 모양이다.
+2. 이미지 경로에서 비결정적인 곳은 PDF.js 워커의 `OffscreenCanvas`→`transferToImageBitmap`→메인 `drawImage` 뿐이라, WebKit 에서 `isOffscreenCanvasSupported:false` 와 20ms 뒤 다시 읽기를 넣었다(가지 cffcc96). 그러자 벡터 픽스처 둘이 두 차례 모두 `orientation response missing` 으로 실패했다. 다시 읽기의 차이 관측(`probe-unsettled`)은 없었다. 원시 픽셀 `putImageData` 가 느려 500ms 예산을 넘긴 것으로 추정하지만 판정 수치가 실패 줄에 실리지 않아 확인하지 못했다.
+
+워커 ImageBitmap 가설은 확인되지 않은 채 남는다. 후속 후보는 셋이다. WebKit 에서 판정 예산을 늘리거나 해상도를 줄이는 것, 판정만 별도 PDF.js 인스턴스·메인 스레드 복호로 하는 것, WebKit 의 ImageBitmap 동작을 따로 재현하는 것.

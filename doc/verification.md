@@ -4,6 +4,17 @@
 
 ## PDF WebKit 재활성 — 2026-09-27
 
+### 추가: WebKit 의 이미지 방향 판정을 끈 경위
+
+| 실행 | 결과 |
+|---|---|
+| warm(Linux) main 53830f3 | 61 중 1 실패(sideways-vector-ccw 2쪽 270, ink 0.1006·start 5·end 102.5). 재실행은 통과. 같은 픽스처의 로컬 Windows 정상값은 ink 0.1477·start 5·end 1·direction 90 |
+| 가지 cffcc96(WebKit: 워커 ImageBitmap 끄기 + 20ms 뒤 다시 읽기), run 36326480390 attempt 1·2 | 두 번 모두 macOS·Linux 61 중 2 실패(sideways-vector·sideways-vector-ccw `orientation response missing`, `probe-unsettled` 없음). Windows 는 초록 |
+| 결정 | cffcc96 을 버리고, WebKit 에서는 이미지 판정을 건너뛰어 `skipped-engine` 을 남긴다. 스모크 이미지 분기 다섯은 WebKit 에서 교정 없음과 이 사유를 단언한다 |
+
+vitest 421개(WebKit 건너뜀·텍스트 판정 유지·엔진 판별 1개 추가). 깨뜨려: WebKit 에서도 판정하게 하면 새 시험 1개 실패, Chromium 에서 건너뛰게 하면 이미지 판정 시험 7개 실패.
+
+
 macOS·Linux 의 PDF 는 `stage worker-imported` 뒤 멈춰 Windows 전용으로 뒀다(아래 2026-09-17 절). 같은 서명의 Windows CI 정지가 워커 메시지 경쟁으로 밝혀진 뒤(아래 "PDF 워커 경쟁" 절), 제한을 걷고 세 OS 가지 리허설로 두 라운드를 확인했다.
 
 | 라운드 | 커밋 | 결과 |

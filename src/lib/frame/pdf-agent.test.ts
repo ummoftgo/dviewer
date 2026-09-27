@@ -6,7 +6,9 @@ import {parseFrameMessage,type FrameStall} from './messages';
 type TextPage = {rotate:number; items:unknown[]; styles?:Record<string,{vertical:boolean}>;
   pixels?:'vertical'|'horizontal'|'blank'|'top'|'bottom'|'left'|'cover'; shade?:number; render?:'fail'|'pending'; elapsed?:number};
 const textItems = (a:number,b:number,n=20) => Array.from({length:n},() => ({str:'word',transform:[a,b,-b,a,0,0],fontName:'F1'}));
-function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}]) {
+// WebView2's: the image probe runs only in Chromium.
+const CHROMIUM_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0';
+function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}], userAgent = CHROMIUM_UA) {
   const listeners = new Map<string,(event: unknown) => void>();
   const bus = new Map<string,(event?:{pagesRotation:number}) => void>();
   const messages: {type:string;n?:number;deg?:number;auto?:boolean;image?:boolean;name?:string;code?:string;detail?:string;load?:string;snapshot?:FrameStall}[] = [];
@@ -91,10 +93,10 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   };
   class Worker {addEventListener(name:string,listener:(event:unknown) => void) {workerListeners.set(name,listener);} terminate() {}}
   class WorkerUrl extends URL {static createObjectURL(blob:Blob) {workerBlob=blob; return 'blob:null/test';} static revokeObjectURL() {}}
-  const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges,installMissing});',{
+  const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges,installMissing,imageProbeEngine});',{
     parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}}},
     document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},createElement:() => canvas,addEventListener(_name:string,listener:() => void) {initialize=listener;}},
-    navigator:{language:'en-GB',locale:'C'},
+    navigator:{language:'en-GB',locale:'C',userAgent},
     // Only the rendered pages move this clock: real time spent drawing on a slow
     // runner would otherwise push a 450ms page past the 500ms budget.
     performance:{now:() => elapsed,getEntriesByType(type:string) {return type === 'navigation' ? [{responseStatus:200}] : resourceEntries;}},
@@ -105,6 +107,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   return {
     attempts,messages,errored,resourceEntries,rotationAttempts,order,textPages,renders,canvas,
     orientationFromProfiles:pure.orientationFromProfiles as (rows:number[],cols:number[]) => number|null,
+    imageProbeEngine:pure.imageProbeEngine as (userAgent?:string) => boolean,
     installMissing:pure.installMissing as (scope:object) => string[],
     directionFromEdges:pure.directionFromEdges as (first:number[],last:number[]) => {start:number|null;end:number|null;direction:number|null},
     failText() {textFailure=true;},
@@ -291,6 +294,30 @@ test('reversing an image correction retains its pill provenance until undo, whil
     await restored.initialize(); await restored.ready(); restored.goto(2,undefined,rotation); restored.loaded();
     expect(restored.messages.find(m=>m.type==='rotated')).toEqual({type:'rotated',deg:rotation,auto:false,load:'?g=0'}); restored.close();
   }
+});
+
+// CI on macOS and Linux, two rounds: the image probe read pictures missing from its canvas
+// once in two, and without the worker's ImageBitmaps gave no verdict. WebKit keeps text only.
+test('WebKit skips the image probe and says so; its text-based correction still runs',async () => {
+  const webkit='Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15';
+  const image=viewer(undefined,false,[{rotate:0,items:[],pixels:'vertical'}],webkit); image.numPages(1);
+  await image.initialize(); await image.ready(); image.goto(1); image.loaded();
+  expect(image.renders).toHaveLength(0);
+  const verdicts=image.messages.filter(m=>m.type==='orientation') as unknown as Record<string,unknown>[];
+  expect(verdicts.map(m=>m.reason)).toEqual(['skipped-engine']);
+  const {load:_,...verdict}=verdicts[0];
+  expect(parseFrameMessage(verdict)).toEqual(verdict);
+  expect(image.messages.find(m=>m.type==='rotated')).toMatchObject({deg:0,auto:false});
+  image.close();
+  const text=viewer(undefined,false,[{rotate:0,items:textItems(0,1)}],webkit);
+  await text.initialize(); await text.ready(); text.goto(1); text.loaded();
+  expect(text.messages.find(m=>m.type==='rotated')).toMatchObject({deg:90,auto:true});
+  expect(text.messages.some(m=>m.type==='orientation')).toBe(false);
+  text.close();
+  const {imageProbeEngine}=viewer();
+  expect(imageProbeEngine(CHROMIUM_UA)).toBe(true);
+  for (const ua of [webkit,'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',undefined])
+    expect(imageProbeEngine(ua),String(ua)).toBe(false);
 });
 
 test('failed or synchronously slow image probes do not rotate or continue sampling',async () => {

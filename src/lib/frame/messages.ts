@@ -16,7 +16,7 @@ export interface FrameStallSnapshot {
   resources: {name: string | null; responseStatus: number | null; duration: number | null; transferSize: number | null}[];
 }
 export type FrameStall = FrameStallSnapshot | {raw: string};
-export const ORIENTATION_REASONS = ['timeout','sparse','ambiguous','upright','sideways','disagree','error'] as const;
+export const ORIENTATION_REASONS = ['timeout','sparse','ambiguous','upright','sideways','disagree','error','skipped-engine'] as const;
 /** One page's verdict from the image orientation probe, kept for diagnostics. */
 export interface FrameOrientation {
   page: number; ms: number; ink: number | null; rowEnergy: number | null; colEnergy: number | null;
