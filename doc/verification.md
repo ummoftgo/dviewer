@@ -6,6 +6,8 @@
 
 warm(Linux) main 92129f1 에서 스윕의 첫 PDF(report.pdf)가 60초 timeout 이었다. 서명은 `load no`, stages `start>filled-stream-iterator`, 요청 기록 19건에 `viewer.mjs`·locale 이 없었다(pdf.mjs·viewer.css·툴바 svg 14개는 200). 지금까지 WebKit PDF 스모크 약 9번 가운데 처음이다. 기록이 "응답을 만들었다"만 뜻해서, `viewer.mjs` 가 서버에 오지 않은 것인지 쓰다 멈춘 것인지 가를 수 없었다. 그래서 두 관측을 더했다: 요청 기록의 `sent`(진단의 `pending`·`aborted`), 에이전트 시작 8초 뒤의 조기 정체 스냅샷(readyState·완료된 자원 목록). vitest 430개, `DVIEWER_FIXTURES=required cargo test` 560개, Windows debug 스모크 61개와 왕복 2 통과. 깨뜨려: `mark_sent` 를 비우면 Rust 시험 1개, 조기 타이머를 빼면 vitest 1개 실패.
 
+가설 순위: (1) WebKitGTK 가 `viewer.mjs` 모듈 요청을 보내지 않았거나 자기 네트워크 층에서 멈춤, (2) tiny_http 가 받은 요청을 `recv` 로 넘기지 못함, (3) 서버가 응답을 쓰다 멈춤. 기록된 svg 14개가 처리됐으니 서버 스레드는 막히지 않았고 `viewer.mjs` 는 `serve` 에 닿지 않았다. 결정(계획 세션): 이 관측을 넣고 v0.24.0 을 macOS·Linux PDF 와 함께 낸다. README 알려진 한계에 드문 표시 실패와 다시 열기 안내를 적되, 다시 열기로 풀리는지는 확인하지 않았다. 같은 서명이 다시 나면 관측으로 한 번 좁히고, 그래도 못 잡으면 두 바퀴 규칙대로 되돌린다.
+
 ## 라이선스와 제3자 고지 — 2026-09-28
 
 | 항목 | 결과 |
