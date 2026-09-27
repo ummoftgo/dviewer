@@ -3,7 +3,6 @@ import type { Messages } from "./ko";
 export const ja: Messages = {
   "error.pdfEncrypted": "パスワード付きPDFはまだサポートされていません。",
   "error.pdfFailed": "PDFを読み込めませんでした。",
-  "error.unsupported": "この版のPDF対応はWindowsのみです。macOS・Linuxは今後の版で対応予定です。",
   "frame.pages": "{n}/{total} ページ",
   "frame.autoRotation": "向きを自動補正しました（{deg}°）",
   "frame.undoRotation": "元に戻す",

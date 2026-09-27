@@ -3,7 +3,6 @@ import type { Messages } from "./ko";
 export const zhHans: Messages = {
   "error.pdfEncrypted": "暂不支持密码保护的 PDF。",
   "error.pdfFailed": "无法读取 PDF。",
-  "error.unsupported": "此版本仅在 Windows 上支持 PDF。macOS 和 Linux 将在后续版本中支持。",
   "frame.pages": "第 {n}/{total} 页",
   "frame.autoRotation": "已自动校正方向（{deg}°）",
   "frame.undoRotation": "撤销",

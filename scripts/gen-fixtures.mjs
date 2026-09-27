@@ -1358,7 +1358,7 @@ addEventListener('message', async event => {
 </script></body></html>\n`);
 
 // --- the smoke manifest ------------------------------------------------------
-if (process.platform === 'win32') await writePdfFixtures(OUT);
+await writePdfFixtures(OUT);
 // What each fixture is *for*, which is knowledge only this file has. The
 // harness opens the list and checks each against `expect`, so a fixture added
 // without a line here is a fixture nothing exercises — and that omission is
@@ -1433,15 +1433,13 @@ const SMOKE = [
   { file: "single-locked.zip", expect: "archive" },
   // Keep the isolated HTML frame last while investigating macOS slowdown.
   { file: "report.html", expect: "frame", then: "htmlFrame" },
-  ...(process.platform === 'win32' ? [
-    { file: 'report.pdf', expect: 'frame', then: 'pdfFrame' },
-    { file: 'sideways.pdf', expect: 'frame', then: 'pdfOrientation' },
-    { file: 'sideways-image.pdf', expect: 'frame', then: 'pdfImageOrientation' },
-    { file: 'upright-image.pdf', expect: 'frame', then: 'pdfImageUpright' },
-    { file: 'sideways-vector.pdf', expect: 'frame', then: 'pdfImageOrientation' },
-    { file: 'sideways-vector-ccw.pdf', expect: 'frame', then: 'pdfImageOrientationCcw' },
-    { file: 'upright-vector.pdf', expect: 'frame', then: 'pdfImageUpright' },
-  ] : []),
+  { file: 'report.pdf', expect: 'frame', then: 'pdfFrame' },
+  { file: 'sideways.pdf', expect: 'frame', then: 'pdfOrientation' },
+  { file: 'sideways-image.pdf', expect: 'frame', then: 'pdfImageOrientation' },
+  { file: 'upright-image.pdf', expect: 'frame', then: 'pdfImageUpright' },
+  { file: 'sideways-vector.pdf', expect: 'frame', then: 'pdfImageOrientation' },
+  { file: 'sideways-vector-ccw.pdf', expect: 'frame', then: 'pdfImageOrientationCcw' },
+  { file: 'upright-vector.pdf', expect: 'frame', then: 'pdfImageUpright' },
 ];
 
 /**
