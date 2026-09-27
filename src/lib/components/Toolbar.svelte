@@ -208,7 +208,7 @@
       title={t('focus.toggle')} aria-label={t('focus.toggle')}>
       <Icon name="focus" />
     </button>
-    <button class="icon-btn" onclick={onOpenSettings} title={t("toolbar.settings")}
+    <button class="icon-btn" data-action="settings" onclick={onOpenSettings} title={t("toolbar.settings")}
       aria-label={t("toolbar.settings")}>
       <Icon name="settings" />
     </button>

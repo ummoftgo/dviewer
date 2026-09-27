@@ -60,8 +60,18 @@
       "signingIdentity": "-"
     },
     "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/doc/dviewer/copyright": "../LICENSE",
+          "/usr/share/doc/dviewer/THIRD-PARTY-NOTICES.md": "../dist/THIRD-PARTY-NOTICES.md"
+        }
+      },
       "rpm": {
-        "compression": { "type": "xz", "level": 3 }
+        "compression": { "type": "xz", "level": 3 },
+        "files": {
+          "/usr/share/doc/dviewer/LICENSE": "../LICENSE",
+          "/usr/share/doc/dviewer/THIRD-PARTY-NOTICES.md": "../dist/THIRD-PARTY-NOTICES.md"
+        }
       }
     }
   }

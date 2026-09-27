@@ -1,6 +1,7 @@
 <script lang="ts">
   import { updates } from "../state/updates.svelte";
   import { errorMessage } from "../ipc";
+  import { openNotices } from "../notices-open";
   import FontPicker from "./FontPicker.svelte";
   import Icon from "./Icon.svelte";
   import { bookmarks } from '../state/bookmarks.svelte';
@@ -120,6 +121,12 @@
           <p class="hint" role="status">{t("update.current")}</p>
         {/if}
       {/if}
+    </section>
+    <section>
+      <h3>{t("about.title")}</h3>
+      <p class="hint">{t("about.license")}</p>
+      <button class="btn" data-action="third-party-licenses"
+        onclick={async () => { if (await openNotices()) onClose(); }}>{t("about.thirdParty")}</button>
     </section>
     <section>
       <h3>{t("settings.language")}</h3>

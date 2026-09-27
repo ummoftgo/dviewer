@@ -746,6 +746,16 @@ Mermaid SVG는 실제 표시 width/height를 고정하고 font-ui 변수를 풀�
 
 머리글은 실제 넘침이 없는 채우기에서 내부 overflow를 풀고 scroller의 top0에 붙입니다. 다른 모드에서는 thead만 복제합니다. 원본 뒤에 추가한 복제를 CSS grid의 같은 영역에 겹쳐 원본을 찾는 DOM 순서와 문서 높이를 유지합니다. 자연 폭·수동 조절·초기화가 모두 지나는 layout 말미의 실제 열 너비로 colgroup을 갱신하고, IO와 프레임 단위 scroll 처리로 표시와 translateX(-scrollLeft)를 맞춥니다. 복제는 aria-hidden/inert/data-dviewer-ui로 검색·복사·포커스에서 제외하고 id와 조절 손잡이를 제거합니다. 표 끝에서 숨기며 관찰자·이벤트·예약 프레임은 후처리 종료 때 회수합니다.
 
+## 라이선스와 제3자 고지
+
+dviewer 는 MIT 다. 함께 배포하는 것의 고지는 빌드할 때마다 만든다(`scripts/notices.mjs`, `npm run build` 의 마지막 단계). 저장소에 커밋해 두면 의존이 바뀔 때마다 어긋나고, 어긋남을 막으려면 결국 CI 가 생성기를 돌려 비교해야 하기 때문이다.
+
+- **무엇을 싣나.** 설치된 것이 아니라 들어간 것만 싣는다. npm 은 Vite 플러그인이 번들(워커 포함)의 모듈 그래프에서 패키지 뿌리를 뽑는다(`src/lib/notices.ts` 의 `bundledPackages`, 가장 안쪽 `node_modules` 가 이긴다). Vite 는 import 된 devDependencies 도 번들하므로 package.json 의 dependencies 는 기준이 못 된다. Rust 는 cargo-about 이 세 대상의 일반 의존만 본다. 패키지 목록이 설명하지 못하는 것(KaTeX 글꼴의 OFL, 크레이트가 컴파일해 넣는 zstd·SQLite, Windows 에 정적 링크되는 WebView2 로더)은 원문에서 옮긴 정적 표(`notices/static.md`)다. PDF.js 는 자기가 싣는 라이선스 파일을 그대로 붙인다.
+- **허용 목록은 정책이다.** `notices/about.toml` 의 `accepted` 밖의 라이선스가 들어오면 생성이 실패한다. 새 라이선스는 누가 일부러 목록에 더할 때만 들어온다.
+- **없으면 실패하는 곳과 아닌 곳.** cargo-about 은 새 도구라 로컬 빌드는 없어도 되게 두고 Rust 절만 "생성되지 않음"으로 남긴다. 배포하거나 스모크하는 CI 빌드(warm·번들)는 `DVIEWER_NOTICES=required` 로 도구가 없거나 실패하면 빌드를 멈춘다. 스모크가 Rust 절(cssparser)을 확인하므로 로컬 스모크에는 도구가 필요하다.
+- **어디서 읽나.** 포터블 exe 는 파일 하나라 곁에 둔 고지 파일로는 덮을 수 없다. 그래서 고지는 `dist/` 에 들어가 실행 파일에 실리고, 설정 → 정보 → 제3자 라이선스가 그것을 가져와 마크다운 읽기 탭으로 연다(`src/lib/notices-open.ts`). 새 화면이 아니라 이미 있는 읽는 방식을 쓴다. 원문은 모두 백틱 넷 이상의 코드 울타리로 감싸 Markdown 이 건드리지 않고, 울타리 길이는 원문 안의 가장 긴 백틱보다 길게 잡는다. deb·rpm 은 `/usr/share/doc/dviewer/` 에도 둔다. 설치기(msi·nsis)는 `bundle.licenseFile` 로 dviewer 자신의 LICENSE 를 보인다.
+- **하지 않은 것.** AppImage 가 싣는 LGPL 시스템 라이브러리의 소스 제공(목록과 Ubuntu 소스 위치를 릴리스 자산으로)은 별도 과제다. 그 저작권 파일은 linuxdeploy 가 경로 불일치로 대부분 빠뜨린다([릴리스](release.md) 알려진 문제).
+
 ## 세션 복원과 시동 요청
 
 main 창만 session 키를 저장하며 준비된 file/url 탭의 순서·mode와 활성 출처를 보존합니다. 아카이브 항목은 로컬 루트 파일로 축약하고 중복을 없애며 기존 파일 열기의 단일 항목 자동 풀림은 유지합니다. 붙여넣기와 treeSlice는 제외합니다. 초기 설정·세션을 읽고 복원을 마칠 때까지 저장하지 않아 빈 화면이나 중간 목록이 이전 기록을 덮어쓰지 않습니다. 복원 실패는 집계 알림으로 표시합니다.

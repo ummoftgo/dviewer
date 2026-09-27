@@ -2,6 +2,21 @@
 
 ← [README](../README.md)
 
+## 라이선스와 제3자 고지 — 2026-09-28
+
+| 항목 | 결과 |
+|---|---|
+| `THIRD-PARTY-NOTICES.md` | 551 KiB. Rust 절은 라이선스 문안 215묶음(MIT 430·ISC 20·Unicode-3.0 20·Apache-2.0 8·BSD-3 7·MPL-2.0 6 외), npm 은 번들 패키지 65개 |
+| 빌드 시간 | 고지 단계 6.6~7.0초(3회, 거의 cargo-about 의 메타데이터 해석). vite build 4.3초 |
+| vitest | 425개(목록 추출·울타리·npm 절·문서 순서 4개 추가) |
+| check | 오류/경고 0, 4×502키(정보 절 키 4개 추가) |
+| `DVIEWER_FIXTURES=required cargo test` | 559개 |
+| Windows debug 스모크 | 픽스처 61개(sample.toml 에 notices 단계, 345ms)와 왕복 2 통과 |
+| 깨뜨려: `about.toml` 허용 목록에서 MIT 제거 | `DVIEWER_NOTICES=required` 는 종료 코드 1("failed to satisfy license requirements"), 없으면 경고와 함께 Rust 절이 "생성되지 않음" |
+| 깨뜨려: 정보 절 버튼이 아무것도 열지 않게 | 스모크 1개 실패("Third-party notices tab did not open", 30초) |
+
+스모크의 notices 단계는 실제 설정 버튼과 제3자 라이선스 버튼을 누르고, 열린 탭의 렌더에 `pdf.js`·`KaTeX`·`cssparser`·`MIT License` 가 모두 있는지 본다. 로컬 cargo-about 은 공식 릴리스 0.9.2 Windows 바이너리를 SHA-256 대조 뒤 썼다. CI 는 `taiki-e/install-action` 으로 같은 판을 설치한다.
+
 ## PDF WebKit 재활성 — 2026-09-27
 
 ### 추가: WebKit 의 이미지 방향 판정을 끈 경위

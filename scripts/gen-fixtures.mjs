@@ -1402,7 +1402,7 @@ const SMOKE = [
   { file: "sample.jsonc", expect: "tree" },
   { file: "deep.json", expect: "tree" },
   { file: "sample.yaml", expect: "tree" },
-  { file: "sample.toml", expect: "tree" },
+  { file: "sample.toml", expect: "tree", then: "notices" },
   { file: "sample.xml", expect: "tree" },
   { file: "sample.csv", expect: "table", then: "toggleHeader" },
   { file: "cell-detail.csv", expect: "table", then: "cellDetail" },

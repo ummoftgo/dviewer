@@ -206,4 +206,4 @@ The technical documentation lives in `doc/` (Korean).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Notices for the third-party components shipped with the app open in a reading tab from Settings → About → Third-party licenses; the deb and rpm packages also place them in `/usr/share/doc/dviewer/`.

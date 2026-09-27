@@ -205,4 +205,4 @@ dviewer --new --open=a.csv             # 탭이 아니라 새 창으로
 
 ## 라이선스
 
-MIT — [LICENSE](LICENSE).
+MIT — [LICENSE](LICENSE). 함께 배포하는 제3자 구성요소의 고지는 앱의 설정 → 정보 → 제3자 라이선스에서 읽기 탭으로 열립니다. deb·rpm 은 `/usr/share/doc/dviewer/` 에도 싣습니다.
