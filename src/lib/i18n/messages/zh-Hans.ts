@@ -155,6 +155,8 @@ export const zhHans: Messages = {
   "tab.newLabel": "新标签页",
   "tab.list": "全部已打开标签页",
   "tab.listLabel": "显示标签页列表",
+  "tab.scrollBefore": "滚动到前面的标签页",
+  "tab.scrollAfter": "滚动到后面的标签页",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.table": "表",

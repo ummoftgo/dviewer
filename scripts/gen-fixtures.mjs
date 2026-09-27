@@ -1447,11 +1447,12 @@ const SMOKE = [
   { file: "single.zip", expect: "tree" },
   { file: "single-locked.zip", expect: "archive" },
   // Late on purpose: by now every earlier fixture is an open tab, so the
-  // strip is full and the tabs are at their narrowest. The last one checks
-  // that no tab draws its name past its close button.
+  // strip is full and the tabs are at their narrowest. The CSV checks the
+  // strip's ‹ › arrows; the last one checks that no tab draws its name past
+  // its close button, and that the button sits at the tab's end.
   { file: '서비스 본부 개편 운영안 초안.md', expect: 'prose' },
   { file: '월간 보고서 최종본.jsonc', expect: 'tree' },
-  { file: '고객 명단 정리 작업본 전체.csv', expect: 'table' },
+  { file: '고객 명단 정리 작업본 전체.csv', expect: 'table', then: 'tabArrows' },
   { file: '분기별 매출 집계 원본 데이터.parquet', expect: 'collection', then: 'tabWidths' },
 
   // Keep the isolated HTML frame last while investigating macOS slowdown.

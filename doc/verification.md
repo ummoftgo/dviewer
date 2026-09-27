@@ -35,6 +35,30 @@ macOS·Linux 의 PDF 는 `stage worker-imported` 뒤 멈춰 Windows 전용으로
 
 rebase 뒤 스모크는 화면 확인용 dviewer 가 `fixtures/sample.sqlite` 를 열고 있어 생성기가 그 파일을 지우지 못했다. 그래서 `.agent-works/pdf-webkit/altroot` 를 작업 디렉터리로 픽스처를 만들고, `DVIEWER_EXE` 로 같은 debug 바이너리를 가리켜 돌렸다.
 
+## 탭 끝의 닫기 버튼과 ‹ / ›
+
+`tabWidths` 에 닫기 버튼의 오른쪽 끝과 탭 오른쪽 끝 사이의 간격 단언을 더했다. 간격은 계산된 오른쪽 여백과 테두리의 합이어야 한다(허용 오차 1px). 새 단계 `tabArrows` 는 `고객 명단 정리 작업본 전체.csv` 에서 돈다. 스트립이 가득 찬 것을 확인한 뒤 다음을 차례로 본다. 스트립의 스크롤 위치는 끝나면 되돌린다.
+
+1. 맨 앞에서는 `›` 만 보인다.
+2. `›` 를 누르면 `scrollLeft` 가 늘고 `‹` 가 나타난다.
+3. 맨 끝에서는 `‹` 만 보인다.
+4. `‹` 를 누르면 되돌아간다.
+
+| 항목 | 결과 |
+|---|---|
+| Windows debug 스모크 | 픽스처 61개와 왕복 2 통과, `tabArrows` 72ms·`tabWidths` 25ms |
+| vitest · check | 424개(+3 `pageScroll`) · 오류/경고 0, 4×500키 |
+| `DVIEWER_FIXTURES=required cargo test` | 돌리지 않음(Rust 변경 없음) |
+
+깨뜨려 확인(프런트 재빌드와 스모크):
+
+| 변형 | 결과 |
+|---|---|
+| B1: `.close` 의 `margin-left: auto` 제거 | `tabWidths` 실패 — `sample.md` 탭의 닫기 버튼이 끝에서 66px 모자람 |
+| B2: `page()` 가 스크롤하지 않음 | `tabArrows` 실패 — "› did not scroll the strip or bring up ‹" |
+
+정상 실행 두 번 중 한 번은 `long-markdown.md` 의 `markdownBenchmark` 가 "TOC moved while keyboard focus was inside" 로 실패했다. 탭 폭 작업 때와 같은 간헐 실패다. 탭 폭 변경 이후 실행에서는 6번 중 2번 실패했다. 그 이전(M48·생성기 작업)의 실행 약 5번에서는 보이지 않았다. 검사 자체는 탭 스트립과 닿지 않는데, 원인은 확인하지 않았다.
+
 ## 탭 폭 — 한글 이름이 닫기 버튼 위로
 
 생성기에 한글 이름·한글 끝부분·긴 확장자 조합 파일 넷을 더했다(`서비스 본부 개편 운영안 초안.md`, `월간 보고서 최종본.jsonc`, `고객 명단 정리 작업본 전체.csv`, golden 사본인 `분기별 매출 집계 원본 데이터.parquet`). 스모크는 이것들을 거의 끝에 연다. 그때는 앞선 픽스처가 모두 탭으로 열려 있어 스트립이 가득 차고, 모든 탭이 최소 폭이다. `tabWidths` 단계는 먼저 스트립이 넘치는지 확인한다. 넘치지 않으면 최소 폭 상태가 아니므로 실패로 친다. 그다음 탭마다 `.kind`·`.title`·`.head`·`.tail`·`.hint` 의 상자가 탭 왼쪽 끝과 닫기 버튼 왼쪽 끝 사이에 있는지 단언한다. 비교하는 요소는 모두 자기 내용을 자르는 요소라, 상자 끝이 곧 그림 끝이다. 창 폭에도 글꼴에도 기대지 않는 기하다.

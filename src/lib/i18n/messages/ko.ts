@@ -160,6 +160,8 @@ export const ko = {
   "tab.newLabel": "새 탭",
   "tab.list": "열린 탭 전부",
   "tab.listLabel": "탭 목록 보기",
+  "tab.scrollBefore": "앞쪽 탭으로",
+  "tab.scrollAfter": "뒤쪽 탭으로",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.table": "표",

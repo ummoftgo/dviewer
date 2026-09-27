@@ -6,7 +6,7 @@
   import type { MenuItem } from "./menu";
   import { kindBadge } from "../ipc";
   import { t } from "../i18n";
-  import { disambiguate, splitTitle } from "../tabs";
+  import { disambiguate, pageScroll, splitTitle } from "../tabs";
   import { workspace } from "../state/docs.svelte";
 
   interface Props {
@@ -101,6 +101,14 @@
       ?.scrollIntoView({ inline: "nearest", block: "nearest" });
   });
 
+  /** One press of `‹` or `›`. Instant, not smooth: WebKit on macOS reports a
+   *  smooth scroll's position late (see M41-mac), and the arrows are shown or
+   *  hidden by where the strip has got to. */
+  function page(direction: -1 | 1) {
+    if (!strip) return;
+    strip.scrollLeft = pageScroll(strip.scrollLeft, strip.clientWidth, strip.scrollWidth, direction);
+  }
+
   function onWheel(event: WheelEvent) {
     // A horizontal strip should scroll with a plain vertical wheel.
     const strip = event.currentTarget as HTMLElement;
@@ -164,6 +172,32 @@
         </div>
       {/each}
     </div>
+    <!-- Only on a side that has tabs past the edge, and drawn over the fade
+         rather than beside the strip, so a full strip loses no width to them.
+         The fade stays: it shows a tab cut off, the arrow says there is more
+         and takes you there. -->
+    {#if hiddenBefore}
+      <button
+        class="edge before"
+        data-action="tab-scroll-before"
+        title={t("tab.scrollBefore")}
+        aria-label={t("tab.scrollBefore")}
+        onclick={() => page(-1)}
+      >
+        <Icon name="chevron-left" size={14} />
+      </button>
+    {/if}
+    {#if hiddenAfter}
+      <button
+        class="edge after"
+        data-action="tab-scroll-after"
+        title={t("tab.scrollAfter")}
+        aria-label={t("tab.scrollAfter")}
+        onclick={() => page(1)}
+      >
+        <Icon name="chevron-right" size={14} />
+      </button>
+    {/if}
   </div>
 
   <!-- Only when scrolling is the alternative. On a strip that fits, every tab
@@ -382,8 +416,13 @@
     margin-right: 0.3rem;
   }
 
+  /* At the tab's own end, not the name's: a short name leaves the room of a
+     tab held at its floor between the name and the button, where it used to
+     sit after the button as a gap nobody could use. `auto` takes only spare
+     room, so a name that fills the tab still meets the button directly. */
   .close {
     flex: none;
+    margin-left: auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -405,6 +444,35 @@
   .close:hover {
     background: var(--bg-active);
     color: var(--text);
+  }
+
+  .edge {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--tab-fade);
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .edge:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .edge.before {
+    left: 0;
+  }
+
+  .edge.after {
+    right: 0;
   }
 
   .list,

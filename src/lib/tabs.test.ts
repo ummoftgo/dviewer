@@ -7,7 +7,7 @@
  * nothing but assertions will notice.
  */
 import { describe, expect, test } from "vitest";
-import { disambiguate, splitTitle, type TabLike } from "./tabs";
+import { disambiguate, pageScroll, splitTitle, type TabLike } from "./tabs";
 import type { ArchiveEntry, DocSource } from "./ipc";
 
 /** The whole title back, spelled the way a tab renders it. */
@@ -187,5 +187,21 @@ describe("telling same-named tabs apart", () => {
     ];
     const hints = disambiguate([a, b]);
     expect(hints.size).toBe(0);
+  });
+});
+
+describe("pageScroll", () => {
+  test("moves most of a screen, so the tab cut at the edge stays in sight", () => {
+    expect(pageScroll(0, 1000, 5000, 1)).toBe(800);
+    expect(pageScroll(2000, 1000, 5000, -1)).toBe(1200);
+  });
+
+  test("stops at either end rather than past it", () => {
+    expect(pageScroll(3900, 1000, 5000, 1)).toBe(4000);
+    expect(pageScroll(300, 1000, 5000, -1)).toBe(0);
+  });
+
+  test("stays put on a strip that does not overflow", () => {
+    expect(pageScroll(0, 1000, 900, 1)).toBe(0);
   });
 });

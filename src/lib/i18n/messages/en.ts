@@ -155,6 +155,8 @@ export const en: Messages = {
   "tab.newLabel": "New tab",
   "tab.list": "All open tabs",
   "tab.listLabel": "Show all tabs",
+  "tab.scrollBefore": "Scroll to earlier tabs",
+  "tab.scrollAfter": "Scroll to later tabs",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.table": "Table",

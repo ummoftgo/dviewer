@@ -174,3 +174,21 @@ function urlSegments(url: string): string[] {
     return segments(url);
   }
 }
+
+/**
+ * Where a strip lands after one press of its `‹` or `›`.
+ *
+ * Most of a screen, not all of it: the tab that was cut at the edge is still
+ * partly in view afterwards, so the reader keeps their place. Clamped, so the
+ * last press stops at the end rather than past it.
+ */
+export function pageScroll(
+  scrollLeft: number,
+  clientWidth: number,
+  scrollWidth: number,
+  direction: -1 | 1,
+): number {
+  const step = Math.max(1, Math.floor(clientWidth * 0.8));
+  const end = Math.max(0, scrollWidth - clientWidth);
+  return Math.min(end, Math.max(0, scrollLeft + direction * step));
+}

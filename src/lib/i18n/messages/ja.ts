@@ -155,6 +155,8 @@ export const ja: Messages = {
   "tab.newLabel": "新しいタブ",
   "tab.list": "開いているタブすべて",
   "tab.listLabel": "タブ一覧を表示",
+  "tab.scrollBefore": "前のタブへ",
+  "tab.scrollAfter": "後のタブへ",
 
   // --- 도구 모음 / toolbar ---------------------------------------------------
   "toolbar.mode.table": "表",
