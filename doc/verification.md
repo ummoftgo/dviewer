@@ -2,6 +2,28 @@
 
 ← [README](../README.md)
 
+## PDF WebKit 재활성 — 2026-09-27
+
+macOS·Linux 의 PDF 는 `stage worker-imported` 뒤 멈춰 Windows 전용으로 뒀다(아래 2026-09-17 절). 같은 서명의 Windows CI 정지가 워커 메시지 경쟁으로 밝혀진 뒤(아래 "PDF 워커 경쟁" 절), 제한을 걷고 세 OS 가지 리허설로 두 라운드를 확인했다.
+
+| 라운드 | 커밋 | 결과 |
+|---|---|---|
+| 1 (run 36323168274) | 제한 제거 | Windows 초록. macOS·Linux 는 PDF 7개 실패. **60초 정지는 사라졌다**(각 0.4~4.6초에 실패). 실패는 셋: report.pdf 글자 유무, 방향 응답 없음(sideways 넷), 이미지 판정 `orientation null`(upright 둘) |
+| 2 (run 36324094816) | 없는 엔진 기능 채우기 | 세 OS 번들 스모크 초록, PDF 7개 포함 |
+
+1라운드의 세 실패는 모두 준비 뒤 `getTextContent` 를 지나는 경로다. PDF.js 6.3 은 그 안에서 ReadableStream 을 `for await` 로 돈다(`pdf.mjs:16040`). WebKit 에는 그 반복자가 없어 텍스트 추출이 매번 던졌고, 에이전트는 그 실패를 삼켜 판정을 건너뛰었다. 실패 줄의 엔진은 macOS `AppleWebKit/605.1.15`(판이 동결된 문자열), Linux `Version/60.5 Safari/605.1.15` 였다. 2라운드는 없을 때만 채운 반복자·`Math.sumPrecise`·`RegExp.escape` 로 통과했다. CI 에서 실제로 무엇을 채웠는지(`filled-*` 단계)는 실패가 없어 출력되지 않았다.
+
+| 항목 | 결과 |
+|---|---|
+| vitest | 420개 (채우기 시험 1개 추가) |
+| check | 오류/경고 0, 4×498키 (`error.unsupported` 1개 삭제 뒤 M48 병합분 포함) |
+| `DVIEWER_FIXTURES=required cargo test` | 559개 (Windows 전용 시험 1개 삭제 뒤 M48 병합분 포함) |
+| Windows debug 스모크(main 0d8c283 위로 rebase 뒤) | 픽스처 57개(PDF 7개 0.25~0.54초)와 왕복 2 통과 |
+| 깨뜨려: 스트림 반복자 채우기 조건을 거짓으로 | 채우기 시험 1개 실패 |
+| 깨뜨려: 있는 `Math.sumPrecise` 를 덮어씀 | 같은 시험 1개 실패 |
+
+rebase 뒤 스모크는 화면 확인용 dviewer 가 `fixtures/sample.sqlite` 를 열고 있어 생성기가 그 파일을 지우지 못했다. 그래서 `.agent-works/pdf-webkit/altroot` 를 작업 디렉터리로 픽스처를 만들고, `DVIEWER_EXE` 로 같은 debug 바이너리를 가리켜 돌렸다.
+
 ## M48 — 셀 상세 패널
 
 새 픽스처 `cell-detail.csv` 는 격자 미리보기(1,000자)보다 긴 5,000자 값을 담는다. 여기에 빈칸 셋(빈 필드·따옴표만 있는 빈 필드·짧은 행), JSON 객체, 여러 줄 값, 공백 없는 긴 URL 을 더했다. 스모크의 `cellDetail` 단계는 다음 순서로 확인한다.
@@ -55,7 +77,7 @@ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--disable-gpu npm run smoke -- --release
 | 깨뜨려: 부트스트랩에서 큐 등록 제거 | 새 재전달 시험 1개 실패(`['later']` 만 도착), 나머지 26개 통과 |
 | 깨뜨려: 모으기만 하고 재전달 안 함 | 같은 시험 1개 실패 |
 
-타임아웃 진단의 `stage` 는 이제 도착 순서 전체를 싣는다(예: `start>webviewerloaded>worker-start>initializedPromise>worker-imported`). 개발 기계는 GPU 가 있어 이 경쟁을 거의 늘 이기므로, warm 잡에 Windows release 스모크를 더해 main 푸시마다 GPU 없는 러너에서 본다. WebKit(macOS·Linux)은 같은 서명이었지만 이번에는 확인하지 않았다.
+타임아웃 진단의 `stage` 는 이제 도착 순서 전체를 싣는다(예: `start>webviewerloaded>worker-start>initializedPromise>worker-imported`). 개발 기계는 GPU 가 있어 이 경쟁을 거의 늘 이기므로, warm 잡에 Windows release 스모크를 더해 main 푸시마다 GPU 없는 러너에서 본다. WebKit(macOS·Linux)은 같은 서명이었지만 이번에는 확인하지 않았다. (2026-09-27 확인: 같은 경쟁이었다 — 맨 위 "PDF WebKit 재활성" 절.)
 
 ## 스모크 인스턴스 — 떠 있는 dviewer 옆에서 스모크
 
@@ -1395,6 +1417,8 @@ warm run35220937353의 두 OS는 worker-imported 뒤 준비 신호가 없었다.
 Rust는 최근 20개 유지·순서·404/206·토큰/쿼리 제거·문서 간 격리·폐기 후 초기화를 확인한다. VM 회귀는 가상 시간으로 7,999ms에는 없고 8,000ms에 한 번 나오는 스냅샷, 최근 자원15개·상태와 경로 정리, 초기화/닫기/오류 시 취소를 확인한다. 초기화 함수가 거부됐지만 완료 약속은 계속 미완료인 경우도 직접 오류 전달로 잡는다. 파서는 자료형·목록/문자열/직렬화 길이·발신 프레임과 세대를 검증한다. FrameView·docs.svelte.ts autofixer issues0. 로그는 .agent-works/m43-webkit2-*.log, 원본 스모크는 로컬 임시 디렉터리 dviewer-smoke-MfMlkG/sweep.jsonl이다. release·clippy·Linux/macOS 재실행은 하지 않았다. 다음 warm의 last/stall/detail이 마지막 관측 근거이며 세 OS에서 확인한다.
 
 ### PDF: Windows 전용(이 판) — 2026-09-17
+
+> 2026-09-27 해제. 맨 위 "PDF WebKit 재활성" 절.
 
 WebKit 관측 두 라운드 뒤 이 판의 PDF 지원을 Windows로 제한했다. 판별은 그대로 두고 열기·재읽기에서 비Windows PDF를 Unsupported로 거부한다. 공통 정책 회귀는 Windows 허용·비Windows 거부 및 다른 형식 보존을 검사한다. 직접 파일·URL(MIME 판별 포함)·붙여넣기·압축 항목·파일 재읽기 호출부에 같은 검사를 적용했다.
 
