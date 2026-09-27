@@ -91,6 +91,11 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
   addEventListener('error',event => error('pdfFailed',event.message || event.error));
   addEventListener('unhandledrejection',event => error('pdfFailed',event.reason));
   stage('start');
+  // viewer.mjs never loading (warm linux, main 92129f1) left no stall snapshot, because the
+  // usual one starts at worker-imported. This one starts with the agent: if PDF.js has not
+  // announced itself in 8s, say what the page had by then — readyState and the resources
+  // it had finished loading.
+  let earlyTimer = setTimeout(() => { earlyTimer = undefined; if (!app) stallSnapshot(); },8000);
   for (const name of installMissing(globalThis)) stage(`filled-${name}`);
   // Once: a swallowed text failure is otherwise invisible, and it is what WebKit hit.
   let textFailedSent = false;
@@ -309,6 +314,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
     } catch (cause) { error('pdfFailed',cause); }
   }
   document.addEventListener('webviewerloaded', () => {
+    clearTimeout(earlyTimer); earlyTimer = undefined;
     stage('webviewerloaded');
     app = window.PDFViewerApplication;
     const options = window.PDFViewerApplicationOptions;
@@ -421,7 +427,7 @@ import(${JSON.stringify(workerSrc)}).then(() => {
   addEventListener('pagehide',() => {
     ready = false; failed = true; pendingGoto = null; textGeneration++;
     cancelImageProbe?.();
-    clearTimeout(stallTimer);
+    clearTimeout(stallTimer); clearTimeout(earlyTimer);
     worker?.terminate(); if (workerUrl) URL.revokeObjectURL(workerUrl);
     void app?.close();
   },{once:true});

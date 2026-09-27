@@ -142,8 +142,8 @@ fn request_history_keeps_twenty_tokenless_paths_including_missing_pdf_assets() {
     assert!(serve(&state, &tokens, "/wrong/", false, &policy).is_none());
     let served = tokens.lock().get(&token).unwrap().counts();
     assert_eq!(served.last.len(), 20);
-    assert_eq!(served.last[0], FrameRequest { sequence: 4, path: "/_/pdfjs/web/locale/missing3/viewer.ftl".into(), status: 404 });
-    assert_eq!(served.last.last().unwrap(), &FrameRequest { sequence: 23, path: "/".into(), status: 206 });
+    assert_eq!(served.last[0], FrameRequest { sequence: 4, path: "/_/pdfjs/web/locale/missing3/viewer.ftl".into(), status: 404, sent: None });
+    assert_eq!(served.last.last().unwrap(), &FrameRequest { sequence: 23, path: "/".into(), status: 206, sent: None });
     let json = serde_json::to_string(&served).unwrap();
     assert!(!json.contains(&token)); assert!(!json.contains('?'));
     let route = tokens.lock().get(&token).unwrap().clone();
@@ -276,4 +276,25 @@ fn resource_decompression_stops_at_the_callers_limit() {
     assert!(matches!(archive.read_entry_limited(0, 4), Err(Error::TooLarge { .. })));
     assert_eq!(archive.read_entry_limited(0, body.len()).unwrap(), body);
     assert_eq!(archive.read_entry(0).unwrap(), body);
+}
+
+// warm (linux) main 92129f1: viewer.mjs had no entry at all, while every entry
+// only meant "built", not "written". The mark separates a response the single
+// server thread never finished writing from one the page never asked for.
+#[test]
+fn a_response_is_marked_sent_only_once_it_was_written() {
+    let token = "cd".repeat(32);
+    let tokens = Mutex::new(HashMap::from([(token.clone(), Route::new(1))]));
+    let route = route_for(&tokens, &format!("/{token}/_/pdfjs/web/viewer.mjs?x=1")).expect("route by token");
+    assert!(route_for(&tokens, "/wrong/x").is_none());
+    route.record("_/pdfjs/build/pdf.mjs", &token, 200);
+    route.mark_sent(true);
+    route.record("_/pdfjs/web/viewer.mjs", &token, 200);
+    let last = route.counts().last;
+    assert_eq!(last.iter().map(|request| request.sent).collect::<Vec<_>>(), [Some(true), None]);
+    route.mark_sent(false);
+    route.mark_sent(true);
+    assert_eq!(route.counts().last[1].sent, Some(false));
+    let json = serde_json::to_string(&route.counts()).unwrap();
+    assert!(json.contains("\"sent\":true") && json.contains("\"sent\":false"));
 }

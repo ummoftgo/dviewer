@@ -15,6 +15,15 @@ test('frame timeouts distinguish URL failure, missing load and missing agent rea
     .toBe('(frame: url ok, port 43123, load yes, ready no, error HTML 문서를 표시하지 못했습니다., served unknown, csp -, agent start no, stage -, last: -, stall -, orientation -)');
 });
 
+// A request with no entry never reached the server; one marked pending was built but its
+// response never finished writing; aborted means the page went away first.
+test('the request list says which responses were still being written or cut off', () => {
+  const last=[{sequence:4,path:'/_/pdfjs/build/pdf.mjs',status:200,sent:true},{sequence:5,path:'/_/pdfjs/web/viewer.css',status:200,sent:null},
+    {sequence:6,path:'/_/pdfjs/web/images/a.svg',status:200,sent:false},{sequence:7,path:'/_/old.js',status:200}];
+  const diagnostic=frameDiagnostic({...pending,frameUrlPort:'1',frameLoaded:false,frameReady:false,frameError:null,frameServed:{html:1,agent:2,resource:3,last}});
+  expect(diagnostic).toContain('last: 4:/_/pdfjs/build/pdf.mjs 200, 5:/_/pdfjs/web/viewer.css 200 pending, 6:/_/pdfjs/web/images/a.svg 200 aborted, 7:/_/old.js 200,');
+});
+
 test('frame errors never expose document URLs or tokens in the diagnostic line', () => {
   const token = 'ab'.repeat(32);
   const diagnostic = frameDiagnostic({...pending, frameUrlPort:'43123', frameLoaded:false, frameReady:false,

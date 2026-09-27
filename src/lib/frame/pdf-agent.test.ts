@@ -522,6 +522,26 @@ test('a rejected initialize is reported even when initializedPromise never rejec
   pdf.close();
 });
 
+// warm (linux) main 92129f1: viewer.mjs never loaded, so PDF.js never announced itself and
+// the worker-imported stall snapshot never started. The agent's own clock covers that gap.
+test('a viewer that never announces itself gets a stall snapshot from the agent after 8s',async () => {
+  vi.useFakeTimers();
+  try {
+    const silent=viewer();
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(silent.messages.some(m=>m.type==='stall')).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const stall=silent.messages.find(m=>m.type==='stall')!;
+    expect(stall.snapshot).toMatchObject({readyState:'complete',pdfViewer:null,initialized:null});
+    expect(parseFrameMessage(stall)).toMatchObject({type:'stall'});
+    silent.close();
+    const loaded=viewer(); loaded.start();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(loaded.messages.some(m=>m.type==='stall')).toBe(false);
+    loaded.close(); expect(vi.getTimerCount()).toBe(0);
+  } finally {vi.useRealTimers();}
+});
+
 test('PDF startup stages survive parsing even before ready',async () => {
   const pdf=viewer(); await pdf.initialize(); pdf.pagesInit(); pdf.loaded(); await pdf.ready();
   pdf.workerEvent('message',{data:{type:'pdfWorkerStage',name:'worker-start'}});

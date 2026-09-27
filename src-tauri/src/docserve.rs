@@ -21,7 +21,11 @@ struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64, requests
 struct Requests { sequence: u64, last: VecDeque<FrameRequest> }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-pub struct FrameRequest { sequence: u64, path: String, status: u16 }
+/// `sent` is filled in once the response has been written: `None` while the
+/// single server thread is still writing it (or never returned from writing),
+/// `Some(false)` when the client went away first. A request that never
+/// arrives leaves no entry at all, which is how the two are told apart.
+pub struct FrameRequest { sequence: u64, path: String, status: u16, sent: Option<bool> }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 pub struct FrameServed { html: u64, agent: u64, resource: u64, last: Vec<FrameRequest> }
@@ -42,7 +46,11 @@ impl Route {
         requests.sequence += 1;
         let sequence = requests.sequence;
         if requests.last.len() == 20 { requests.last.pop_front(); }
-        requests.last.push_back(FrameRequest { sequence, path, status });
+        requests.last.push_back(FrameRequest { sequence, path, status, sent: None });
+    }
+    /// The newest entry is the request just served: the loop is one thread.
+    fn mark_sent(&self, ok: bool) {
+        if let Some(last) = self.served.requests.lock().last.back_mut() { if last.sent.is_none() { last.sent = Some(ok); } }
     }
 }
 
@@ -81,7 +89,9 @@ impl DocServer {
                     serve(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some(), &policy,
                         &ranges, &|path| if pdf_assets.contains(path) { app.asset_resolver().get(path.to_owned()).map(|asset| asset.bytes) } else { None })
                 } else { None };
-                let _ = request.respond(response.unwrap_or_else(not_found));
+                let url = request.url().to_owned();
+                let sent = request.respond(response.unwrap_or_else(not_found)).is_ok();
+                if let Some(route) = route_for(&routes, &url) { route.mark_sent(sent); }
             }
         });
         Ok(Self { host, tokens, stop, worker: Some(worker) })
@@ -216,6 +226,12 @@ fn valid_host(hosts: &[&str], expected: &str) -> bool { hosts == [expected] }
 
 fn not_found() -> Response {
     reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", None, false, false).with_status_code(404)
+}
+
+/// The route a request URL names, compared in constant time like `serve` does.
+fn route_for(tokens: &Mutex<HashMap<String, Route>>, url: &str) -> Option<Route> {
+    let token = url.split_once('?').map_or(url, |(path, _)| path).strip_prefix('/')?.split_once('/')?.0;
+    tokens.lock().iter().find_map(|(key, route)| bool::from(key.as_bytes().ct_eq(token.as_bytes())).then(|| route.clone()))
 }
 
 fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str,
