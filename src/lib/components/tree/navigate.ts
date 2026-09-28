@@ -28,6 +28,31 @@ export async function goToNode(tab: DocTab, nodeId: number) {
   }
 }
 
+/**
+ * Park the view on search hit `ordinal` — from the arrows, from Enter, and from
+ * the first batch of a search Enter started.
+ *
+ * By the node the batch carried, not by asking the backend for its `ordinal`:
+ * the backend keeps a search's hits only once it has finished, so while one is
+ * still running that list is the previous search's, and hit 0 there is a match
+ * for a query the reader has already replaced.
+ *
+ * The row is dropped if a newer search has begun meanwhile, for the same reason.
+ */
+export async function goToHit(tab: DocTab, ordinal: number) {
+  const hit = tab.search.hits[ordinal];
+  if (!hit) return;
+  const seq = tab.search.seq;
+  tab.search.current = ordinal;
+  try {
+    const result = await treeReveal(tab.id, hit.node);
+    tab.treeStats = result.stats;
+    if (result.row !== null && tab.search.seq === seq) tab.pendingRow = result.row;
+  } catch (err) {
+    tab.error = errorMessage(err);
+  }
+}
+
 export function goBack(tab: DocTab) {
   const node = tab.history.back();
   if (node !== null) void goToNode(tab, node);

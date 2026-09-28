@@ -6,12 +6,12 @@
     treeClearFilter,
     treeClearSearch,
     treeFilterMatches,
-    treeHitRow,
     treeSearch,
     treeSearchCancel,
     type SearchScope,
   } from "../../ipc";
   import type { DocTab } from "../../state/docs.svelte";
+  import { goToHit } from "./navigate";
 
   interface Props {
     tab: DocTab;
@@ -51,14 +51,14 @@
     input?.select();
   }
 
-  async function run(event?: SubmitEvent) {
-    event?.preventDefault();
+  /** `follow` goes to the first hit when it arrives — Enter's search does. */
+  async function run(follow = false) {
     const search = tab.search;
     if (!search.query.trim()) {
       await clear();
       return;
     }
-    const seq = search.begin();
+    const seq = search.begin(follow);
     try {
       await treeSearch(tab.id, {
         query: search.query,
@@ -88,15 +88,7 @@
   async function jump(delta: number) {
     const search = tab.search;
     if (search.hits.length === 0) return;
-    const next = (search.current + delta + search.hits.length) % search.hits.length;
-    search.current = next;
-    try {
-      const result = await treeHitRow(tab.id, next);
-      tab.treeStats = result.stats;
-      if (result.row !== null) tab.pendingRow = result.row;
-    } catch (err) {
-      tab.error = errorMessage(err);
-    }
+    await goToHit(tab, (search.current + delta + search.hits.length) % search.hits.length);
   }
 
   async function toggleFilter() {
@@ -110,8 +102,10 @@
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "Enter") {
       event.preventDefault();
-      if (tab.search.hits.length > 0) void jump(event.shiftKey ? -1 : 1);
-      else void run();
+      const action = tab.search.enter();
+      if (action === "search") void run(true);
+      else if (action === "step") void jump(event.shiftKey ? -1 : 1);
+      else if (action === "follow") tab.search.follow = true;
     }
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); void clear(); }
   }
@@ -154,7 +148,7 @@
   });
 </script>
 
-<form class="search" onsubmit={run}>
+<form class="search" onsubmit={(event) => { event.preventDefault(); void run(true); }}>
   <div class="box">
     <Icon name="search" size={13} />
     <input

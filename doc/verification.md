@@ -2,6 +2,19 @@
 
 ← [README](../README.md)
 
+## 트리 검색의 Enter — 2026-09-28
+
+Enter 가 결과가 있기만 하면 옛 결과를 옮겨 다녔고(검색어를 고쳐도), 처음 검색 뒤에는 첫 결과로 가지 않았다. 스모크 `grid-cases.json` 에 `treeSearchEnter` 단계를 붙였다: 실제 입력창에 `Alpha` → Enter → 검색 완료·선택 행이 `Alpha`·1건, `keep` → Enter → 선택 행이 `keep`·3건. 저장된 범위·대소문자에 기대지 않도록 조건을 먼저 기본값으로 두고, 프레임 수가 아니라 완료 신호(seq 교체·`running` 끝·`current` 0·선택 행 글자)를 기다린다.
+
+| 항목 | 결과 |
+|---|---|
+| vitest | 442개(+12: Enter 판정 네 조건·검색 없음·도는 중·0건 끝, 첫 배치 이동 1회·버튼 검색 무이동·옛 seq, 노드로 이동·옛 seq 행 버림) |
+| check | 오류/경고 0, 4×504키(문자열 변경 없음) |
+| `DVIEWER_FIXTURES=required cargo test` | 560개(Rust 변경 없음) |
+| Windows debug 스모크 | 픽스처 61개(새 단계 포함)와 왕복 2 통과 |
+
+깨뜨려: 조건 비교에서 query 를 빼면 1개, 첫 배치 이동을 빼면 3개, 노드 대신 `tree_hit_row(ordinal)` 로 되돌리면 1개 실패.
+
 ## WebKit PDF 뷰어가 viewer.mjs 전에 멈춘 한 번 — 2026-09-28 관측
 
 warm(Linux) main 92129f1 에서 스윕의 첫 PDF(report.pdf)가 60초 timeout 이었다. 서명은 `load no`, stages `start>filled-stream-iterator`, 요청 기록 19건에 `viewer.mjs`·locale 이 없었다(pdf.mjs·viewer.css·툴바 svg 14개는 200). 지금까지 WebKit PDF 스모크 약 9번 가운데 처음이다. 기록이 "응답을 만들었다"만 뜻해서, `viewer.mjs` 가 서버에 오지 않은 것인지 쓰다 멈춘 것인지 가를 수 없었다. 그래서 두 관측을 더했다: 요청 기록의 `sent`(진단의 `pending`·`aborted`), 에이전트 시작 8초 뒤의 조기 정체 스냅샷(readyState·완료된 자원 목록). vitest 430개, `DVIEWER_FIXTURES=required cargo test` 560개, Windows debug 스모크 61개와 왕복 2 통과. 깨뜨려: `mark_sent` 를 비우면 Rust 시험 1개, 조기 타이머를 빼면 vitest 1개 실패.

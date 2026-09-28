@@ -678,6 +678,90 @@ describe("results that arrive for a query the reader has replaced", () => {
   });
 });
 
+type Tab = InstanceType<typeof DocTab>;
+
+describe("Enter in the tree's search box", () => {
+  /** A search that has run and found something, as the box sees it afterwards. */
+  function searched(): Tab {
+    const tab = new DocTab(meta({ type: "file", path: "C:/a.json" }));
+    tab.search.query = "alpha";
+    const seq = tab.search.begin(true);
+    tab.search.receive(seq, [{ node: 1 }] as never);
+    tab.search.running = false;
+    return tab;
+  }
+
+  /** Enter stepped through whatever hits there were, so an edited query and
+   *  Enter walked the old query's matches. Each condition is its own question. */
+  test.each([
+    ["query", (tab: Tab) => (tab.search.query = "beta")],
+    ["case", (tab: Tab) => (tab.search.caseSensitive = true)],
+    ["interpretation", (tab: Tab) => (tab.search.how = "regex")],
+    ["scope", (tab: Tab) => (tab.search.scope = "keys")],
+  ])("a changed %s searches again rather than stepping", (_, change) => {
+    const tab = searched();
+    expect(tab.search.enter()).toBe("step");
+    change(tab);
+    expect(tab.search.enter()).toBe("search");
+  });
+
+  test("nothing run yet, or the box cleared, searches", () => {
+    const tab = new DocTab(meta({ type: "file", path: "C:/a.json" }));
+    tab.search.query = "alpha";
+    expect(tab.search.enter()).toBe("search");
+    const again = searched();
+    again.search.reset();
+    expect(again.search.enter()).toBe("search");
+  });
+
+  test("the same search still running with nothing found waits for its first hit", () => {
+    const tab = new DocTab(meta({ type: "file", path: "C:/a.json" }));
+    tab.search.query = "alpha";
+    const seq = tab.search.begin();
+    expect(tab.search.enter()).toBe("follow");
+    tab.search.follow = true;
+    expect(tab.search.receive(seq, [{ node: 1 }] as never)).toBe(true);
+  });
+
+  test("the same search finished empty is not asked again", () => {
+    const tab = new DocTab(meta({ type: "file", path: "C:/a.json" }));
+    tab.search.query = "alpha";
+    tab.search.begin(true);
+    tab.search.running = false;
+    expect(tab.search.enter()).toBe("none");
+  });
+
+  /** The first batch landed with nothing selected, and a second Enter was what
+   *  moved the view. */
+  test("a search Enter started goes to its first hit once", () => {
+    const tab = new DocTab(meta({ type: "file", path: "C:/a.json" }));
+    tab.search.query = "alpha";
+    const seq = tab.search.begin(true);
+    expect(tab.search.receive(seq, [])).toBe(false);
+    expect(tab.search.receive(seq, [{ node: 1 }] as never)).toBe(true);
+    expect(tab.search.receive(seq, [{ node: 2 }] as never)).toBe(false);
+    expect(tab.search.hits).toHaveLength(2);
+  });
+
+  test("a search an option button started does not move the view", () => {
+    const tab = new DocTab(meta({ type: "file", path: "C:/a.json" }));
+    tab.search.query = "alpha";
+    const seq = tab.search.begin();
+    expect(tab.search.receive(seq, [{ node: 1 }] as never)).toBe(false);
+  });
+
+  test("a batch from the replaced search neither lands nor moves the view", () => {
+    const tab = new DocTab(meta({ type: "file", path: "C:/a.json" }));
+    tab.search.query = "alpha";
+    const old = tab.search.begin(true);
+    tab.search.query = "beta";
+    const seq = tab.search.begin(true);
+    expect(tab.search.receive(old, [{ node: 1 }] as never)).toBe(false);
+    expect(tab.search.hits).toEqual([]);
+    expect(tab.search.receive(seq, [{ node: 2 }] as never)).toBe(true);
+  });
+});
+
 describe("the blank tab", () => {
   test('column defaults restore only the view configuration, preserving widths and table mode', () => {
     const tab = new DocTab(meta({ type: 'file', path: 'a.csv' }, 'csv'));

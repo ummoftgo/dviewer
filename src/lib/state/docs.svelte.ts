@@ -81,11 +81,25 @@ class SearchState {
   /** Index into `hits` of the match the view is parked on. */
   current = $state(-1);
   error = $state<string | null>(null);
+  /**
+   * What the hits on screen are the answer to, or null when nothing is.
+   *
+   * Enter has to know whether the box still asks the question the hits answer:
+   * it used to step through the old results whenever there were any, so an
+   * edited query and Enter walked the previous query's matches.
+   */
+  ran: SearchConditions | null = null;
+  /** Go to the first hit when it arrives. Only Enter asks for this — the option
+   *  buttons re-run a search while the reader is still choosing, and a tree
+   *  that jumped under each click would be in the way. */
+  follow = false;
 
   /** Begin a search, and return the generation its events must carry. */
-  begin(): number {
+  begin(follow = false): number {
     this.reset();
     this.running = true;
+    this.ran = { query: this.query, caseSensitive: this.caseSensitive, how: this.how, scope: this.scope };
+    this.follow = follow;
     return this.seq;
   }
 
@@ -98,7 +112,53 @@ class SearchState {
     this.summary = null;
     this.current = -1;
     this.error = null;
+    this.ran = null;
+    this.follow = false;
   }
+
+  /**
+   * Take a batch of hits, and say whether the view should now go to the first.
+   *
+   * True once per search, and only for one started to follow — the first batch
+   * used to land with nothing selected, and a second Enter was what moved.
+   */
+  receive(seq: number, hits: SearchHit[]): boolean {
+    if (seq !== this.seq) return false;
+    this.hits = [...this.hits, ...hits];
+    if (!this.follow || this.hits.length === 0) return false;
+    this.follow = false;
+    return true;
+  }
+
+  /**
+   * What Enter in the box means now.
+   *
+   * `search` when the box asks something the hits do not answer; `step` through
+   * the hits when it does; `follow` when the same search is still running with
+   * nothing found yet — restarting it would only lose what it has read; `none`
+   * when it finished empty or failed, since asking again gives the same answer.
+   */
+  enter(): "search" | "step" | "follow" | "none" {
+    const ran = this.ran;
+    if (
+      ran === null ||
+      ran.query !== this.query ||
+      ran.caseSensitive !== this.caseSensitive ||
+      ran.how !== this.how ||
+      ran.scope !== this.scope
+    ) {
+      return "search";
+    }
+    if (this.hits.length > 0) return "step";
+    return this.running ? "follow" : "none";
+  }
+}
+
+interface SearchConditions {
+  query: string;
+  caseSensitive: boolean;
+  how: Interpretation;
+  scope: SearchScope;
 }
 
 /** Search state for the grid. Simpler than the tree's: the backend answers in

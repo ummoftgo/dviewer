@@ -123,7 +123,7 @@ Both the manifest and update file are authenticated with the embedded public key
 | `Ctrl E` | Toggle Markdown/HTML/text source and document view |
 | `F11` | Toggle focus mode — also enter with the four-corner arrow button in the top toolbar and exit with the top-right “Focus mode · Esc” pill. Hides only tabs, subtabs, the top toolbar and TOC |
 | `Esc` | The view handles Escape first; an unhandled Escape exits focus mode |
-| `Enter` / `Shift Enter` | Next / previous search hit |
+| `Enter` / `Shift Enter` | Next / previous search hit. In the tree, a changed query or option searches again and goes to the first hit |
 | `Ctrl F` | Tree search (all / keys / values / paths), table search, HTML search, rendered/source Markdown search |
 | `Esc` in Markdown search | Close search and clear highlights |
 | `Ctrl +` `Ctrl -` `Ctrl 0` | Interface scale |

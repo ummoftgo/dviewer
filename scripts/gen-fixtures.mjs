@@ -1396,7 +1396,7 @@ const SMOKE = [
   { file: "markdown-search-large.md", expect: "prose" },
   { file: "markdown-copy.md", expect: "prose" },
   { file: "small.json", expect: "tree", then: "treeAsTable" },
-  { file: "grid-cases.json", expect: "tree" },
+  { file: "grid-cases.json", expect: "tree", then: "treeSearchEnter" },
   { file: "2026-09-quarterly-revenue-report-final.json", expect: "tree" },
   { file: "strict.json", expect: "tree" },
   { file: "sample.jsonc", expect: "tree" },

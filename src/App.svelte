@@ -17,6 +17,7 @@
   import ThemeStyles from "./lib/components/ThemeStyles.svelte";
   import Toolbar from "./lib/components/Toolbar.svelte";
   import TreeView from "./lib/components/tree/TreeView.svelte";
+  import { goToHit } from "./lib/components/tree/navigate";
   import TableView from "./lib/components/table/TableView.svelte";
   import CollectionView from "./lib/components/collection/CollectionView.svelte";
   import ArchiveView from "./lib/components/archive/ArchiveView.svelte";
@@ -129,8 +130,7 @@
       // rather than appended: cancelling does not unsend what is in flight.
       ipc.on("tree:search-batch", ({ docId, generation, seq, hits }) => {
         const tab = workspace.tab(docId, generation);
-        if (!tab || seq !== tab.search.seq) return;
-        tab.search.hits = [...tab.search.hits, ...hits];
+        if (tab && tab.search.receive(seq, hits)) void goToHit(tab, 0);
       }),
       ipc.on("tree:search-done", ({ docId, generation, seq, summary }) => {
         const tab = workspace.tab(docId, generation);
