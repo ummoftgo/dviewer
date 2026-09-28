@@ -231,7 +231,6 @@ pub fn run() {
             commands::tree_filter_matches,
             commands::tree_clear_filter,
             commands::tree_clear_search,
-            commands::tree_hit_row,
             commands::table_open,
             commands::grid_rows,
             commands::grid_order,

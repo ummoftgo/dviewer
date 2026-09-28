@@ -1,13 +1,11 @@
 import { expect, test, vi } from 'vitest';
-import { treeHitRow, treeReveal } from '../../ipc';
+import { treeReveal } from '../../ipc';
 import type { DocTab } from '../../state/docs.svelte';
 import { goToHit } from './navigate';
 
 vi.mock('../../ipc', async importOriginal => ({
   ...await importOriginal<typeof import('../../ipc')>(),
   treeReveal: vi.fn(async (_doc: number, node: number) => ({ row: node * 10, stats: {} })),
-  // The backend's own list, which holds the previous search until this one ends.
-  treeHitRow: vi.fn(async () => ({ row: 999, stats: {} })),
 }));
 
 function tab(nodes: number[]) {
@@ -23,7 +21,6 @@ test('a hit is revealed by the node its batch carried', async () => {
   const t = tab([4, 7]);
   await goToHit(t, 1);
   expect(treeReveal).toHaveBeenCalledWith(1, 7);
-  expect(treeHitRow).not.toHaveBeenCalled();
   expect(t.search.current).toBe(1);
   expect(t.pendingRow).toBe(70);
 });

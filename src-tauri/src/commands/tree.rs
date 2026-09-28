@@ -427,23 +427,6 @@ pub fn tree_row_of(
     Ok(tree_doc(&state, doc_id)?.row_of(node_id))
 }
 
-#[tauri::command]
-pub fn tree_hit_row(
-    state: State<'_, AppState>,
-    doc_id: DocId,
-    ordinal: usize,
-) -> Result<RevealResult> {
-    let json = tree_doc(&state, doc_id)?;
-    let row = match json.hit_node(ordinal) {
-        Some(node) => json.reveal(node),
-        None => None,
-    };
-    Ok(RevealResult {
-        row,
-        stats: json.stats(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

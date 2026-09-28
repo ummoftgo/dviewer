@@ -390,10 +390,6 @@ impl TreeDoc {
     pub fn clear_filter(&self) {
         self.visibility.write().clear_filter(&self.index.nodes);
     }
-
-    pub fn hit_node(&self, ordinal: usize) -> Option<u32> {
-        self.search.read().as_ref()?.hits.get(ordinal).map(|h| h.node)
-    }
 }
 
 #[cfg(test)]

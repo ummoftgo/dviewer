@@ -543,8 +543,6 @@ export const treeFilterMatches = (docId: number) =>
   invoke<TreeStats>("tree_filter_matches", { docId });
 export const treeClearFilter = (docId: number) => invoke<TreeStats>("tree_clear_filter", { docId });
 export const treeClearSearch = (docId: number) => invoke<TreeStats>("tree_clear_search", { docId });
-export const treeHitRow = (docId: number, ordinal: number) =>
-  invoke<RevealResult>("tree_hit_row", { docId, ordinal });
 
 // --- CSV and TSV ----------------------------------------------------------
 
