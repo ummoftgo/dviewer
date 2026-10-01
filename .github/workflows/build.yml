@@ -125,7 +125,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: npm test
       - name: Check smoke result framing
-        run: node --test scripts/smoke-results.test.mjs
+        run: node --test scripts/smoke-results.test.mjs scripts/smoke-diagnostics.test.mjs
       - if: runner.os == 'Linux'
         run: npm run build
 
@@ -141,6 +141,24 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
         env:
           DVIEWER_FIXTURES: required
+      # Native diagnostics must be compiled and exercised on the same Linux
+      # baseline as the warm release sweep, including pull requests.
+      - name: Linux release diagnostic smoke
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb dbus
+          cargo build --locked --release --features custom-protocol --manifest-path src-tauri/Cargo.toml
+          xvfb-run -a dbus-run-session -- npm run smoke -- --release --keep
+        env:
+          DVIEWER_SMOKE_ARTIFACT_DIR: smoke-diagnostics
+      - name: Retain Linux smoke diagnostics
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics-test-linux
+          path: smoke-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Check updater release metadata and signer compatibility
         if: runner.os == 'Linux'
         run: |
@@ -216,11 +234,24 @@ jobs:
 
       - name: Smoke (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a dbus-run-session -- npm run smoke -- --release
+        run: xvfb-run -a dbus-run-session -- npm run smoke -- --release --keep
+        env:
+          DVIEWER_SMOKE_ARTIFACT_DIR: smoke-diagnostics
 
       - name: Smoke
         if: runner.os != 'Linux'
-        run: npm run smoke -- --release
+        run: npm run smoke -- --release --keep
+        env:
+          DVIEWER_SMOKE_ARTIFACT_DIR: smoke-diagnostics
+
+      - name: Retain smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics-${{ github.job }}-${{ matrix.slug }}
+          path: smoke-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Tags only. Manual runs can opt in with the `bundle` input to rehearse a
   # release without cutting one.
@@ -336,11 +367,24 @@ jobs:
       # supplies an X display and nothing else.
       - name: Smoke (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a dbus-run-session -- npm run smoke -- --release
+        run: xvfb-run -a dbus-run-session -- npm run smoke -- --release --keep
+        env:
+          DVIEWER_SMOKE_ARTIFACT_DIR: smoke-diagnostics
 
       - name: Smoke
         if: runner.os != 'Linux'
-        run: npm run smoke -- --release
+        run: npm run smoke -- --release --keep
+        env:
+          DVIEWER_SMOKE_ARTIFACT_DIR: smoke-diagnostics
+
+      - name: Retain smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics-${{ github.job }}-${{ matrix.slug }}
+          path: smoke-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Collect (Linux)
         if: runner.os == 'Linux'

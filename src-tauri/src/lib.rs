@@ -32,6 +32,7 @@ mod window;
 // Public for the same reason as the modules above: `examples/table.rs` decides
 // how to read a file exactly as the app does, and that decision lives here.
 pub mod smoke;
+mod smoke_trace;
 pub mod source;
 pub mod state;
 
@@ -164,6 +165,7 @@ pub fn run() {
                 // never coming.
                 match smoke::SmokeRun::start(smoke) {
                     Ok(run) => {
+                        if let Some(window) = app.get_webview_window("main") { run.trace.install(&window); }
                         app.manage(run);
                     }
                     Err(why) => {
@@ -254,6 +256,8 @@ pub fn run() {
             commands::archive_entries,
             commands::open_entry,
             commands::smoke_status,
+            commands::smoke_native_ready,
+            commands::smoke_frame_trace,
             commands::smoke_plan,
             commands::smoke_report,
             commands::smoke_done,

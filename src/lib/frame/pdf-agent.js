@@ -80,6 +80,52 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
   const steps = {initialize:'not-started',preferences:'pending',l10n:'not-started',components:'not-started'};
   let request = 0, query = '', textGeneration = 0;
   const destinations = new Map();
+  // These observers never drive startup. A missing timestamp means we did not see the event.
+  const read = (fn, fallback = null) => { try { return fn(); } catch { return fallback; } };
+  const number = value => Number.isFinite(value) && value >= 0 ? Math.min(Number.MAX_SAFE_INTEGER,Math.round(value)) : null;
+  const now = () => read(() => number(performance.now()));
+  const lifecycle = {agentStart:now(),domInteractive:null,domContentLoaded:null,domComplete:null,load:null,webviewerloaded:null};
+  const assetEvents = new WeakMap(), csp = [];
+  const corePaths = ['/_/agent.js','/_/pdf-agent.js','/_/pdfjs/web/viewer.mjs',
+    '/_/pdfjs/build/pdf.mjs','/_/pdfjs/build/pdf.worker.mjs','/_/pdfjs/web/viewer.css','/_/pdfjs/web/locale/locale.json'];
+  const path = name => read(() => {
+    if (typeof name !== 'string' || !name) return null;
+    const base = new URL(location.href), url = new URL(name,base);
+    const prefix = `/${base.pathname.split('/')[1]}/`;
+    // Only our fixed asset namespace is useful here. Never retain hosts, document paths,
+    // queries, fragments or encoded bytes that could conceal a bearer token.
+    if (!['http:','https:'].includes(url.protocol) || url.origin !== base.origin || !url.pathname.startsWith(prefix)) return '/[other]';
+    const relative = url.pathname.slice(prefix.length - 1);
+    if (!relative.startsWith('/_/') || /[\u0000-\u0020\u007f?:#\\%]/.test(relative)) return '/[other]';
+    return relative.replace(/[a-f\d]{64}/gi,'[token]').slice(0,128);
+  });
+  const recordAsset = (event,kind) => {
+    read(() => {
+      const script = event.target;
+      if (script?.tagName !== 'SCRIPT' && !(script?.tagName === 'LINK' && /(?:^|\s)stylesheet(?:\s|$)/i.test(script.rel))) return;
+      const events = assetEvents.get(script) ?? {load:null,error:null};
+      if (events[kind] === null) events[kind] = now();
+      assetEvents.set(script,events);
+    });
+  };
+  addEventListener('load',event => {
+    if (event.target === document) lifecycle.load = now();
+    recordAsset(event,'load');
+  },true);
+  addEventListener('error',event => recordAsset(event,'error'),true);
+  document.addEventListener('readystatechange',() => {
+    if (document.readyState === 'interactive') lifecycle.domInteractive = now();
+    if (document.readyState === 'complete') lifecycle.domComplete = now();
+  });
+  document.addEventListener('DOMContentLoaded',() => { lifecycle.domContentLoaded = now(); },{once:true});
+  addEventListener('securitypolicyviolation',event => {
+    read(() => {
+      const directive = /^[a-z-]{1,32}$/.test(event.effectiveDirective) ? event.effectiveDirective : 'unknown';
+      const blocked = ['inline','eval','self'].includes(event.blockedURI) ? event.blockedURI : path(event.blockedURI);
+      if (csp.length === 8) csp.shift();
+      csp.push({directive,blocked,at:now()});
+    });
+  });
   const stage = name => { if (!failed) send({type:'stage',name}); };
   const error = (code, cause) => {
     if (failed) return;
@@ -120,26 +166,55 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
     stalled = true;
     let snapshot = {};
     try {
-    const read = (fn, fallback = null) => { try { return fn(); } catch { return fallback; } };
-    const number = value => Number.isFinite(value) && value >= 0 ? Math.min(Number.MAX_SAFE_INTEGER,Math.round(value)) : null;
     const word = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g,'').slice(0,64) : null;
-    const prefix = read(() => `/${new URL(location.href).pathname.split('/')[1]}/`,'/');
-    const path = name => read(() => {
-      if (typeof name !== 'string') return null;
-      const url = new URL(name,location.href);
-      if (!['http:','https:'].includes(url.protocol)) return '/[other]';
-      const path = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length - 1) : url.pathname;
-      return path.replace(/[a-f\d]{64}/gi,'[token]').slice(0,128);
-    });
-    const resources = read(() => performance.getEntriesByType('resource').slice(-15),[]).map(entry => ({
-      name:read(() => path(entry.name)),responseStatus:read(() => number(entry.responseStatus)),
-      duration:read(() => number(entry.duration)),transferSize:read(() => number(entry.transferSize)),
-    }));
-    snapshot = {readyState:read(() => document.readyState),l10n:read(() => typeof app.l10n),
-      pdfViewer:read(() => !!app.pdfViewer),preferences:read(() => !!app.preferences),initialized:read(() => !!app.initialized),
+    const timing = entry => ({responseStatus:read(() => number(entry.responseStatus)),
+      duration:read(() => number(entry.duration)),transferSize:read(() => number(entry.transferSize))});
+    const entries = read(() => performance.getEntriesByType('resource'),[]), coreResources = {};
+    for (const entry of entries) {
+      const name = read(() => path(entry.name));
+      if (corePaths.includes(name)) coreResources[name] = timing(entry);
+    }
+    const resources = entries.slice(-15).map(entry => ({name:read(() => path(entry.name)),...timing(entry)}));
+    const inventory = (nodes,attribute,limit) => {
+      const chosen = [];
+      for (let index = 0; index < nodes.length; index++) {
+        const node = nodes[index], src = read(() => path(node.getAttribute(attribute)));
+        if (chosen.length < limit) chosen.push({node,src});
+        else if (corePaths.includes(src)) {
+          // Extra extensions/scripts cannot displace the fixed startup assets.
+          if (chosen.some(item => item.src === src)) continue;
+          for (let replace = chosen.length - 1; replace >= 0; replace--) {
+            if (corePaths.includes(chosen[replace].src)) continue;
+            chosen[replace] = {node,src}; break;
+          }
+        }
+      }
+      return chosen;
+    };
+    const scripts = read(() => inventory(document.scripts,'src',8).map(({node,src}) => {
+      const type = read(() => node.type,'');
+      return {src,type:type === 'module' ? 'module' : !type || ['text/javascript','application/javascript'].includes(type) ? 'classic' : 'other',
+        async:read(() => !!node.async,false),defer:read(() => !!node.defer,false),
+        ...(assetEvents.get(node) ?? {load:null,error:null})};
+    }),[]);
+    const styles = read(() => inventory(document.querySelectorAll('link[rel~="stylesheet"]'),'href',4)
+      .map(({node,src}) => ({href:src,...(assetEvents.get(node) ?? {load:null,error:null})})),[]);
+    const navigation = read(() => performance.getEntriesByType('navigation')[0]);
+    const observed = {...lifecycle};
+    for (const [key,field] of [['domInteractive','domInteractive'],['domContentLoaded','domContentLoadedEventStart'],
+      ['domComplete','domComplete'],['load','loadEventStart']]) {
+      // Navigation timing can recover events preceding the agent; zero means unavailable.
+      if (observed[key] === null) observed[key] = read(() => navigation[field] > 0 ? number(navigation[field]) : null);
+    }
+    snapshot = {readyState:read(() => document.readyState),l10n:read(() => app == null ? null : typeof app.l10n),
+      pdfViewer:read(() => app == null ? null : !!app.pdfViewer),preferences:read(() => app == null ? null : !!app.preferences),
+      initialized:read(() => app == null ? null : !!app.initialized),
       options:read(() => Object.keys(window.PDFViewerApplicationOptions.getAll()).length),
       locale:read(() => word(navigator.locale)),language:read(() => word(navigator.language)),fonts:read(() => word(document.fonts?.status)),
-      navigationStatus:read(() => number(performance.getEntriesByType('navigation')[0]?.responseStatus)),steps:{...steps},resources};
+      navigationStatus:read(() => number(navigation.responseStatus)),steps:{...steps},resources,
+      application:{global:read(() => !!window.PDFViewerApplication),local:app != null,
+        pdfjsLib:read(() => !!window.pdfjsLib),options:read(() => !!window.PDFViewerApplicationOptions)},
+      lifecycle:observed,scripts,styles,csp:[...csp],coreResources};
     while (JSON.stringify(snapshot).length > 8192 && resources.length) resources.shift();
     } catch (cause) { snapshot.raw = String(cause?.message ?? cause ?? 'snapshot failed').slice(0,2000); }
     send({type:'stall',snapshot});
@@ -315,6 +390,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
   }
   document.addEventListener('webviewerloaded', () => {
     clearTimeout(earlyTimer); earlyTimer = undefined;
+    lifecycle.webviewerloaded = now();
     stage('webviewerloaded');
     app = window.PDFViewerApplication;
     const options = window.PDFViewerApplicationOptions;

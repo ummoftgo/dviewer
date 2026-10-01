@@ -876,8 +876,10 @@ test('HTML frame metadata resets on reload while its search stays local to the v
   tab.frameReady = true; tab.frameToc = [{id:'a',level:1,text:'A'}]; tab.frameScroll = 0.6;
   tab.frameBlocked = 3; tab.frameProbe = 'absent';
   tab.frameError = 'old error'; tab.frameUrlPort = '43123'; tab.frameLoaded = true;
-  tab.frameServed = {html:1, agent:1, resource:2,last:[]}; tab.frameCsp = ['frame-src port 43123']; tab.frameAgentStarted = true;
+  tab.frameServed = {registryAvailable:true,html:1, agent:1, resource:2,last:[],server:{clockOrigin:'doc-server-start' as const,clockOriginAtMs:1,observedElapsedMs:5,healthConsistent:true,phaseElapsedMs:4,lastProgressElapsedMs:4,exitedElapsedMs:null,phase:'recv-wait',phaseAtMs:5,phaseAgeMs:2,lastProgressAtMs:5,lastProgressAgeMs:2,activeRequestId:null,recvTimeoutCount:1,recvErrorCount:0,lastErrorKind:null,exitedAtMs:null,exitReason:null,requests:[],retention:{historyAvailable:true,contentionCount:0,requestDrops:0,eventDrops:0,snapshotMisses:0,limit:128,total:0,dropped:0}}}; tab.frameCsp = ['frame-src port 43123']; tab.frameAgentStarted = true;
   tab.frameStages = ['start','pagesinit'];
+  tab.frameEarly = {atMs:8000,serverAtMs:null,served:null,stall:null,stages:['start']};
+  tab.frameTeardown = {atMs:30000,reason:'deadline'};
   tab.frameStall = {readyState:'complete',l10n:'object',pdfViewer:false,preferences:true,initialized:false,
     options:0,locale:null,language:'en-US',fonts:'loaded',navigationStatus:null,resources:[],
     steps:{initialize:'pending',preferences:'pending',l10n:'not-started',components:'not-started'}};
@@ -890,6 +892,7 @@ test('HTML frame metadata resets on reload while its search stays local to the v
   expect([tab.frameServed,tab.frameCsp,tab.frameAgentStarted]).toEqual([null,[],false]);
   expect(tab.frameStages).toEqual([]);
   expect(tab.frameStall).toBeNull();
+  expect(tab.frameEarly).toBeNull(); expect(tab.frameTeardown).toBeNull();
   expect(tab.frameSearch).toEqual({open:false,query:'',n:0,index:0,request:0});
 });
 

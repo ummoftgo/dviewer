@@ -1,6 +1,30 @@
 use super::*;
 use crate::{bytes::DocBytes, encoding, state::{Document, DocSource}};
 
+fn test_server() -> DocServer {
+    let tokens = HashMap::from([("a".into(), Route::new(1)), ("b".into(), Route::new(2))]);
+    let summaries = Arc::new(Mutex::new(tokens.values().map(|route| (route.id, route.clone())).collect()));
+    DocServer { host: "127.0.0.1:12345".into(), tokens: Arc::new(Mutex::new(tokens)),
+        stop: Arc::new(AtomicBool::new(false)), worker: None,
+        diagnostics: Arc::new(Diagnostics::default()), summaries }
+}
+
+fn assert_empty(served: &FrameServed) {
+    assert_eq!((served.html, served.agent, served.resource), (Some(0), Some(0), Some(0)));
+    assert!(served.registry_available);
+    assert!(served.last.is_empty());
+}
+
+fn traced_response(server: &DocServer, state: &AppState, url: &str, ranges: &[&str]) -> Response {
+    let trace = server.diagnostics.received();
+    trace.record_path(url);
+    let mut result = None;
+    process_request(&trace, (), |_| serve_traced(state, &server.tokens, url, false, &document_policy(&server.host),
+        ranges, &|_| None, Some(&trace)).unwrap_or_else(not_found), |_, response| { result = Some(response); Ok(()) });
+    result.unwrap()
+}
+
+
 fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str) -> Option<Response> {
     super::serve(state, tokens, url, smoke, policy, &[], &|_| None)
 }
@@ -105,50 +129,52 @@ fn request_counters_follow_each_document_route_and_its_lifetime() {
     let policy = document_policy("127.0.0.1:12345");
     let state = AppState::default();
     document(&state, 1, b"<head></head>"); document(&state, 2, b"<head></head>");
-    let server = DocServer { host: "127.0.0.1:12345".into(),
-        tokens: Arc::new(Mutex::new(HashMap::from([("a".into(), Route::new(1)), ("b".into(), Route::new(2))]))),
-        stop: Arc::new(AtomicBool::new(false)), worker: None };
-    assert_eq!(server.served(1).unwrap(), FrameServed { html: 0, agent: 0, resource: 0, last: vec![] });
+    let server = test_server();
+    assert_empty(&server.served(1).unwrap());
     assert!(serve(&state, &server.tokens, "/wrong/", false, &policy).is_none());
-    assert!(serve(&state, &server.tokens, "/a/?g=0", false, &policy).is_some());
-    assert!(serve(&state, &server.tokens, "/a/_/agent.js", false, &policy).is_some());
-    assert!(serve(&state, &server.tokens, "/a/missing.css", false, &policy).is_none());
+    assert_eq!(traced_response(&server, &state, "/a/?g=0", &[]).status_code().0, 200);
+    assert_eq!(traced_response(&server, &state, "/a/_/agent.js", &[]).status_code().0, 200);
+    assert_eq!(traced_response(&server, &state, "/a/missing.css", &[]).status_code().0, 404);
     let served = server.served(1).unwrap();
-    assert_eq!((served.html, served.agent, served.resource), (1, 1, 1));
-    assert_eq!(served.last.iter().map(|item| item.status).collect::<Vec<_>>(), vec![200, 200, 404]);
-    assert_eq!(server.served(2).unwrap(), FrameServed { html: 0, agent: 0, resource: 0, last: vec![] });
+    assert_eq!((served.html, served.agent, served.resource), (Some(1), Some(1), Some(1)));
+    assert_eq!(served.last.iter().map(|item| item.status).collect::<Vec<_>>(), vec![Some(200), Some(200), Some(404)]);
+    assert_empty(&server.served(2).unwrap());
     assert_eq!(server.url(1).unwrap(), "http://127.0.0.1:12345/a/");
-    assert_eq!(server.served(1).unwrap().html, 1);
+    assert_eq!(server.served(1).unwrap().html, Some(1));
     server.revoke(1);
     assert!(server.served(1).is_err());
     assert!(serve(&state, &server.tokens, "/a/", false, &policy).is_none());
     let reopened = server.url(1).unwrap();
     assert!(!reopened.ends_with("/a/"));
-    assert_eq!(server.served(1).unwrap(), FrameServed { html: 0, agent: 0, resource: 0, last: vec![] });
+    assert_empty(&server.served(1).unwrap());
 }
 
 #[test]
-fn request_history_keeps_twenty_tokenless_paths_including_missing_pdf_assets() {
+fn request_history_keeps_twenty_safe_paths_including_missing_pdf_assets() {
     let state = AppState::default();
     let bytes = Arc::new(DocBytes::Owned(b"%PDF-1.7".to_vec()));
     state.insert("main", Document::new(1, "test.pdf".into(), DocSource::Text, None, DocKind::Pdf, bytes.clone(), encoding::verbatim(bytes)));
-    let token = "ab".repeat(32);
-    let tokens = Mutex::new(HashMap::from([(token.clone(), Route::new(1))]));
-    let policy = document_policy("127.0.0.1:12345");
+    let server = test_server();
     for index in 0..22 {
-        assert!(serve(&state, &tokens, &format!("/{token}/_/pdfjs/web/locale/missing{index}/viewer.ftl?file={token}"), false, &policy).is_none());
+        let response = traced_response(&server, &state, &format!("/a/_/pdfjs/web/locale/private{index}/viewer.ftl?file=secret"), &[]);
+        assert_eq!(response.status_code().0, 404);
     }
-    assert!(super::serve(&state, &tokens, &format!("/{token}/"), false, &policy, &["bytes=0-3"], &|_| None).is_some());
-    assert!(serve(&state, &tokens, "/wrong/", false, &policy).is_none());
-    let served = tokens.lock().get(&token).unwrap().counts();
+    assert_eq!(traced_response(&server, &state, "/a/", &["bytes=0-3"]).status_code().0, 206);
+    assert_eq!(traced_response(&server, &state, "/wrong/", &[]).status_code().0, 404);
+    let served = server.served(1).unwrap();
     assert_eq!(served.last.len(), 20);
-    assert_eq!(served.last[0], FrameRequest { sequence: 4, path: "/_/pdfjs/web/locale/missing3/viewer.ftl".into(), status: 404, sent: None });
-    assert_eq!(served.last.last().unwrap(), &FrameRequest { sequence: 23, path: "/".into(), status: 206, sent: None });
+    assert_eq!((served.last[0].sequence, served.last[0].path.as_str(), served.last[0].status),
+        (4, "/_/pdfjs/web/locale/[asset]", Some(404)));
+    let last = served.last.last().unwrap();
+    assert_eq!((last.sequence, last.path.as_str(), last.status, last.content_length), (23, "/", Some(206), Some(4)));
+    assert!(served.last.iter().all(|request| request.doc_id == Some(1) && request.generation == Some(0)));
+    assert_eq!(served.server.requests.last().unwrap().doc_id, None);
     let json = serde_json::to_string(&served).unwrap();
-    assert!(!json.contains(&token)); assert!(!json.contains('?'));
-    let route = tokens.lock().get(&token).unwrap().clone();
-    route.record(&format!("_/{}\n?{token}", "x".repeat(1000)), &token, 404);
-    assert_eq!(route.counts().last.last().unwrap().path.len(), 128);
+    assert!(!json.contains("private")); assert!(!json.contains("secret")); assert!(!json.contains('?'));
+    server.revoke(1);
+    assert_eq!(served.last.len(), 20); // A captured value survives later revocation.
+    server.url(1).unwrap();
+    assert_empty(&server.served(1).unwrap());
 }
 
 #[test]
@@ -177,9 +203,7 @@ fn opaque_documents_get_an_explicit_server_origin_in_the_response_policy() {
 fn external_permission_is_document_scoped_and_preserves_the_probe_policy() {
     let state = AppState::default();
     document(&state, 1, b"<head></head>"); document(&state, 2, b"<head></head>");
-    let server = DocServer { host: "127.0.0.1:12345".into(),
-        tokens: Arc::new(Mutex::new(HashMap::from([("a".into(), Route::new(1)), ("b".into(), Route::new(2))]))),
-        stop: Arc::new(AtomicBool::new(false)), worker: None };
+    let server = test_server();
     let base = document_policy(&server.host);
     let header = |id, probe| {
         let path = if id == 1 { "/a/?probe=1" } else { "/b/?probe=1" };
@@ -278,23 +302,138 @@ fn resource_decompression_stops_at_the_callers_limit() {
     assert_eq!(archive.read_entry(0).unwrap(), body);
 }
 
-// warm (linux) main 92129f1: viewer.mjs had no entry at all, while every entry
-// only meant "built", not "written". The mark separates a response the single
-// server thread never finished writing from one the page never asked for.
+// The network result is only tiny_http's return value. A broken connection can
+// be normalized to Ok by tiny_http 0.12, so this must never be called "sent".
 #[test]
-fn a_response_is_marked_sent_only_once_it_was_written() {
-    let token = "cd".repeat(32);
-    let tokens = Mutex::new(HashMap::from([(token.clone(), Route::new(1))]));
-    let route = route_for(&tokens, &format!("/{token}/_/pdfjs/web/viewer.mjs?x=1")).expect("route by token");
-    assert!(route_for(&tokens, "/wrong/x").is_none());
-    route.record("_/pdfjs/build/pdf.mjs", &token, 200);
-    route.mark_sent(true);
-    route.record("_/pdfjs/web/viewer.mjs", &token, 200);
-    let last = route.counts().last;
-    assert_eq!(last.iter().map(|request| request.sent).collect::<Vec<_>>(), [Some(true), None]);
-    route.mark_sent(false);
-    route.mark_sent(true);
-    assert_eq!(route.counts().last[1].sent, Some(false));
-    let json = serde_json::to_string(&route.counts()).unwrap();
-    assert!(json.contains("\"sent\":true") && json.contains("\"sent\":false"));
+fn response_return_result_is_explicit_and_not_a_delivery_claim() {
+    let observations = Arc::new(Diagnostics::default());
+    let trace = observations.received();
+    trace.record_path("/token/_/pdfjs/web/viewer.mjs?secret=1");
+    process_request(&trace, (), |_| not_found(), |_, _| Err(std::io::ErrorKind::BrokenPipe.into()));
+    let snapshot = observations.snapshot();
+    let request = &snapshot.requests[0];
+    assert_eq!(request.respond_result, Some("error"));
+    assert_eq!(request.respond_error_kind.as_deref(), Some("BrokenPipe"));
+    assert!(request.respond_returned_at_ms.is_some());
+    let json = serde_json::to_string(&snapshot).unwrap();
+    assert!(!json.contains("sent"));
+    assert!(json.contains("\"respondResult\":\"error\""));
+}
+
+// Pause the exact production helper inside each callback. A diagnostic query
+// must finish while the worker remains paused, not only after it is released.
+#[test]
+fn paused_build_and_write_remain_independently_observable() {
+    use std::sync::mpsc;
+    for pause_build in [true, false] {
+        let server = Arc::new(test_server());
+        let worker_server = server.clone();
+        let (paused_tx, paused_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let trace = worker_server.diagnostics.received();
+            trace.record_path("/a/_/pdfjs/web/viewer.mjs");
+            process_request(&trace, (), |_| {
+                if pause_build { paused_tx.send(()).unwrap(); resume_rx.recv().unwrap(); }
+                not_found()
+            }, |_, _| {
+                if !pause_build { paused_tx.send(()).unwrap(); resume_rx.recv().unwrap(); }
+                Ok(())
+            });
+        });
+        paused_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let observer_server = server.clone();
+        let (snapshot_tx, snapshot_rx) = mpsc::channel();
+        let observer = std::thread::spawn(move || { snapshot_tx.send(observer_server.served(1)).unwrap(); });
+        let observed = snapshot_rx.recv_timeout(Duration::from_secs(3));
+        // Release even on a regression so the test fails instead of hanging.
+        resume_tx.send(()).unwrap();
+        worker.join().unwrap(); observer.join().unwrap();
+        let snapshot = observed.expect("diagnostics blocked on response work").unwrap();
+        let request = &snapshot.server.requests[0];
+        assert_eq!(snapshot.server.phase, if pause_build { "response-build-enter" } else { "respond-enter" });
+        assert!(request.build_entered_at_ms.is_some());
+        assert_eq!(request.built_at_ms.is_none(), pause_build);
+        assert_eq!(request.respond_entered_at_ms.is_none(), pause_build);
+        assert!(request.respond_returned_at_ms.is_none());
+        assert_eq!(server.served(1).unwrap().server.requests[0].respond_result, Some("ok"));
+    }
+}
+
+#[test]
+fn receive_and_diagnostic_query_do_not_need_the_token_registry_lock() {
+    use std::sync::mpsc;
+    let server = Arc::new(test_server());
+    let tokens = server.tokens.lock();
+    let worker_server = server.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let state = AppState::default(); document(&state, 1, b"<head></head>");
+        let trace = worker_server.diagnostics.received();
+        trace.record_path("/a/");
+        assert_eq!(worker_server.diagnostics.snapshot().phase, "recv-returned");
+        process_request(&trace, (), |_| {
+            entered_tx.send(()).unwrap();
+            serve_traced(&state, &worker_server.tokens, "/a/", false, &document_policy(&worker_server.host),
+                &[], &|_| None, Some(&trace)).unwrap()
+        }, |_, _| Ok(()));
+    });
+    entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    let observer_server = server.clone();
+    let (snapshot_tx, snapshot_rx) = mpsc::channel();
+    let observer = std::thread::spawn(move || { snapshot_tx.send(observer_server.served(1)).unwrap(); });
+    let observed = snapshot_rx.recv_timeout(Duration::from_secs(3));
+    drop(tokens);
+    worker.join().unwrap(); observer.join().unwrap();
+    let snapshot = observed.expect("diagnostics waited on the token registry").unwrap();
+    assert_eq!(snapshot.server.phase, "response-build-enter");
+    assert_eq!(snapshot.server.requests[0].doc_id, None);
+    assert!(snapshot.server.requests[0].built_at_ms.is_none());
+    let served = server.served(1).unwrap();
+    assert_eq!((served.last[0].doc_id, served.last[0].generation), (Some(1), Some(0)));
+}
+
+
+#[test]
+fn independent_diagnostics_survive_outer_server_lock_waiting_on_tokens() {
+    use std::sync::mpsc;
+    let state = Arc::new(AppState::default());
+    let server = test_server();
+    let diagnostics = server.diagnostic_handle();
+    let token_registry = server.tokens.clone();
+    *state.doc_server.lock() = Some(server);
+    let held_tokens = token_registry.lock();
+    let worker_state = state.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let registrar = std::thread::spawn(move || {
+        let server = worker_state.doc_server.lock();
+        entered_tx.send(()).unwrap();
+        server.as_ref().unwrap().url(3).unwrap();
+    });
+    entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    let (snapshot_tx, snapshot_rx) = mpsc::channel();
+    let observer = std::thread::spawn(move || { snapshot_tx.send(diagnostics.served(1)).unwrap(); });
+    let observed = snapshot_rx.recv_timeout(Duration::from_secs(3));
+    drop(held_tokens);
+    registrar.join().unwrap(); observer.join().unwrap();
+    let snapshot = observed.expect("diagnostics waited for outer server/token locks").unwrap();
+    assert!(snapshot.registry_available);
+    assert_eq!(snapshot.server.phase, "starting");
+}
+
+#[test]
+fn busy_summary_index_keeps_health_and_marks_counters_unknown() {
+    let server = test_server();
+    let trace = server.diagnostics.received();
+    trace.record_path("/a/");
+    trace.build_enter();
+    let held = server.summaries.lock();
+    let snapshot = server.diagnostic_handle().served(1).unwrap();
+    assert!(!snapshot.registry_available);
+    assert_eq!((snapshot.html, snapshot.agent, snapshot.resource), (None, None, None));
+    assert!(snapshot.last.is_empty());
+    assert_eq!(snapshot.server.phase, "response-build-enter");
+    assert_eq!(snapshot.server.active_request_id, Some(1));
+    drop(held);
+    assert!(server.served(1).unwrap().registry_available);
 }

@@ -814,7 +814,24 @@ export function warningMessage(warning: DecodeWarning): string {
 }
 
 export const frameUrl = (docId: number) => invoke<string>("frame_url", { docId });
-/** `sent`: null while the server was still writing the response, false when the client left first. */
-export interface FrameServed { html: number; agent: number; resource: number; last: {sequence:number;path:string;status:number;sent?:boolean|null}[] }
+/** Response-return observations, never proof of browser delivery. */
+export interface FrameRequest {
+  sequence:number; path:string; docId:number|null; generation:number|null; receivedAtMs:number; receivedElapsedMs:number;
+  buildEnteredAtMs:number|null; builtAtMs:number|null; respondEnteredAtMs:number|null; respondReturnedAtMs:number|null;
+  buildEnteredElapsedMs:number|null; builtElapsedMs:number|null; respondEnteredElapsedMs:number|null; respondReturnedElapsedMs:number|null;
+  status:number|null; contentLength:number|null; respondResult:'ok'|'error'|null; respondErrorKind:string|null;
+}
+export interface FrameServerHealth {
+  clockOrigin:'doc-server-start'; clockOriginAtMs:number; observedElapsedMs:number; healthConsistent:boolean;
+  phaseElapsedMs:number; lastProgressElapsedMs:number; exitedElapsedMs:number|null;
+  phase:string; phaseAtMs:number; phaseAgeMs:number; lastProgressAtMs:number; lastProgressAgeMs:number;
+  activeRequestId:number|null; recvTimeoutCount:number; recvErrorCount:number; lastErrorKind:string|null;
+  exitedAtMs:number|null; exitReason:'stopped'|'recv-error'|'panic'|null; requests:FrameRequest[];
+  retention:{limit:number;total:number;dropped:number;historyAvailable:boolean;contentionCount:number;requestDrops:number;eventDrops:number;snapshotMisses:number};
+}
+export interface FrameServed { html:number|null; agent:number|null; resource:number|null; registryAvailable:boolean; last:FrameRequest[]; server:FrameServerHealth }
+/** Diagnostic only; backend records it only during a smoke run. */
+export const frameTrace = (docId:number, diagnostic:string) => invoke<void>('smoke_frame_trace', {docId,diagnostic});
+export const smokeNativeReady = () => invoke<boolean>('smoke_native_ready');
 export const frameServed = (docId: number) => invoke<FrameServed>("frame_served", { docId });
 export const frameExternal = (docId: number, allow: boolean) => invoke<void>("frame_external", { docId, allow });

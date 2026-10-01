@@ -1616,3 +1616,22 @@ debug incremental과 dviewer dev 산출물 508개·4.1GiB를 정리했다. main 
 변형과 원복 각각 npm run build → cargo build --features custom-protocol → debug smoke를 직렬로 실행했다. 원복 SHA-256은 `4a7970056aad9c6d2cf1e60cecf4b017759fbda2301bb41a7941c94b991b2766`이다. 로그·원본 결과는 `.agent-works/m43c-mutation-smoke.{log,jsonl}`, `m43c-debug-smoke.{log,jsonl}`, `m43c-mutation-restored.log`, `m43c-restored-vitest.log`, `m43c-smoke-check.log`, `m43c-fixture-check.log`에 남겼다. 표의 시간은 기능 검증 시간이며 성능 전후 비교가 아니다. 사용자 실제 Print To PDF 문서의 시각적 적합성은 계획 세션이 별도로 확인한다. 저장된 회전은 이미지 추정보다 우선한다.
 
 종료 후 debug incremental과 dviewer dev 산출물 508개·4.1GiB를 정리했다. 이번 과제의 픽스처 비교 사본과 변형 백업도 제거했으며 검증 로그와 생성기 픽스처는 남겼다. release·의존 크레이트와 다른 작업의 자료는 보존했다.
+
+
+## PDF 초기 정지 진단 보강 (2026-10-01)
+
+기준 커밋은 `b1de81590367981185182ca065f461c36bd4f01d`다. 9월 28일 warm Linux full sweep의 첫 report.pdf에서 start→filled-stream-iterator 뒤 멈춘 사례를 대상으로 한다. PDF 로딩 방식·CSP·worker·서버 스레드 수·30초 표시 기한은 바꾸지 않았다. 항목이 없다는 사실이나 tiny_http Ok만으로 어느 계층이 요청을 잃었는지 확정하지 않는다.
+
+| 검증 | 로컬 결과 |
+| --- | --- |
+| npm run check | 오류 0·경고 0, 4로케일 × 504키 |
+| npm test | 447개 / 41파일 통과 |
+| smoke runner 단위 검사 | 14개 통과 (framing·split redaction·해시 보존·실패 보존 integration 포함) |
+| npm run build | 통과; 기존 chunk 경고, cargo-about 부재로 Rust notices는 빠짐 |
+| 생산 diagnostics 모듈의 독립 Rust 검사 | GTK를 제외한 별도 harness에서 9개 통과; 전체 앱 검사를 대신하지 않음 |
+| DVIEWER_FIXTURES=required cargo test --locked | glib-sys 빌드에서 중단: 이 환경에 glib-2.0.pc·GTK/WebKit 개발 라이브러리 없음, 테스트 실행 전 |
+| Linux release full smoke·macOS/Windows native smoke | 로컬 미실행, PR CI에서 확인 필요 |
+
+실제 pdf-agent를 실행하는 VM에서 app이 없는 8초 메시지를 parseFrameMessage로 왕복해 구조화된 null과 핵심 자원 목록이 남는지 확인했다. null을 다시 거부하는 변형은 해당 테스트 1개를 실패시켰고, 핵심 자원을 최근 15개로 제한하는 변형도 1개를 실패시켰다. 서버의 즉시 recv 발행을 빼는 변형은 1개, try_lock을 blocking lock으로 바꾸는 변형은 1개를 실패시켰다. 모두 복구했다. 가짜 load/source, 범위를 넘는 script/style/CSP 목록과 경로, teardown 이후 이벤트의 원인 구분, 복사한 초기 스냅샷 보존을 검사한다.
+
+서버 fault 검사는 실제 응답 경계 helper를 build/write 내부에서 멈추고 독립 조회가 완료되는지 확인하며, recv 오류·worker panic·bounded history와 경합 손실도 구분한다. 네이티브 신호는 첫 fixture 전에 readiness를 확인하고 원래 전체 sweep을 한 번 실행해 iframe 자원 coverage를 검증한다. 단일 통과는 미재현일 뿐 원인 해결이 아니다. 프로세스 인자·환경 전체·토큰·문서 본문·pcap은 아티팩트에 넣지 않는다. app/native 로그만으로 정확한 tiny_http 내부 enqueue 손실은 증명할 수 없으며, 필요하면 별도로 허가한 wire 관측이나 좁은 라이브러리 계측을 검토한다.

@@ -10,6 +10,8 @@ const textItems = (a:number,b:number,n=20) => Array.from({length:n},() => ({str:
 const CHROMIUM_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0';
 function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}], userAgent = CHROMIUM_UA) {
   const listeners = new Map<string,(event: unknown) => void>();
+  const captureListeners = new Map<string,(event: unknown) => void>();
+  const documentListeners = new Map<string,() => void>();
   const bus = new Map<string,(event?:{pagesRotation:number}) => void>();
   const messages: {type:string;n?:number;deg?:number;auto?:boolean;image?:boolean;name?:string;code?:string;detail?:string;load?:string;snapshot?:FrameStall}[] = [];
   const workerListeners = new Map<string,(event:unknown) => void>();
@@ -93,19 +95,41 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   };
   class Worker {addEventListener(name:string,listener:(event:unknown) => void) {workerListeners.set(name,listener);} terminate() {}}
   class WorkerUrl extends URL {static createObjectURL(blob:Blob) {workerBlob=blob; return 'blob:null/test';} static revokeObjectURL() {}}
+  const scripts:{tagName:string;type:string;async:boolean;defer:boolean;getAttribute:(name:string) => string|null}[] = [];
+  const addScript = (src:string|null,type = '') => scripts.push({tagName:'SCRIPT',type,async:type === 'module',defer:false,
+    getAttribute:name => name === 'src' ? src : null});
+  for (const src of ['/_/agent.js','/_/pdf-agent.js','/_/pdfjs/build/pdf.mjs','/_/pdfjs/web/viewer.mjs']) addScript(`/a${src}`,src.endsWith('.mjs') ? 'module' : '');
+  const styles:{tagName:string;rel:string;getAttribute:(name:string) => string|null}[] = [
+    {tagName:'LINK',rel:'stylesheet',getAttribute:name => name === 'href' ? '/a/_/pdfjs/web/viewer.css?secret=hidden' : null},
+  ];
+  const window:{pdfjsLib:object | undefined;PDFViewerApplication:typeof app | undefined;PDFViewerApplicationOptions:object} = {
+    pdfjsLib:{},PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}},
+  };
+  const document = {title:'PDF',readyState:'complete',fonts:{status:'loaded'},scripts,querySelectorAll:() => styles,createElement:() => canvas,
+    addEventListener(name:string,listener:() => void) {
+      if (name === 'webviewerloaded') initialize=listener;
+      else documentListeners.set(name,listener);
+    }};
+  const navigationEntries:Record<string,number>[] = [{responseStatus:200}];
   const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges,installMissing,imageProbeEngine});',{
-    parent,window:{PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}}},
-    document:{title:'PDF',readyState:'complete',fonts:{status:'loaded'},createElement:() => canvas,addEventListener(_name:string,listener:() => void) {initialize=listener;}},
+    parent,window,document,
     navigator:{language:'en-GB',locale:'C',userAgent},
     // Only the rendered pages move this clock: real time spent drawing on a slow
     // runner would otherwise push a 450ms page past the 500ms budget.
-    performance:{now:() => elapsed,getEntriesByType(type:string) {return type === 'navigation' ? [{responseStatus:200}] : resourceEntries;}},
+    performance:{now:() => elapsed,getEntriesByType(type:string) {return type === 'navigation' ? navigationEntries : resourceEntries;}},
     location:{search:'?g=0',href:'http://127.0.0.1:123/a/_/pdfjs/web/viewer.html'},
     Worker,URL:WorkerUrl,Blob,setTimeout,clearTimeout,
-    addEventListener(name:string,listener:(event:unknown) => void) {listeners.set(name,listener);},
+    addEventListener(name:string,listener:(event:unknown) => void,capture:unknown) {(capture === true ? captureListeners : listeners).set(name,listener);},
   });
   return {
-    attempts,messages,errored,resourceEntries,rotationAttempts,order,textPages,renders,canvas,
+    attempts,messages,errored,resourceEntries,navigationEntries,rotationAttempts,order,textPages,renders,canvas,scripts,addScript,
+    clock(ms:number) {elapsed=ms;},
+    application(present:boolean) {window.PDFViewerApplication=present ? app : undefined;},
+    pdfjsLib(present:boolean) {window.pdfjsLib=present ? {} : undefined;},
+    styleEvent(index:number,name:'load'|'error') {captureListeners.get(name)?.({target:styles[index]});},
+    documentEvent(name:string,state=document.readyState) {document.readyState=state; documentListeners.get(name)?.();},
+    scriptEvent(index:number,name:'load'|'error') {captureListeners.get(name)?.({target:scripts[index]});},
+    windowLoad() {captureListeners.get('load')?.({target:document});},
     orientationFromProfiles:pure.orientationFromProfiles as (rows:number[],cols:number[]) => number|null,
     imageProbeEngine:pure.imageProbeEngine as (userAgent?:string) => boolean,
     installMissing:pure.installMissing as (scope:object) => string[],
@@ -127,7 +151,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     change(page:number) {current=page; bus.get('pagechanging')?.();},
     resize() {app.page=location; app.pdfViewer.update();},
     get page() {return current;},
-    event(name:string,event:unknown) {listeners.get(name)!(event);},
+    event(name:string,event:unknown) {captureListeners.get(name)?.(event); listeners.get(name)?.(event);},
     workerEvent(name:string,event:unknown) {workerListeners.get(name)!(event);},
     async documentInit() {bus.get('documentinit')!(); await Promise.resolve();},
     pagesInit() {bus.get('pagesinit')!();},
@@ -532,13 +556,98 @@ test('a viewer that never announces itself gets a stall snapshot from the agent 
     expect(silent.messages.some(m=>m.type==='stall')).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     const stall=silent.messages.find(m=>m.type==='stall')!;
-    expect(stall.snapshot).toMatchObject({readyState:'complete',pdfViewer:null,initialized:null});
-    expect(parseFrameMessage(stall)).toMatchObject({type:'stall'});
+    expect(stall.snapshot).toMatchObject({readyState:'complete',l10n:null,pdfViewer:null,preferences:null,initialized:null,application:{global:true,local:false}});
+    expect(parseFrameMessage(stall)).toEqual({type:'stall',snapshot:stall.snapshot});
+    expect(parseFrameMessage(stall)).not.toHaveProperty('snapshot.raw');
     silent.close();
     const loaded=viewer(); loaded.start();
     await vi.advanceTimersByTimeAsync(8000);
     expect(loaded.messages.some(m=>m.type==='stall')).toBe(false);
     loaded.close(); expect(vi.getTimerCount()).toBe(0);
+  } finally {vi.useRealTimers();}
+});
+
+test('an app-unset early snapshot retains core timings beyond the recent fifteen and passive script lifecycle evidence',async () => {
+  vi.useFakeTimers();
+  try {
+    const pdf=viewer(); pdf.application(false);
+    const corePaths=['/_/agent.js','/_/pdf-agent.js','/_/pdfjs/web/viewer.mjs','/_/pdfjs/build/pdf.mjs','/_/pdfjs/web/locale/locale.json'];
+    pdf.resourceEntries.unshift(...corePaths.map((name,index) => ({name:`http://127.0.0.1:123/a${name}?file=secret#fragment`,
+      responseStatus:200,duration:index+1,transferSize:1000})));
+    pdf.clock(12); pdf.scriptEvent(2,'load');
+    pdf.clock(20); pdf.scriptEvent(3,'error');
+    pdf.clock(25); pdf.styleEvent(0,'load');
+    pdf.clock(30); pdf.documentEvent('readystatechange','interactive');
+    pdf.clock(35); pdf.documentEvent('DOMContentLoaded');
+    pdf.clock(40); pdf.documentEvent('readystatechange','complete');
+    pdf.clock(45); pdf.windowLoad();
+    pdf.event('securitypolicyviolation',{effectiveDirective:'script-src-elem',
+      blockedURI:'http://127.0.0.1:123/a/_/pdfjs/web/viewer.mjs?file=secret#fragment'});
+    await vi.advanceTimersByTimeAsync(8000);
+    const stall=pdf.messages.find(message => message.type === 'stall')!;
+    const parsed=parseFrameMessage(stall);
+    expect(parsed).toEqual({type:'stall',snapshot:stall.snapshot});
+    if (parsed?.type !== 'stall' || 'raw' in parsed.snapshot) throw new Error('typed early stall missing');
+    expect(parsed.snapshot).toMatchObject({readyState:'complete',l10n:null,pdfViewer:null,preferences:null,initialized:null,
+      application:{global:false,local:false,pdfjsLib:true,options:true},
+      lifecycle:{agentStart:0,domInteractive:30,domContentLoaded:35,domComplete:40,load:45,webviewerloaded:null},
+      csp:[{directive:'script-src-elem',blocked:'/_/pdfjs/web/viewer.mjs',at:45}]});
+    expect(parsed.snapshot.resources).toHaveLength(15);
+    expect(parsed.snapshot.resources.every(resource => !corePaths.includes(resource.name ?? ''))).toBe(true);
+    expect(parsed.snapshot.coreResources).toEqual(Object.fromEntries(corePaths.map((name,index) =>
+      [name,{responseStatus:200,duration:index+1,transferSize:1000}])));
+    expect(parsed.snapshot.scripts?.[2]).toEqual({src:'/_/pdfjs/build/pdf.mjs',type:'module',async:true,defer:false,load:12,error:null});
+    expect(parsed.snapshot.scripts?.[3]).toEqual({src:'/_/pdfjs/web/viewer.mjs',type:'module',async:true,defer:false,load:null,error:20});
+    expect(parsed.snapshot.styles).toEqual([{href:'/_/pdfjs/web/viewer.css',load:25,error:null}]);
+    expect(pdf.messages.some(message => message.type === 'error')).toBe(false);
+    expect(JSON.stringify(parsed)).not.toMatch(/127\.0|secret|fragment/);
+    pdf.close(); expect(vi.getTimerCount()).toBe(0);
+  } finally {vi.useRealTimers();}
+});
+
+test('early diagnostic inventory is bounded, redacted and does not invent missed lifecycle timestamps',async () => {
+  vi.useFakeTimers();
+  try {
+    const pdf=viewer(), token='ab'.repeat(32);
+    pdf.addScript(`http://other.invalid/a/_/pdfjs/private.mjs?secret=${token}`,'module');
+    pdf.addScript(`/a/private-${token}.js`);
+    pdf.addScript(`/a/_/pdfjs/%61%62${token}.mjs`);
+    pdf.addScript(null,'application/json');
+    pdf.addScript('/a/_/pdfjs/not-in-inventory.mjs');
+    pdf.navigationEntries[0]={responseStatus:200,domInteractive:10,domContentLoadedEventStart:15,domComplete:0,loadEventStart:0};
+    for (let i=0;i<10;i++) pdf.event('securitypolicyviolation',{
+      effectiveDirective:i===9 ? `invalid ${token}` : 'script-src',blockedURI:i===9 ? 'inline' : `https://other.invalid/${token}`,
+    });
+    await vi.advanceTimersByTimeAsync(8000);
+    const parsed=parseFrameMessage(pdf.messages.find(message => message.type === 'stall'));
+    if (parsed?.type !== 'stall' || 'raw' in parsed.snapshot) throw new Error('typed early stall missing');
+    expect(parsed.snapshot.lifecycle).toMatchObject({domInteractive:10,domContentLoaded:15,domComplete:null,load:null,webviewerloaded:null});
+    expect(parsed.snapshot.scripts).toHaveLength(8);
+    expect(parsed.snapshot.scripts?.slice(4).map(script => script.src)).toEqual(['/[other]','/[other]','/[other]',null]);
+    expect(parsed.snapshot.scripts?.every(script => script.load === null && script.error === null)).toBe(true);
+    expect(parsed.snapshot.csp).toHaveLength(8);
+    expect(parsed.snapshot.csp?.[7]).toEqual({directive:'unknown',blocked:'inline',at:0});
+    expect(JSON.stringify(parsed)).not.toMatch(/other\.invalid|private-|not-in-inventory|secret|%61/);
+    expect(JSON.stringify(parsed)).not.toContain(token);
+    expect(JSON.stringify(parsed.snapshot).length).toBeLessThanOrEqual(8192);
+    pdf.close();
+  } finally {vi.useRealTimers();}
+});
+
+test('core script nodes remain in the bounded inventory after extra scripts',async () => {
+  vi.useFakeTimers();
+  try {
+    const pdf=viewer(); pdf.pdfjsLib(false);
+    const core=pdf.scripts.splice(2,2);
+    for (let index=0;index<12;index++) pdf.addScript(`/a/_/extra${index}.js`);
+    pdf.scripts.push(...core);
+    await vi.advanceTimersByTimeAsync(8000);
+    const parsed=parseFrameMessage(pdf.messages.find(message => message.type === 'stall'));
+    if (parsed?.type !== 'stall' || 'raw' in parsed.snapshot) throw new Error('typed early stall missing');
+    expect(parsed.snapshot.application).toEqual({global:true,local:false,pdfjsLib:false,options:true});
+    expect(parsed.snapshot.scripts).toHaveLength(8);
+    expect(parsed.snapshot.scripts?.map(script => script.src)).toEqual(expect.arrayContaining(['/_/pdfjs/build/pdf.mjs','/_/pdfjs/web/viewer.mjs']));
+    pdf.close();
   } finally {vi.useRealTimers();}
 });
 

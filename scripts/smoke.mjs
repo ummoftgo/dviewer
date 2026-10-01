@@ -20,10 +20,11 @@
  */
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, release as osRelease, arch } from "node:os";
 import path from "node:path";
+import { sanitizeDiagnostic, createDiagnosticSanitizer, descendantProcesses, nativeCoverage, fileFingerprint, pdfjsFingerprint, sanitizeEnvironment, exportDiagnosticArtifacts } from './smoke-diagnostics.mjs';
 import { parseResults } from './smoke-results.mjs';
 
 const release = process.argv.includes("--release");
@@ -73,6 +74,18 @@ const INSTANCE_ENV = { ...process.env, DVIEWER_INSTANCE: "smoke" };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const execFileAsync = promisify(execFile);
+const processRecords = [];
+const processCompletions = [];
+const stopProcesses = new Set();
+async function version(command,args) {
+  try {const {stdout}=await execFileAsync(command,args,{timeout:3000});return sanitizeDiagnostic(stdout.trim(),1000);}
+  catch {return 'unavailable';}
+}
+async function processTree(pid) {
+  if (!['darwin','linux'].includes(process.platform)) return [];
+  try {const {stdout}=await execFileAsync('ps',['-e','-o','pid=','-o','ppid=','-o','rss=','-o','comm='],{timeout:1000});return descendantProcesses(stdout,pid);}
+  catch {return [];}
+}
 
 async function processStats(pid) {
   if (!['darwin', 'linux'].includes(process.platform)) return 'process=n/a';
@@ -86,35 +99,64 @@ async function processStats(pid) {
 }
 
 function fail(message) {
-  console.error(`  ✗ ${message}`);
+  console.error(`  ✗ ${sanitizeDiagnostic(message)}`);
   process.exitCode = 1;
 }
 
 /** Start the app and wait for it to end, or kill it when the clock runs out. */
 function run(args, timeoutMs, onSpawn = () => {}) {
-  return new Promise((resolve) => {
+  const completion = new Promise((resolve) => {
     const child = spawn(exe, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: false, env: INSTANCE_ENV });
     onSpawn(child.pid);
-    let stderr = "";
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk;
-      process.stderr.write(chunk);
-    });
-
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      resolve({ code: null, killed: true, stderr });
-    }, timeoutMs);
-
-    child.on("error", (err) => {
+    const record = { pid: child.pid, mode: args.some(a => a.startsWith('--smoke=')) ? 'sweep' : args.includes('--smoke-listen') ? 'listen' : 'handoff',
+      startedAt: new Date().toISOString(), code: null, signal: null, killed: false, stdout: '', stderr: '' };
+    processRecords.push(record);
+    const stdout = createDiagnosticSanitizer({ onText: clean => { record.stdout += clean; process.stdout.write(clean); } });
+    const stderr = createDiagnosticSanitizer({ onText: clean => { record.stderr += clean; process.stderr.write(clean); } });
+    child.stdout?.on('data', chunk => stdout.write(chunk));
+    child.stderr?.on('data', chunk => stderr.write(chunk));
+    let settled = false, closeDeadline;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      stopProcesses.delete(stop);
       clearTimeout(timer);
-      resolve({ code: null, killed: false, stderr: String(err) });
+      clearTimeout(closeDeadline);
+      // Detach first: an inherited pipe can outlive its killed parent.
+      child.stdout?.removeAllListeners('data');
+      child.stderr?.removeAllListeners('data');
+      record.stdoutRetention = stdout.end();
+      record.stderrRetention = stderr.end();
+      record.finishedAt = new Date().toISOString();
+      resolve({ code: record.code, killed: record.killed, stderr: record.stderr });
+    };
+    const stop = () => {
+      if (settled || record.killed) return;
+      record.killed = true;
+      child.kill('SIGKILL');
+      // Allow final output to drain, but a descendant holding the pipe cannot
+      // defeat the external deadline or prevent artifact retention.
+      closeDeadline = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish();
+      }, 2000);
+    };
+    stopProcesses.add(stop);
+    const timer = setTimeout(stop, timeoutMs);
+    child.on('error', () => {
+      // Spawn errors can include command paths or arguments. Keep a fixed code.
+      stderr.write('smoke process could not start\n');
+      finish();
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code, killed: false, stderr });
+    child.on('close', (code, signal) => {
+      record.code = code;
+      record.signal = signal;
+      finish();
     });
   });
+  processCompletions.push(completion);
+  return completion;
 }
 
 /**
@@ -178,6 +220,14 @@ if (!existsSync(manifest)) {
 }
 
 const work = await mkdtemp(path.join(tmpdir(), "dviewer-smoke-"));
+try {
+const binary = await fileFingerprint(exe);
+const environment = sanitizeEnvironment({ platform: process.platform, osRelease: osRelease(), arch: arch(), node: process.version, profile,
+  binary: path.basename(exe), binarySha256: binary.sha256, binaryBytes: binary.bytes,
+  rust: await version('rustc', ['--version']), webkit: await version('pkg-config', ['--modversion', 'webkit2gtk-4.1']),
+  gtk: await version('pkg-config', ['--modversion', 'gtk+-3.0']), libsoup: await version('pkg-config', ['--modversion', 'libsoup-3.0']),
+  pdfjs: await pdfjsFingerprint(root) });
+await writeFile(path.join(work, 'environment.json'), JSON.stringify(environment, null, 2));
 console.log(`스모크 (${release ? "릴리스" : "디버그"} 빌드)`);
 
 // 1 — every fixture, through the ordinary open pipeline.
@@ -187,11 +237,13 @@ console.log(`스모크 (${release ? "릴리스" : "디버그"} 빌드)`);
   const started = performance.now();
   let seen = 0, lastObserved = started;
   let pid, nextSample = 0, stats = 'process=unknown';
+  const childSamples=[];
   const progress = async () => {
     // ps reports only this PID, not separate WebContent processes. Sample at
     // most once a second so diagnostics do not dominate the 100ms polling loop.
     if (!ended && pid && performance.now() >= nextSample) {
       stats = `${await processStats(pid)} sample=${Math.round(performance.now() - started)}ms`;
+      if (childSamples.length < 600) childSamples.push({atMs:Math.round(performance.now()-started),processes:await processTree(pid)});
       nextSample = performance.now() + 1000;
     }
     const { lines } = await results(out, true);
@@ -214,6 +266,14 @@ console.log(`스모크 (${release ? "릴리스" : "디버그"} 빌드)`);
   await progress(); // Drain rows written between the final poll and process exit.
   const { lines, summary } = await results(out, true);
   const elapsed = Math.round(performance.now() - started);
+  await writeFile(path.join(work,'child-processes.json'),JSON.stringify(childSamples));
+  if (process.platform === 'linux') {
+    const coverage=nativeCoverage(await readFile(out.replace(/\.jsonl$/,'.trace.jsonl'),'utf8').catch(()=>''));
+    await writeFile(path.join(work,'native-coverage.json'),JSON.stringify(coverage));
+    // The unchanged full sweep starts report.html -> report.pdf. These controls
+    // establish that the native hook actually sees iframe resources.
+    if (!Object.values(coverage).every(Boolean)) fail(`native iframe observation coverage incomplete: ${JSON.stringify(coverage)}`);
+  }
 
   if (ended.code === 2) fail(`하네스가 시작하지 못했습니다: ${ended.stderr.trim()}`);
   else if (!summary) {
@@ -280,8 +340,22 @@ for (const [label, extra] of [
   else console.log(`  ✓ ${label}`);
 }
 
-if (!keep) await rm(work, { recursive: true, force: true });
-else console.log(`  결과: ${work}`);
+} catch (error) {
+  fail(`smoke runner error: ${sanitizeDiagnostic(error?.message ?? 'unknown error', 1000)}`);
+} finally {
+  for (const stop of stopProcesses) stop();
+  await Promise.allSettled(processCompletions);
+  // Always retain completed diagnostics, even if result parsing or a later
+  // hand-off throws. Failed runs keep the working directory as well.
+  await writeFile(path.join(work, 'processes.json'), JSON.stringify(processRecords, null, 2));
+  const artifactDir = process.env.DVIEWER_SMOKE_ARTIFACT_DIR;
+  if (artifactDir) {
+    try { await exportDiagnosticArtifacts(work, artifactDir); }
+    catch (error) { fail(`diagnostic export failed: ${sanitizeDiagnostic(error?.message ?? 'unknown error', 1000)}`); }
+  }
+  if (!keep && !process.exitCode) await rm(work, { recursive: true, force: true });
+  else console.log(`  결과: ${work}`);
+}
 
 if (process.exitCode) console.error("스모크 실패");
 else console.log("스모크 통과");

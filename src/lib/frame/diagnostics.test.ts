@@ -1,5 +1,7 @@
 import {expect, test} from 'vitest';
-import {frameDiagnostic, parentCspViolation} from './diagnostics';
+import type {FrameRequest} from '../ipc';
+import type {PdfStage} from './messages';
+import {captureFrameObservation, markFrameTeardown, frameDiagnostic, parentCspViolation} from './diagnostics';
 import {frameMessage} from './messages';
 
 const pending = {frameServed:null, frameCsp:[], frameAgentStarted:false, frameStages:[], frameStall:null, frameOrientation:null};
@@ -15,13 +17,31 @@ test('frame timeouts distinguish URL failure, missing load and missing agent rea
     .toBe('(frame: url ok, port 43123, load yes, ready no, error HTML 문서를 표시하지 못했습니다., served unknown, csp -, agent start no, stage -, last: -, stall -, orientation -)');
 });
 
-// A request with no entry never reached the server; one marked pending was built but its
-// response never finished writing; aborted means the page went away first.
-test('the request list says which responses were still being written or cut off', () => {
-  const last=[{sequence:4,path:'/_/pdfjs/build/pdf.mjs',status:200,sent:true},{sequence:5,path:'/_/pdfjs/web/viewer.css',status:200,sent:null},
-    {sequence:6,path:'/_/pdfjs/web/images/a.svg',status:200,sent:false},{sequence:7,path:'/_/old.js',status:200}];
-  const diagnostic=frameDiagnostic({...pending,frameUrlPort:'1',frameLoaded:false,frameReady:false,frameError:null,frameServed:{html:1,agent:2,resource:3,last}});
-  expect(diagnostic).toContain('last: 4:/_/pdfjs/build/pdf.mjs 200, 5:/_/pdfjs/web/viewer.css 200 pending, 6:/_/pdfjs/web/images/a.svg 200 aborted, 7:/_/old.js 200,');
+const server = {clockOrigin:'doc-server-start' as const,clockOriginAtMs:1,observedElapsedMs:5,healthConsistent:true,phaseElapsedMs:4,lastProgressElapsedMs:4,exitedElapsedMs:null,phase:'recv-wait',phaseAtMs:5,phaseAgeMs:2,lastProgressAtMs:5,lastProgressAgeMs:2,activeRequestId:null,
+  recvTimeoutCount:1,recvErrorCount:0,lastErrorKind:null,exitedAtMs:null,exitReason:null,requests:[],retention:{historyAvailable:true,contentionCount:0,requestDrops:0,eventDrops:0,snapshotMisses:0,limit:128,total:4,dropped:0}};
+const request:FrameRequest = {sequence:1,path:'/_/pdfjs/build/pdf.mjs',docId:1,generation:0,receivedAtMs:1,receivedElapsedMs:0,buildEnteredElapsedMs:null,builtElapsedMs:null,respondEnteredElapsedMs:null,respondReturnedElapsedMs:null,buildEnteredAtMs:null,
+  builtAtMs:null,respondEnteredAtMs:null,respondReturnedAtMs:null,status:null,contentLength:null,respondResult:null,respondErrorKind:null};
+test('recv, build and respond phases are distinct without implying browser delivery', () => {
+  const last=[request,{...request,sequence:2,buildEnteredAtMs:2},
+    {...request,sequence:3,buildEnteredAtMs:2,builtAtMs:3,respondEnteredAtMs:4,status:200,contentLength:99},
+    {...request,sequence:4,respondReturnedAtMs:5,respondResult:'ok' as const,status:200}];
+  const diagnostic=frameDiagnostic({...pending,frameUrlPort:'1',frameLoaded:false,frameReady:false,frameError:null,frameServed:{registryAvailable:true,html:1,agent:2,resource:3,last,server}});
+  expect(diagnostic).toContain('1:/_/pdfjs/build/pdf.mjs ? recv-returned');
+  expect(diagnostic).toContain('2:/_/pdfjs/build/pdf.mjs ? response-build-enter');
+  expect(diagnostic).toContain('3:/_/pdfjs/build/pdf.mjs 200 respond-enter len=99');
+  expect(diagnostic).toContain('4:/_/pdfjs/build/pdf.mjs 200 respond-returned:ok');
+  expect(diagnostic).not.toMatch(/delivered|aborted|sent/);
+});
+test('early client and server observations survive later errors and teardown', () => {
+  const state = {...pending,frameStages:['start'] as PdfStage[],frameServed:{registryAvailable:true,html:1,agent:2,resource:3,last:[request],server}};
+  const early = captureFrameObservation(state,8000);
+  state.frameStages.push('initializedPromise'); state.frameServed.last[0].builtAtMs=9;
+  expect(early.stages).toEqual(['start']); expect(early.served?.last[0].builtAtMs).toBeNull();
+  const target:{frameTeardown:null|{atMs:number;reason:'deadline'|'agent-error'|'isolation-broken'}}={frameTeardown:null};
+  markFrameTeardown(target,'deadline',30000); markFrameTeardown(target,'agent-error',30001);
+  expect(target.frameTeardown).toEqual({atMs:30000,reason:'deadline'});
+  const output=frameDiagnostic({...state,frameEarly:early,...target,frameUrlPort:'1',frameLoaded:false,frameReady:false,frameError:'failed'});
+  expect(output).toContain('"atMs":8000'); expect(output).toContain('"atMs":30000,"reason":"deadline"');
 });
 
 test('frame errors never expose document URLs or tokens in the diagnostic line', () => {
@@ -43,8 +63,8 @@ test('request counts, parent CSP and agent start distinguish the second timeout 
   expect(parentCspViolation('script-src-elem', 'inline')).toBe('script-src-elem inline');
   expect(parentCspViolation(token, token)).toBe('unknown blocked');
   const diagnostic = frameDiagnostic({frameUrlPort:'46199', frameLoaded:true, frameReady:false, frameError:null,
-    frameServed:{html:1, agent:1, resource:2,last:[]}, frameCsp:[csp], frameAgentStarted:true, frameStages:[],frameStall:null,frameOrientation:null});
-  expect(diagnostic).toBe('(frame: url ok, port 46199, load yes, ready no, error -, served html 1 agent 1 resource 2, csp frame-src port 46199, agent start yes, stage -, last: -, stall -, orientation -)');
+    frameServed:{registryAvailable:true,html:1, agent:1, resource:2,last:[],server}, frameCsp:[csp], frameAgentStarted:true, frameStages:[],frameStall:null,frameOrientation:null});
+  expect(diagnostic).toContain('served html 1 agent 1 resource 2, csp frame-src port 46199, agent start yes');
   expect(diagnostic).not.toContain(token);
   expect(diagnostic).not.toContain('http');
 });

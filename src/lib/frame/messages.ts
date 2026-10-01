@@ -8,12 +8,27 @@ export const PDF_STAGES = ['start','webviewerloaded','worker-start','worker-impo
   'filled-stream-iterator','filled-sum-precise','filled-regexp-escape','text-failed'] as const;
 export type PdfStage = typeof PDF_STAGES[number];
 export type InitStep = 'not-started' | 'pending' | 'resolved' | 'rejected';
+export const PDF_CORE_PATHS = ['/_/agent.js','/_/pdf-agent.js','/_/pdfjs/web/viewer.mjs',
+  '/_/pdfjs/build/pdf.mjs','/_/pdfjs/build/pdf.worker.mjs','/_/pdfjs/web/viewer.css','/_/pdfjs/web/locale/locale.json'] as const;
+export type PdfCorePath = typeof PDF_CORE_PATHS[number];
+export interface FrameResourceTiming {
+  responseStatus: number | null; duration: number | null; transferSize: number | null;
+}
 export interface FrameStallSnapshot {
-  readyState: string; l10n: string; pdfViewer: boolean; preferences: boolean; initialized: boolean;
+  readyState: string; l10n: string | null; pdfViewer: boolean | null; preferences: boolean | null; initialized: boolean | null;
   options: number | null; locale: string | null; language: string | null; fonts: string | null;
   navigationStatus: number | null;
   steps: {initialize: InitStep; preferences: InitStep; l10n: InitStep; components: InitStep};
-  resources: {name: string | null; responseStatus: number | null; duration: number | null; transferSize: number | null}[];
+  resources: ({name: string | null} & FrameResourceTiming)[];
+  // Optional for older agents; null timestamps mean the event was not observed, not that it failed.
+  application?: {global: boolean | null; local: boolean; pdfjsLib: boolean | null; options: boolean | null};
+  lifecycle?: {agentStart: number | null; domInteractive: number | null; domContentLoaded: number | null;
+    domComplete: number | null; load: number | null; webviewerloaded: number | null};
+  scripts?: {src: string | null; type: 'classic' | 'module' | 'other'; async: boolean; defer: boolean;
+    load: number | null; error: number | null}[];
+  styles?: {href: string | null; load: number | null; error: number | null}[];
+  csp?: {directive: string; blocked: string | null; at: number | null}[];
+  coreResources?: Partial<Record<PdfCorePath, FrameResourceTiming>>;
 }
 export type FrameStall = FrameStallSnapshot | {raw: string};
 export const ORIENTATION_REASONS = ['timeout','sparse','ambiguous','upright','sideways','disagree','error','skipped-engine'] as const;
@@ -50,11 +65,21 @@ function parseStall(value: unknown): FrameStallSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
   const nullableCount = (n: unknown) => n === null || count(n);
+  const nullableBoolean = (b: unknown) => b === null || typeof b === 'boolean';
   const status = (n: unknown) => n === null || (count(n) && n <= 599);
   const word = (s: unknown) => s === null || (text(s,64) && !/[\u0000-\u001f\u007f]/.test(s));
+  const path = (s: unknown) => s === null || (text(s,128) && s.startsWith('/') && !/[\u0000-\u0020\u007f?:#\\%]|[a-f\d]{64}/i.test(s));
+  const timing = (entry: unknown): FrameResourceTiming | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const e = entry as Record<string,unknown>;
+    const responseStatus = e.responseStatus ?? null, duration = e.duration ?? null, transferSize = e.transferSize ?? null;
+    if (!status(responseStatus) || (duration !== null && (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0))
+      || !nullableCount(transferSize)) return null;
+    return {responseStatus,duration,transferSize} as FrameResourceTiming;
+  };
   if (!text(v.readyState,16) || !['loading','interactive','complete'].includes(v.readyState)
-    || !text(v.l10n,16) || !['undefined','object','function','boolean','number','string','symbol','bigint'].includes(v.l10n)
-    || typeof v.pdfViewer !== 'boolean' || typeof v.preferences !== 'boolean' || typeof v.initialized !== 'boolean'
+    || (v.l10n !== null && (!text(v.l10n,16) || !['undefined','object','function','boolean','number','string','symbol','bigint'].includes(v.l10n)))
+    || !nullableBoolean(v.pdfViewer) || !nullableBoolean(v.preferences) || !nullableBoolean(v.initialized)
     || !nullableCount(v.options) || !word(v.locale) || !word(v.language) || !word(v.fonts) || !status(v.navigationStatus)
     || !v.steps || typeof v.steps !== 'object' || !Array.isArray(v.resources) || v.resources.length > 15) return null;
   const steps = v.steps as FrameStallSnapshot['steps'];
@@ -63,17 +88,68 @@ function parseStall(value: unknown): FrameStallSnapshot | null {
   }
   const resources: FrameStallSnapshot['resources'] = [];
   for (const entry of v.resources) {
-    if (!entry || typeof entry !== 'object') return null;
-    const name = entry.name ?? null, responseStatus = entry.responseStatus ?? null;
-    const duration = entry.duration ?? null, transferSize = entry.transferSize ?? null;
-    if ((name !== null && (!text(name,128) || !name.startsWith('/') || /[\u0000-\u0020\u007f?:#\\]|[a-f\d]{64}/i.test(name)))
-      || !status(responseStatus) || (duration !== null && (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0))
-      || !nullableCount(transferSize)) return null;
-    resources.push({name,responseStatus,duration,transferSize});
+    const fields = timing(entry);
+    const name = entry?.name ?? null;
+    if (!fields || !path(name)) return null;
+    resources.push({name,...fields});
   }
   const snapshot = {readyState:v.readyState,l10n:v.l10n,pdfViewer:v.pdfViewer,preferences:v.preferences,initialized:v.initialized,
     options:v.options,locale:v.locale,language:v.language,fonts:v.fonts,navigationStatus:v.navigationStatus,
     steps:{initialize:steps.initialize,preferences:steps.preferences,l10n:steps.l10n,components:steps.components},resources} as FrameStallSnapshot;
+  if (v.application !== undefined) {
+    if (!v.application || typeof v.application !== 'object') return null;
+    const app = v.application as Record<string,unknown>;
+    if (!nullableBoolean(app.global) || typeof app.local !== 'boolean' || !nullableBoolean(app.pdfjsLib) || !nullableBoolean(app.options)) return null;
+    snapshot.application = {global:app.global as boolean | null,local:app.local,pdfjsLib:app.pdfjsLib as boolean | null,options:app.options as boolean | null};
+  }
+  if (v.lifecycle !== undefined) {
+    if (!v.lifecycle || typeof v.lifecycle !== 'object') return null;
+    const lifecycle = v.lifecycle as Record<string,unknown>;
+    snapshot.lifecycle = {} as NonNullable<FrameStallSnapshot['lifecycle']>;
+    for (const key of ['agentStart','domInteractive','domContentLoaded','domComplete','load','webviewerloaded'] as const) {
+      if (!nullableCount(lifecycle[key])) return null;
+      snapshot.lifecycle[key] = lifecycle[key] as number | null;
+    }
+  }
+  if (v.scripts !== undefined) {
+    if (!Array.isArray(v.scripts) || v.scripts.length > 8) return null;
+    snapshot.scripts = [];
+    for (const script of v.scripts) {
+      if (!script || typeof script !== 'object' || !path(script.src) || !['classic','module','other'].includes(script.type)
+        || typeof script.async !== 'boolean' || typeof script.defer !== 'boolean'
+        || !nullableCount(script.load) || !nullableCount(script.error)) return null;
+      snapshot.scripts.push({src:script.src,type:script.type,async:script.async,defer:script.defer,load:script.load,error:script.error});
+    }
+  }
+  if (v.styles !== undefined) {
+    if (!Array.isArray(v.styles) || v.styles.length > 4) return null;
+    snapshot.styles = [];
+    for (const style of v.styles) {
+      if (!style || typeof style !== 'object' || !path(style.href) || !nullableCount(style.load) || !nullableCount(style.error)) return null;
+      snapshot.styles.push({href:style.href,load:style.load,error:style.error});
+    }
+  }
+  if (v.csp !== undefined) {
+    if (!Array.isArray(v.csp) || v.csp.length > 8) return null;
+    snapshot.csp = [];
+    for (const violation of v.csp) {
+      if (!violation || typeof violation !== 'object' || !text(violation.directive,32) || !/^[a-z-]+$/.test(violation.directive)
+        || (!path(violation.blocked) && !['inline','eval','self'].includes(violation.blocked)) || !nullableCount(violation.at)) return null;
+      snapshot.csp.push({directive:violation.directive,blocked:violation.blocked,at:violation.at});
+    }
+  }
+  if (v.coreResources !== undefined) {
+    if (!v.coreResources || typeof v.coreResources !== 'object' || Array.isArray(v.coreResources)) return null;
+    const entries = Object.entries(v.coreResources);
+    if (entries.length > PDF_CORE_PATHS.length) return null;
+    snapshot.coreResources = {};
+    for (const [name,entry] of entries) {
+      if (!PDF_CORE_PATHS.some(path => path === name)) return null;
+      const fields = timing(entry);
+      if (!fields) return null;
+      snapshot.coreResources[name as PdfCorePath] = fields;
+    }
+  }
   return JSON.stringify(snapshot).length <= 8192 ? snapshot : null;
 }
 
