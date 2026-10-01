@@ -1,5 +1,5 @@
 //! A bounded, document-scoped loopback origin for active document content.
-use std::{collections::{HashMap, VecDeque}, io::{Cursor, Read}, net::Ipv4Addr, path::{Component, Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}}, thread::JoinHandle, time::Duration};
+use std::{collections::HashMap, io::{Cursor, Read}, net::Ipv4Addr, path::{Component, Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}}, thread::JoinHandle, time::Duration};
 use parking_lot::Mutex;
 use tauri::Manager;
 use subtle::ConstantTimeEq;
@@ -13,44 +13,54 @@ const POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; sty
 type Response = tiny_http::Response<Box<dyn Read + Send>>;
 mod pdf;
 use pdf::{pdf_asset_path, pdf_file_matches, pdf_policy, pdf_response};
+mod diagnostics;
+use diagnostics::{Diagnostics, FrameRequest, FrameServerHealth, RequestTrace};
+pub(crate) use diagnostics::diagnostic_path;
 
 #[derive(Default)]
-struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64, requests: Mutex<Requests> }
-
-#[derive(Default)]
-struct Requests { sequence: u64, last: VecDeque<FrameRequest> }
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-/// `sent` is filled in once the response has been written: `None` while the
-/// single server thread is still writing it (or never returned from writing),
-/// `Some(false)` when the client went away first. A request that never
-/// arrives leaves no entry at all, which is how the two are told apart.
-pub struct FrameRequest { sequence: u64, path: String, status: u16, sent: Option<bool> }
+struct Served { html: AtomicU64, agent: AtomicU64, resource: AtomicU64 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
-pub struct FrameServed { html: u64, agent: u64, resource: u64, last: Vec<FrameRequest> }
+#[serde(rename_all = "camelCase")]
+pub struct FrameServed {
+    // Null counters distinguish an unavailable registry from an observed zero.
+    html: Option<u64>, agent: Option<u64>, resource: Option<u64>, registry_available: bool,
+    last: Vec<FrameRequest>, server: FrameServerHealth,
+}
 
 #[derive(Clone)]
-struct Route { id: DocId, served: Arc<Served>, external: bool }
+struct Route { id: DocId, served: Arc<Served>, external: bool, after_sequence: u64 }
 
 impl Route {
-    fn new(id: DocId) -> Self { Self { id, served: Arc::new(Served::default()), external: false } }
-    fn counts(&self) -> FrameServed {
-        FrameServed { html: self.served.html.load(Ordering::Relaxed), agent: self.served.agent.load(Ordering::Relaxed), resource: self.served.resource.load(Ordering::Relaxed), last: self.served.requests.lock().last.iter().cloned().collect() }
+    fn new(id: DocId) -> Self { Self { id, served: Arc::new(Served::default()), external: false, after_sequence: 0 } }
+    fn counts(&self, server: FrameServerHealth) -> FrameServed {
+        let mut last: Vec<_> = server.requests.iter().rev()
+            .filter(|request| request.doc_id == Some(self.id) && request.sequence > self.after_sequence)
+            .take(20).cloned().collect();
+        last.reverse();
+        FrameServed { html: Some(self.served.html.load(Ordering::Relaxed)), agent: Some(self.served.agent.load(Ordering::Relaxed)),
+            resource: Some(self.served.resource.load(Ordering::Relaxed)), registry_available: true, last, server }
     }
-    fn record(&self, relative: &str, token: &str, status: u16) {
-        let path = relative.split(['?', '#']).next().unwrap_or("");
-        let path = path.replace(token, "[token]");
-        let path = format!("/{}", path.chars().filter(|c| !c.is_control()).take(127).collect::<String>());
-        let mut requests = self.served.requests.lock();
-        requests.sequence += 1;
-        let sequence = requests.sequence;
-        if requests.last.len() == 20 { requests.last.pop_front(); }
-        requests.last.push_back(FrameRequest { sequence, path, status, sent: None });
-    }
-    /// The newest entry is the request just served: the loop is one thread.
-    fn mark_sent(&self, ok: bool) {
-        if let Some(last) = self.served.requests.lock().last.back_mut() { if last.sent.is_none() { last.sent = Some(ok); } }
+}
+
+/// Managed independently from AppState.doc_server: URL registration can hold
+/// that outer lock while waiting for tokens, and health must still be readable.
+#[derive(Clone)]
+pub struct FrameDiagnostics {
+    diagnostics: Arc<Diagnostics>,
+    summaries: Arc<Mutex<HashMap<DocId, Route>>>,
+}
+
+impl FrameDiagnostics {
+    fn served(&self, id: DocId) -> Result<FrameServed> {
+        let server = self.diagnostics.snapshot();
+        let Some(summaries) = self.summaries.try_lock() else {
+            return Ok(FrameServed { html: None, agent: None, resource: None, registry_available: false,
+                last: Vec::new(), server });
+        };
+        let route = summaries.get(&id).cloned().ok_or(Error::NoSuchDoc { id })?;
+        drop(summaries);
+        Ok(route.counts(server))
     }
 }
 
@@ -59,6 +69,9 @@ pub struct DocServer {
     tokens: Arc<Mutex<HashMap<String, Route>>>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
+    diagnostics: Arc<Diagnostics>,
+    // Only registry commands use this index. The HTTP worker never locks it.
+    summaries: Arc<Mutex<HashMap<DocId, Route>>>,
 }
 
 impl DocServer {
@@ -69,32 +82,42 @@ impl DocServer {
         let server = tiny_http::Server::from_listener(listener, None).map_err(Error::internal)?;
         let tokens = Arc::new(Mutex::new(HashMap::new()));
         let stop = Arc::new(AtomicBool::new(false));
+        let diagnostics = Arc::new(Diagnostics::default());
+        let observations = diagnostics.clone();
+        let summaries = Arc::new(Mutex::new(HashMap::new()));
+        if !app.manage(FrameDiagnostics { diagnostics: diagnostics.clone(), summaries: summaries.clone() }) {
+            return Err(Error::FrameServer);
+        }
         let (routes, stopping, expected_host) = (tokens.clone(), stop.clone(), host.clone());
         // AssetResolver falls back to the app's index.html for missing files.
         // Only names produced by the pinned PDF.js preparation may reach it.
         let pdf_assets: std::collections::HashSet<String> = app.asset_resolver().get("pdfjs/manifest.json".into())
             .and_then(|asset| serde_json::from_slice(&asset.bytes).ok()).unwrap_or_default();
         let worker = std::thread::spawn(move || {
+            let mut guard = observations.worker_guard();
             while !stopping.load(Ordering::Relaxed) {
-                let request = match server.recv_timeout(Duration::from_millis(100)) {
-                    Ok(Some(request)) => request,
-                    Ok(None) => continue,
-                    Err(_) => break,
+                observations.recv_wait();
+                let (request, trace) = match server.recv_timeout(Duration::from_millis(100)) {
+                    Ok(Some(request)) => (request, observations.received()),
+                    Ok(None) => { observations.recv_timeout(); continue; },
+                    Err(error) => { observations.recv_error(&error); guard.reason = "recv-error"; break; },
                 };
-                let headers = request.headers();
-                let hosts: Vec<_> = headers.iter().filter(|h| h.field.equiv("Host")).collect();
-                let host_ok = valid_host(&hosts.iter().map(|h| h.value.as_str()).collect::<Vec<_>>(), &expected_host);
-                let response = if host_ok && request.method() == &tiny_http::Method::Get {
-                    let ranges: Vec<_> = headers.iter().filter(|h| h.field.equiv("Range")).map(|h| h.value.as_str()).collect();
-                    serve(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some(), &policy,
-                        &ranges, &|path| if pdf_assets.contains(path) { app.asset_resolver().get(path.to_owned()).map(|asset| asset.bytes) } else { None })
-                } else { None };
-                let url = request.url().to_owned();
-                let sent = request.respond(response.unwrap_or_else(not_found)).is_ok();
-                if let Some(route) = route_for(&routes, &url) { route.mark_sent(sent); }
+                // recv-returned is already atomic before URL parsing or allocation.
+                trace.record_path(request.url());
+                process_request(&trace, request, |request| {
+                    let headers = request.headers();
+                    let hosts: Vec<_> = headers.iter().filter(|h| h.field.equiv("Host")).collect();
+                    let host_ok = valid_host(&hosts.iter().map(|h| h.value.as_str()).collect::<Vec<_>>(), &expected_host);
+                    let response = if host_ok && request.method() == &tiny_http::Method::Get {
+                        let ranges: Vec<_> = headers.iter().filter(|h| h.field.equiv("Range")).map(|h| h.value.as_str()).collect();
+                        serve_traced(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some(), &policy,
+                            &ranges, &|path| if pdf_assets.contains(path) { app.asset_resolver().get(path.to_owned()).map(|asset| asset.bytes) } else { None }, Some(&trace))
+                    } else { None };
+                    response.unwrap_or_else(not_found)
+                }, |request, response| request.respond(response));
             }
         });
-        Ok(Self { host, tokens, stop, worker: Some(worker) })
+        Ok(Self { host, tokens, stop, worker: Some(worker), diagnostics, summaries })
     }
 
     pub fn url(&self, id: DocId) -> Result<String> {
@@ -106,15 +129,25 @@ impl DocServer {
         getrandom::fill(&mut random).map_err(Error::internal)?;
         let token = random.iter().map(|b| format!("{b:02x}")).collect::<String>();
         let url = format!("http://{}/{token}/", self.host);
-        tokens.insert(token, Route::new(id));
+        let mut route = Route::new(id);
+        route.after_sequence = self.diagnostics.sequence();
+        self.summaries.lock().insert(id, route.clone());
+        tokens.insert(token, route);
         Ok(url)
     }
 
-    pub fn revoke(&self, id: DocId) { self.tokens.lock().retain(|_, doc| doc.id != id); }
-
-    fn served(&self, id: DocId) -> Result<FrameServed> {
-        self.tokens.lock().values().find(|route| route.id == id).map(Route::counts).ok_or(Error::NoSuchDoc { id })
+    pub fn revoke(&self, id: DocId) {
+        self.tokens.lock().retain(|_, doc| doc.id != id);
+        self.summaries.lock().remove(&id);
     }
+
+    #[cfg(test)]
+    fn diagnostic_handle(&self) -> FrameDiagnostics {
+        FrameDiagnostics { diagnostics: self.diagnostics.clone(), summaries: self.summaries.clone() }
+    }
+
+    #[cfg(test)]
+    fn served(&self, id: DocId) -> Result<FrameServed> { self.diagnostic_handle().served(id) }
 
     fn external(&self, id: DocId, allow: bool) -> Result<()> {
         let mut tokens = self.tokens.lock();
@@ -146,9 +179,8 @@ pub fn frame_url(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<Str
 }
 
 #[tauri::command]
-pub fn frame_served(state: tauri::State<'_, AppState>, doc_id: DocId) -> Result<FrameServed> {
-    state.get(doc_id)?;
-    state.doc_server.lock().as_ref().ok_or(Error::FrameServer)?.served(doc_id)
+pub fn frame_served(app: tauri::AppHandle, doc_id: DocId) -> Result<FrameServed> {
+    app.try_state::<FrameDiagnostics>().ok_or(Error::FrameServer)?.served(doc_id)
 }
 
 #[tauri::command]
@@ -228,21 +260,35 @@ fn not_found() -> Response {
     reply(Box::new(Cursor::new(b"not found")), 9, "text/plain; charset=utf-8", None, false, false).with_status_code(404)
 }
 
-/// The route a request URL names, compared in constant time like `serve` does.
-fn route_for(tokens: &Mutex<HashMap<String, Route>>, url: &str) -> Option<Route> {
-    let token = url.split_once('?').map_or(url, |(path, _)| path).strip_prefix('/')?.split_once('/')?.0;
-    tokens.lock().iter().find_map(|(key, route)| bool::from(key.as_bytes().ct_eq(token.as_bytes())).then(|| route.clone()))
+/// Keep both boundaries outside the callbacks: tests can pause construction or
+/// writing and still inspect exactly what the real worker would have published.
+fn process_request<T>(trace: &RequestTrace, request: T, build: impl FnOnce(&T) -> Response,
+    respond: impl FnOnce(T, Response) -> std::io::Result<()>) {
+    trace.build_enter();
+    let response = build(&request);
+    trace.built(response.status_code().0, response.data_length());
+    trace.respond_enter();
+    let result = respond(request, response);
+    trace.respond_returned(&result);
 }
 
+#[cfg(test)]
 fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str,
     ranges: &[&str], asset: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<Response> {
+    serve_traced(state, tokens, url, smoke, policy, ranges, asset, None)
+}
+
+fn serve_traced(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str,
+    ranges: &[&str], asset: &dyn Fn(&str) -> Option<Vec<u8>>, trace: Option<&RequestTrace>) -> Option<Response> {
     let (path, query) = url.split_once('?').unwrap_or((url, ""));
     let (token, relative) = path.strip_prefix('/')?.split_once('/')?;
     // Compare the secret in constant time; the small registry follows open HTML tabs.
     let route = tokens.lock().iter().find_map(|(key, route)| bool::from(key.as_bytes().ct_eq(token.as_bytes())).then(|| route.clone()))?;
+    if let Some(trace) = trace { trace.associate(route.id, None); }
     let response = (|| {
     let doc = state.get(route.id).ok()?;
     let snapshot = doc.snapshot();
+    if let Some(trace) = trace { trace.associate(route.id, Some(snapshot.generation)); }
     if !matches!(snapshot.kind, DocKind::Html | DocKind::Pdf) { return None; }
     if snapshot.kind == DocKind::Pdf {
         check_document_size(snapshot.kind, snapshot.bytes.len()).ok()?;
@@ -312,7 +358,6 @@ fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, sm
     let mime = mime(&file_path);
     Some(reply(Box::new(file.take(size)), size as usize, mime, mime.starts_with("text/html").then_some(policy), route.external, false))
     })();
-    route.record(relative, token, response.as_ref().map_or(404, |response| response.status_code().0));
     response
 }
 

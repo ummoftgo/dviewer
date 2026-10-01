@@ -75,3 +75,21 @@ pub fn smoke_status(app: tauri::AppHandle, window: tauri::Window) -> SmokeStatus
         window: window.label().to_owned(),
     }
 }
+
+/// Ready is acknowledged only after GTK callbacks have actually been installed.
+#[tauri::command]
+pub fn smoke_native_ready(run: State<'_, SmokeRun>) -> Result<bool,String> { run.trace.ready() }
+
+/// Captured before frontend teardown, with receipt time in the sidecar trace.
+#[tauri::command]
+pub fn smoke_frame_trace(app:tauri::AppHandle, doc_id:crate::state::DocId, diagnostic:String) {
+    if diagnostic.len() > 70 * 1024 { return; }
+    if let Some(run)=app.try_state::<SmokeRun>() {
+        // Defense in depth, even though the parent frame already sanitizes it.
+        let urls=regex::Regex::new(r#"(?i)https?://[^\s"'<>]+"#).expect("static pattern");
+        let tokens=regex::Regex::new(r"(?i)[a-f0-9]{64}").expect("static pattern");
+        let clean=urls.replace_all(&diagnostic,"[url]");
+        let clean=tokens.replace_all(&clean,"[token]");
+        run.trace.record("frame",serde_json::json!({"docId":doc_id,"diagnostic":clean}));
+    }
+}

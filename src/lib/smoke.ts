@@ -212,6 +212,15 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
  * rather than one document written at the end.
  */
 export async function runSmoke(): Promise<void> {
+  // Native hooks must be attached before the first fixture, not merely queued.
+  const hookDeadline = Date.now() + 5000;
+  while (!await ipc.smokeNativeReady()) {
+    if (Date.now() >= hookDeadline) {
+      await ipc.smokeReport({step:'native-hook',error:'native observer was not ready before fixtures'},false);
+      await ipc.smokeDone(); return;
+    }
+    await sleep(POLL_MS);
+  }
   const plan: Step[] = await ipc.smokePlan();
 
   // Nothing to open means this process is the listening half of the

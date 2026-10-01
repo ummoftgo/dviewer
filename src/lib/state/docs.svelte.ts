@@ -1,5 +1,6 @@
 import type { CellSelection } from "../components/grid/preview";
 import { compatiblePosition, type Position } from '../position';
+import type { FrameObservation, FrameTeardown } from '../frame/diagnostics';
 import type { FrameOrientation, FrameStall, PdfStage } from '../frame/messages';
 import type { BookmarkAnchor, BookmarkJump } from '../bookmarks';
 import { family, mainTabs, subtabLabel } from "../subtabs";
@@ -311,6 +312,8 @@ export class DocTab {
   // when the import had merely finished after initialisation.
   frameStages = $state<PdfStage[]>([]);
   frameStall = $state<FrameStall | null>(null);
+  frameEarly = $state<FrameObservation | null>(null);
+  frameTeardown = $state<FrameTeardown | null>(null);
   frameOrientation = $state<FrameOrientation | null>(null);
   frameToc = $state<ipc.TocEntry[]>([]);
   frameScroll = $state(0);
@@ -496,7 +499,7 @@ export class DocTab {
     this.frameError = null; this.frameUrlPort = null; this.frameLoaded = false;
     this.frameServed = null; this.frameCsp = []; this.frameAgentStarted = false;
     this.frameStages = [];
-    this.frameStall = null;
+    this.frameStall = null; this.frameEarly = null; this.frameTeardown = null;
     this.frameOrientation = null;
     this.frameReadyLoad = '';
     this.frameSearch = {open:false,query:"",n:0,index:0,request:0};

@@ -1,13 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { errorMessage, frameServed, frameUrl } from '../../ipc';
+  import { errorMessage, frameServed, frameTrace, frameUrl } from '../../ipc';
   import { t } from '../../i18n';
   import { workspace, type DocTab } from '../../state/docs.svelte';
   import { settings } from '../../state/settings.svelte';
   import { toasts } from '../../state/toast.svelte';
   import { frameLocation, frameMessage } from '../../frame/messages';
-  import { parentCspViolation } from '../../frame/diagnostics';
+  import { frameDiagnostic, captureFrameObservation, markFrameTeardown, parentCspViolation } from '../../frame/diagnostics';
   import { resolveAnchor } from '../../bookmarks';
   import { bookmarks } from '../../state/bookmarks.svelte';
   import Toc from '../markdown/Toc.svelte';
@@ -34,7 +34,7 @@
     target.frameError = null; target.frameUrlPort = null; target.frameLoaded = false;
     target.frameServed = null; target.frameCsp = []; target.frameAgentStarted = false;
     target.frameStages = [];
-    target.frameStall = null;
+    target.frameStall = null; target.frameEarly = null; target.frameTeardown = null;
     target.frameOrientation = null;
     const cspViolation = (event: SecurityPolicyViolationEvent) => {
       const entry = parentCspViolation(event.effectiveDirective, event.blockedURI);
@@ -49,6 +49,7 @@
       expectedLoad = new URL(src).search;
       deadline = setTimeout(() => {
         if (!live || target.frameReady) return;
+        teardown(target, 'deadline');
         target.frameError = t('frame.failed');
         void frameServed(target.id).then(value => { if (live) target.frameServed = value; })
           .catch(() => { /* An unavailable counter stays unknown, never zero. */ });
@@ -89,7 +90,12 @@
       case 'agentStart': tab.frameAgentStarted = true; break;
       case 'stage': if (tab.kind === 'pdf' && tab.frameStages.length < 16) tab.frameStages.push(message.name); break;
       case 'stall':
-        if (tab.kind === 'pdf') { tab.frameStall = message.snapshot; refreshServed(tab,load); }
+        if (tab.kind === 'pdf') {
+          tab.frameStall = message.snapshot;
+          const first = !tab.frameEarly;
+          if (first) tab.frameEarly = captureFrameObservation(tab);
+          refreshServed(tab,load,first);
+        }
         break;
       case 'ready':
         if (tab.kind === 'pdf' && !message.pages) break;
@@ -128,6 +134,7 @@
       case 'error':
         if (tab.kind === 'pdf') {
           clearTimeout(deadline); tab.frameReady = false;
+          teardown(tab, 'agent-error');
           tab.frameError = errorMessage({code:message.code}) + (message.detail ? ` (detail ${message.detail})` : '');
           refreshServed(tab,load);
         }
@@ -159,6 +166,7 @@
       case 'blocked': tab.frameBlocked = message.n; break;
       case 'probe': if (probe) tab.frameProbe = message.invoke; break;
       case 'isolationBroken':
+        teardown(tab, 'isolation-broken');
         broken = true; src = undefined; tab.frameReady = false; tab.frameError = t('frame.isolationBroken'); break;
       case 'found':
         if (message.request === tab.frameSearch.request) { tab.frameSearch.n = message.n; tab.frameSearch.index = message.index; }
@@ -174,8 +182,22 @@
         else void openUrl(message.href).catch(cause => toasts.show(errorMessage(cause),'error'));
     }
   }
-  function refreshServed(target: DocTab, load: string) {
-    void frameServed(target.id).then(value => { if (expectedLoad === load) target.frameServed = value; })
+  function teardown(target: DocTab, reason: 'deadline' | 'agent-error' | 'isolation-broken') {
+    // Capture/dispatch before state removes the iframe. Do not wait for IPC or
+    // move the deadline: disk receipt is separately timestamped by the backend.
+    markFrameTeardown(target,reason);
+    if (probe) void frameTrace(target.id,frameDiagnostic(target)).catch(() => {});
+  }
+  function refreshServed(target: DocTab, load: string, early = false) {
+    const observed = target.frameEarly;
+    void frameServed(target.id).then(value => {
+      if (expectedLoad !== load) return;
+      target.frameServed = value;
+      if (early && observed && target.frameEarly === observed) {
+        target.frameEarly = {...observed,serverAtMs:Date.now(),served:value};
+        if (probe) void frameTrace(target.id,frameDiagnostic(target)).catch(() => {});
+      }
+    })
       .catch(() => { /* Keep unavailable diagnostics unknown. */ });
   }
   async function toggleExternal() {

@@ -64,6 +64,7 @@ pub struct Step {
 /// A self-check in progress.
 pub struct SmokeRun {
     plan: Vec<Step>,
+    pub(crate) trace: crate::smoke_trace::Trace,
     out: Mutex<File>,
     started: Instant,
     tally: Mutex<(usize, usize)>,
@@ -91,8 +92,10 @@ impl SmokeRun {
         };
         let out = File::create(&smoke.out)
             .map_err(|e| format!("cannot write {}: {e}", smoke.out.display()))?;
+        let trace = crate::smoke_trace::Trace::start(&smoke.out)?;
         Ok(Self {
             plan,
+            trace,
             out: Mutex::new(out),
             started: Instant::now(),
             tally: Mutex::new((0, 0)),
@@ -149,6 +152,7 @@ impl SmokeRun {
     /// outside reads it that way, which is what lets a killed process be told
     /// apart from a failing one.
     pub fn finish(&self) -> i32 {
+        self.trace.flush();
         let (total, failed) = *self.tally.lock();
         let summary = serde_json::json!({
             "summary": {
