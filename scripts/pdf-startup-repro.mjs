@@ -85,7 +85,8 @@ function diagnosticObject(diagnostic, field) {
 }
 
 export function inspectResults(text, processResult, target) {
-  const result = { outcome: 'harness-malfunction', originalFailure: false, reasons: [], summary: null };
+  const result = { outcome: 'harness-malfunction', originalFailure: false, reasons: [], summary: null,
+    processExitCode: processResult.code ?? null, exitDiscrepancy: null };
   let rows;
   try {
     if (typeof text !== 'string' || Buffer.byteLength(text) > FILE_LIMIT || !text.endsWith('\n')) throw new Error('incomplete results');
@@ -101,8 +102,12 @@ export function inspectResults(text, processResult, target) {
   const failures = rows.filter(row => row.ok === false).length;
   if (!result.summary || result.summary.total !== 2 || result.summary.failed !== failures) result.reasons.push('missing-or-inconsistent-summary');
   if (processResult.timedOut || processResult.interrupted || processResult.spawnError || processResult.pipeTimedOut || processResult.cleanupError || processResult.signal) result.reasons.push('process-incomplete');
-  if (![0, 1].includes(processResult.code) || processResult.code !== (failures ? 1 : 0)) result.reasons.push('exit-code-result-mismatch');
+  // The locked Linux Tauri/tao event loop can exit 0 after app.exit(1). As in
+  // the ordinary smoke runner, complete validated rows + summary decide failure.
+  // Preserve that discrepancy; never reinterpret failed results as success.
+  if (![0, 1].includes(processResult.code) || (!failures && processResult.code !== 0)) result.reasons.push('exit-code-result-mismatch');
   if (result.reasons.length) return result;
+  if (failures && processResult.code === 0) result.exitDiscrepancy = 'zero-exit-with-failed-results';
   result.htmlPassed = rows[0].ok;
   result.pdfPassed = rows[1].ok;
   result.outcome = result.originalFailure ? 'original-failure' : failures ? 'other-failure' : 'passed';

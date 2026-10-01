@@ -78,7 +78,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
   let app, ready = false, failed = false, worker, workerUrl;
   let pagesLoaded = false, pendingGoto = null, applyingPage = false;
   let positionReceived = false, rotationApplied = false, pendingRotation = null, automaticRotation = 0;
-  let automaticImage = false, imageCorrection = false, cancelImageProbe;
+  let automaticImage = false, imageCorrection = false, cancelImageProbe, cancelStylesheet;
   let initialized = false, stallTimer, stalled = false;
   const steps = {initialize:'not-started',preferences:'pending',l10n:'not-started',components:'not-started'};
   let request = 0, query = '', textGeneration = 0;
@@ -150,7 +150,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
     if (failed) return;
     if (!initialized) { startupSample('error'); stallSnapshot('error'); }
     failed = true; ready = false; pendingGoto = null;
-    cancelImageProbe?.();
+    cancelImageProbe?.(); cancelStylesheet?.();
     clearTimeout(stallTimer);
     send({type:'error',code,detail:String(cause?.message ?? cause ?? '').slice(0,4096)});
   };
@@ -166,12 +166,55 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
   // Once: a swallowed text failure is otherwise invisible, and it is what WebKit hit.
   let textFailedSent = false;
   const textFailed = () => { if (!textFailedSent) { textFailedSent = true; stage('text-failed'); } };
+  function viewerStylesheetReady() {
+    const sheet = [...document.querySelectorAll('link[rel~="stylesheet"]')]
+      .find(node => path(node.getAttribute('href')) === '/_/pdfjs/web/viewer.css');
+    if (!sheet) throw new Error('PDF viewer stylesheet is missing');
+    if (sheet.disabled) throw new Error('PDF viewer stylesheet is disabled');
+    // WebKit can run the module while this stylesheet is still loading. Its
+    // link load event is not always visible to the window capture observer.
+    // An already-associated sheet needs no extra task or style/layout flush.
+    if (sheet.sheet) return null;
+    if (assetEvents.get(sheet)?.error != null) throw new Error('PDF viewer stylesheet failed to load');
+    return new Promise((resolve,reject) => {
+      let settled = false;
+      const finish = cause => {
+        if (settled) return;
+        settled = true;
+        sheet.removeEventListener('load',loaded); sheet.removeEventListener('error',rejected);
+        if (cancelStylesheet === cancel) cancelStylesheet = undefined;
+        if (cause) reject(cause); else resolve();
+      };
+      const check = () => {
+        try {
+          if (sheet.disabled) finish(new Error('PDF viewer stylesheet is disabled'));
+          else if (sheet.sheet) finish();
+        } catch (cause) { finish(cause); }
+      };
+      const loaded = event => {
+        recordAsset(event,'load'); check();
+        if (!settled) finish(new Error('PDF viewer stylesheet is unavailable after load'));
+      };
+      const rejected = event => { recordAsset(event,'error'); finish(new Error('PDF viewer stylesheet failed to load')); };
+      const cancel = () => finish(new Error('PDF viewer stylesheet wait was cancelled'));
+      cancelStylesheet = cancel;
+      sheet.addEventListener('load',loaded,{once:true}); sheet.addEventListener('error',rejected,{once:true});
+      // Close the completion gap between the first sheet check and registration.
+      check();
+    });
+  }
   function observe(owner, method, step) {
     const original = owner[method];
     owner[method] = async function (...args) {
       steps[step] = 'pending';
-      if (step === 'components') startupSample('components');
       try {
+        if (step === 'components') {
+          if (failed) throw new Error('PDF viewer initialization was cancelled');
+          const pending = viewerStylesheetReady();
+          if (pending) await pending;
+          if (failed) throw new Error('PDF viewer initialization was cancelled');
+          startupSample('components');
+        }
         const result = await original.apply(this,args);
         steps[step] = 'resolved';
         return result;
@@ -526,7 +569,7 @@ import(${JSON.stringify(workerSrc)}).then(() => {
   addEventListener('drop',event => { event.preventDefault(); event.stopImmediatePropagation(); },true);
   addEventListener('pagehide',() => {
     ready = false; failed = true; pendingGoto = null; textGeneration++;
-    cancelImageProbe?.();
+    cancelImageProbe?.(); cancelStylesheet?.();
     clearTimeout(stallTimer); clearTimeout(earlyTimer);
     worker?.terminate(); if (workerUrl) URL.revokeObjectURL(workerUrl);
     void app?.close();

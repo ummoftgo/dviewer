@@ -19,6 +19,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   const errored = new Promise<void>(resolve => {resolveError=resolve;});
   const attempts: number[] = [];
   const rotationAttempts:number[] = [], order:string[] = [], textPages:number[] = [];
+  const components=vi.fn(); let requireStyles=false;
   let rotation = 0, textFailure = false;
   let drawn:TextPage, drawnRotation=0, elapsed=0;
   // Ragged line lengths: a stripe's reach varies from half to 95% of the span.
@@ -59,7 +60,12 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     initializedPromise:pendingInitialization ? initialization : Promise.resolve(), initialized:!pendingInitialization,
     async initialize() {await this.preferences.initializedPromise; await this.externalServices.createL10n(); await this._initializeViewerComponents();},
     preferences:{initializedPromise:Promise.resolve()},
-    externalServices:{createL10n:async () => ({})}, _initializeViewerComponents:async () => {},
+    externalServices:{createL10n:async () => ({})}, _initializeViewerComponents:async () => {
+      components();
+      // The pinned PDF.js constructor's native failure, reproduced by the CSS
+      // delay experiment: a visible container is static until viewer.css exists.
+      if (requireStyles && !styles[0].sheet) throw new Error('The `container` must be absolutely positioned.');
+    },
     appConfig:{secondaryToolbar:{openFileButton:{hidden:false}}},
     passwordPrompt:{open:vi.fn()}, close:vi.fn(), pagesCount:3,
     pdfViewer:{onePageRendered:Promise.resolve(),update() {order.push('update'); location=scrolled;},
@@ -99,8 +105,15 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   const addScript = (src:string|null,type = '') => scripts.push({tagName:'SCRIPT',type,async:type === 'module',defer:false,
     getAttribute:name => name === 'src' ? src : null});
   for (const src of ['/_/agent.js','/_/pdf-agent.js','/_/pdfjs/build/pdf.mjs','/_/pdfjs/web/viewer.mjs']) addScript(`/a${src}`,src.endsWith('.mjs') ? 'module' : '');
-  const styles:{tagName:string;rel:string;sheet:object|null;disabled:boolean;getAttribute:(name:string) => string|null}[] = [
-    {tagName:'LINK',rel:'stylesheet',sheet:null,disabled:false,getAttribute:name => name === 'href' ? '/a/_/pdfjs/web/viewer.css?secret=hidden' : null},
+  const styleListeners = new Map<string,Set<(event:unknown) => void>>();
+  let styleListenerAdded: ((name:string) => void) | undefined;
+  const styles:{tagName:string;rel:string;sheet:object|null;disabled:boolean;getAttribute:(name:string) => string|null;
+    addEventListener:(name:string,listener:(event:unknown) => void) => void;removeEventListener:(name:string,listener:(event:unknown) => void) => void}[] = [
+    {tagName:'LINK',rel:'stylesheet',sheet:{},disabled:false,getAttribute:name => name === 'href' ? '/a/_/pdfjs/web/viewer.css?secret=hidden' : null,
+      addEventListener(name,listener) {
+        const listeners=styleListeners.get(name) ?? new Set(); listeners.add(listener); styleListeners.set(name,listeners); styleListenerAdded?.(name);
+      },
+      removeEventListener(name,listener) {styleListeners.get(name)?.delete(listener);}},
   ];
   const container={isConnected:true}, getComputedStyle=vi.fn(() => ({position:styles[0].sheet ? 'absolute' : 'static'}));
   const window:{pdfjsLib:object | undefined;PDFViewerApplication:typeof app | undefined;PDFViewerApplicationOptions:object} = {
@@ -114,6 +127,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
       else documentListeners.set(name,listener);
     }};
   const navigationEntries:Record<string,number>[] = [{responseStatus:200}];
+  const componentsWithoutBridge=app._initializeViewerComponents.bind(app);
   const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges,installMissing,imageProbeEngine});',{
     parent,window,document,getComputedStyle,
     navigator:{language:'en-GB',locale:'C',userAgent},
@@ -125,11 +139,17 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     addEventListener(name:string,listener:(event:unknown) => void,capture:unknown) {(capture === true ? captureListeners : listeners).set(name,listener);},
   });
   return {
-    attempts,messages,errored,resourceEntries,navigationEntries,rotationAttempts,order,textPages,renders,canvas,scripts,addScript,styles,getComputedStyle,document,
+    attempts,messages,errored,resourceEntries,navigationEntries,rotationAttempts,order,textPages,renders,canvas,scripts,addScript,styles,getComputedStyle,document,components,styleListeners,
     clock(ms:number) {elapsed=ms;},
     application(present:boolean) {window.PDFViewerApplication=present ? app : undefined;},
     pdfjsLib(present:boolean) {window.pdfjsLib=present ? {} : undefined;},
-    styleEvent(index:number,name:'load'|'error') {captureListeners.get(name)?.({target:styles[index]});},
+    requireStyles() {requireStyles=true;},
+    componentsWithoutBridge,
+    styleListenerAdded(listener:(name:string) => void) {styleListenerAdded=listener;},
+    styleEvent(index:number,name:'load'|'error',captured=true) {
+      const event={target:styles[index]}; if (captured) captureListeners.get(name)?.(event);
+      for (const listener of [...(styleListeners.get(name) ?? [])]) listener(event);
+    },
     documentEvent(name:string,state=document.readyState) {document.readyState=state; documentListeners.get(name)?.();},
     scriptEvent(index:number,name:'load'|'error') {captureListeners.get(name)?.({target:scripts[index]});},
     windowLoad() {captureListeners.get('load')?.({target:document});},
@@ -143,7 +163,10 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     async initialize() {initialize(); await app.initializedPromise;},
     start() {initialize();},
     async finishInitialization() {app.initialized=true; resolveInitialization(); await initialization;},
-    failInitialization() {app._initializeViewerComponents=async () => {throw new Error('components failed');};},
+    failInitialization(unloadStyles=false) {app._initializeViewerComponents=async () => {
+      if (unloadStyles) styles[0].sheet=null;
+      throw new Error('components failed');
+    };},
     runInitialization() {return app.initialize();},
     async ready() {bus.get('documentinit')!(); await ready;},
     loaded() {accepts=true; bus.get('pagesloaded')?.();},
@@ -551,8 +574,8 @@ test('a rejected initialize is reported even when initializedPromise never rejec
   pdf.close();
 });
 
-test('early component failure captures CSS state before teardown without flushing startup styles',async () => {
-  const pdf=viewer(undefined,true); pdf.failInitialization();
+test('early component failure captures changing CSS state before teardown without flushing startup styles',async () => {
+  const pdf=viewer(undefined,true); pdf.failInitialization(true);
   pdf.document.readyState='interactive'; pdf.clock(26); pdf.start();
   expect(pdf.getComputedStyle).not.toHaveBeenCalled();
   pdf.clock(97);
@@ -563,8 +586,8 @@ test('early component failure captures CSS state before teardown without flushin
   expect(parseFrameMessage(stall)).toEqual({type:'stall',snapshot:stall.snapshot});
   expect(stall.snapshot).toMatchObject({reason:'error',steps:{components:'rejected'},startup:[
     {phase:'webviewerloaded',at:26,readyState:'interactive',visibility:'visible',containerPosition:null,
-      stylesheet:{present:true,sheet:false,disabled:false,load:null,error:null}},
-    {phase:'components',at:97,containerPosition:null,stylesheet:{sheet:false}},
+      stylesheet:{present:true,sheet:true,disabled:false,load:null,error:null}},
+    {phase:'components',at:97,containerPosition:null,stylesheet:{sheet:true}},
     {phase:'error',at:97,containerConnected:true,containerPosition:'static',stylesheet:{sheet:false}},
   ]});
   expect(pdf.messages.indexOf(stall)).toBeLessThan(pdf.messages.findIndex(message => message.type === 'error'));
@@ -612,6 +635,85 @@ test('only the explicit startup experiment sends one successful bounded sample w
     }
     pdf.event('error',{message:'later document error'});
     expect(pdf.messages.filter(message => message.type === 'stall')).toHaveLength(enabled ? 1 : 0);
+    pdf.close();
+  }
+});
+
+test('components wait for the actual stylesheet instead of reproducing the native constructor failure',async () => {
+  const previous=viewer(undefined,true); previous.requireStyles(); previous.styles[0].sheet=null;
+  await expect(previous.componentsWithoutBridge()).rejects.toThrow('The `container` must be absolutely positioned.');
+  previous.close();
+
+  const pdf=viewer(undefined,true); pdf.requireStyles(); pdf.styles[0].sheet=null; pdf.start();
+  const result=pdf.runInitialization().then(() => 'ready',cause => cause.message);
+  await vi.waitFor(() => expect((pdf.styleListeners.get('load')?.size ?? 0) + pdf.components.mock.calls.length).toBeGreaterThan(0));
+  expect(pdf.components).not.toHaveBeenCalled();
+  expect(pdf.messages.some(message => message.type === 'error')).toBe(false);
+  expect(pdf.getComputedStyle).not.toHaveBeenCalled();
+  pdf.clock(1000); pdf.styles[0].sheet={}; pdf.styleEvent(0,'load',false);
+  expect(await result).toBe('ready'); expect(pdf.components).toHaveBeenCalledTimes(1);
+  expect([...pdf.styleListeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+  expect(pdf.messages.some(message => message.type === 'error')).toBe(false);
+  pdf.close();
+});
+
+test('a cached stylesheet initializes without a load observation or a listener',async () => {
+  const pdf=viewer(undefined,true); pdf.requireStyles(); pdf.start(); await pdf.runInitialization();
+  expect(pdf.components).toHaveBeenCalledTimes(1);
+  expect(pdf.styleListeners.size).toBe(0); expect(pdf.getComputedStyle).not.toHaveBeenCalled();
+  pdf.close();
+});
+
+test('stylesheet completion during listener registration is rechecked without an event',async () => {
+  const pdf=viewer(undefined,true); pdf.requireStyles(); pdf.styles[0].sheet=null;
+  pdf.styleListenerAdded(name => {if (name === 'error') pdf.styles[0].sheet={};});
+  pdf.start(); const result=pdf.runInitialization().then(() => 'ready',cause => cause.message);
+  await vi.waitFor(() => expect(pdf.components).toHaveBeenCalledTimes(1));
+  expect(await result).toBe('ready');
+  expect([...pdf.styleListeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+  pdf.close();
+});
+
+test('stylesheet load and error failures stop initialization and detach both listeners',async () => {
+  for (const event of ['error','load'] as const) {
+    const pdf=viewer(undefined,true); pdf.requireStyles(); pdf.styles[0].sheet=null; pdf.start();
+    const result=pdf.runInitialization().then(() => 'ready',cause => cause.message);
+    await vi.waitFor(() => expect(pdf.styleListeners.get('load')?.size).toBe(1));
+    pdf.styleEvent(0,event,false);
+    const detail=event === 'error' ? 'PDF viewer stylesheet failed to load' : 'PDF viewer stylesheet is unavailable after load';
+    expect(await result).toBe(detail); expect(pdf.components).not.toHaveBeenCalled();
+    expect(pdf.messages.filter(message => message.type === 'error')).toEqual([{type:'error',code:'pdfFailed',detail:`components: ${detail}`,load:'?g=0'}]);
+    expect([...pdf.styleListeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+    pdf.styles[0].sheet={}; pdf.styleEvent(0,'load');
+    expect(pdf.components).not.toHaveBeenCalled(); pdf.close();
+  }
+});
+
+test('missing, disabled and inaccessible stylesheets fail rather than starting unstyled components',async () => {
+  for (const state of ['missing','disabled','inaccessible']) {
+    const pdf=viewer(undefined,true); pdf.requireStyles();
+    if (state === 'missing') pdf.styles.length=0;
+    if (state === 'disabled') pdf.styles[0].disabled=true;
+    if (state === 'inaccessible') Object.defineProperty(pdf.styles[0],'sheet',{get() {throw new Error('stylesheet access failed');}});
+    pdf.start();
+    await expect(pdf.runInitialization()).rejects.toThrow(state === 'inaccessible' ? 'stylesheet access failed' : `PDF viewer stylesheet is ${state}`);
+    expect(pdf.components).not.toHaveBeenCalled(); expect(pdf.messages.filter(message => message.type === 'error')).toHaveLength(1);
+    pdf.close();
+  }
+});
+
+test('closing or another error cancels the stylesheet wait and ignores later load completion',async () => {
+  for (const finish of ['close','error','close-after-load']) {
+    const pdf=viewer(undefined,true); pdf.requireStyles(); pdf.styles[0].sheet=null; pdf.start();
+    const result=pdf.runInitialization().then(() => 'ready',cause => cause.message);
+    await vi.waitFor(() => expect(pdf.styleListeners.get('load')?.size).toBe(1));
+    if (finish === 'close-after-load') {pdf.styles[0].sheet={}; pdf.styleEvent(0,'load',false);}
+    if (finish === 'error') pdf.event('error',{message:'earlier failure'}); else pdf.close();
+    expect(await result).toBe(finish === 'close-after-load' ? 'PDF viewer initialization was cancelled' : 'PDF viewer stylesheet wait was cancelled');
+    expect([...pdf.styleListeners.values()].every(listeners => listeners.size === 0)).toBe(true);
+    pdf.styles[0].sheet={}; pdf.styleEvent(0,'load');
+    expect(pdf.components).not.toHaveBeenCalled();
+    expect(pdf.messages.filter(message => message.type === 'error')).toHaveLength(finish === 'error' ? 1 : 0);
     pdf.close();
   }
 });

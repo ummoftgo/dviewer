@@ -1674,3 +1674,23 @@ tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므�
 한 번 제한을 빼는 Rust 변형과 성공 snapshot의 opt-in을 빼는 JS 변형은 각각 회귀1개를 실패시켰고 원본 바이트로 복구했다. 실험 runner의 순서 증명·앱 exit 보존·오류 뒤 취소·module 대조 판정 네 변형도 각각1·2·2·1개를 실패시켰다. 새 standalone Chromium은 socket EPERM, 제공된 cloud browser의 고유 localhost 테스트 탭은 ERR_BLOCKED_BY_CLIENT로 페이지 실행 전에 막혔으며 탭과 서버를 종료했다. 로그인된 탭이나 자격증명에는 접근하지 않았다. 로컬 관측/검사 로그는 `.agent-works/pdf-style-startup/experiment-*.log`에 있다. 아직 실제 WebKit 원인 재현이나 수정 완료를 뜻하지 않는다.
 
 실험 첫 CI run36822652372는 native 통합 컴파일에서 DocId(u32)와 helper의 u64 경계 불일치로 멈춰 여섯 조건을 실행하지 못했다. helper가 backend의 `DocId`를 직접 사용하도록 수정하고 최대값 보존 회귀를 추가했다. 독립 harness에 남아 있던 u64 별칭도 실제 state.rs 선언과 일치시켰다. 재검사에서 helper 포함 독립 Rust14개, CLI·SmokeRun까지39개가 통과했다. 이는 컴파일 결함 수정이며 CSS 원인이나 실험 결과가 아니다.
+
+## PDF stylesheet 준비 전 구성요소 생성 재현과 수정 — 2026-10-01
+
+`5b5ffd1`의 native 실험 run36823383493(아티팩트11144790934)은 두 CSS 지연군에서 원래 constructor 오류를 재현했다. 여섯 프로세스는 같은 바이너리 해시이며 HTML 대조군 여섯 건도 통과했다. CSS가 보류된 동안 module이 실제로 완료됐고, report.pdf는 components119ms→오류127ms, upright-image.pdf는116ms→124ms에 sheet:false·disabled:false·connected:true·position:static이었다. 그 뒤 iframe 제거와 CSS 취소가 관측됐으므로 취소를 선행 원인으로 읽지 않는다. CSS 무지연·module 지연 네 대조는 sheet:true로 모두 성공했다. 성공군도 전역 관측의 stylesheet load는 모두 null이어서 이것만으로 준비 여부를 판정할 수 없었다.
+
+최초 실험 runner는 실패 summary와 OS exit0의 조합을 하네스 불일치로 보고 전체 exit2를 냈다. 잠긴 tauri-runtime-wry2.11.4는 RequestExit(code)를 callback에 전달한 뒤 ControlFlow::Exit를 설정하고, tao0.35.3의 이 값은 ExitWithCode(0)이다. 기존 full smoke처럼 완전한 결과 행·summary를 실패 판정의 근거로 삼도록 새 runner만 바로잡았다. 원본 프로세스 코드0과 `zero-exit-with-failed-results`는 남기고 실패 결과를 성공으로 바꾸지 않는다. 원본18개 result/process/trace 해시를 유지한 별도 재분석은 두 CSS 군을 original-failure, 나머지 네 군을 성공 대조로 보고 최종 reproduced/exit1을 낸다. 앱 종료 경로나 원본 아티팩트는 바꾸지 않았다.
+
+수정은 고정 viewer.css의 sheet 빠른 경로와 직접 load/error 대기뿐이다. 등록 후 재확인, 스타일 오류, pagehide·다른 오류, load 직후 닫힘을 다루며 position·CSP·worker·기존30초 기한은 유지한다. VM에서 과거 constructor 검사를 CSS 없이 실행하면 정확한 오류가 나고, bridge를 통과하면 load 전 구성요소0회·load 뒤1회다. 새 native 실행에서 같은 여섯 조건과 정확한 최종 SHA의 세 OS test·bundle·full smoke를 확인해야 한다.
+
+| 검사 | 로컬 결과 |
+| --- | --- |
+| npm test | 456개 /41파일 통과 |
+| npm run check | 오류0·경고0, 4로케일 ×504키 |
+| Node 스모크/진단/실험 판정 | 34개 통과(실험 전용20개) |
+| readiness gate 제거 변형 | 과거 constructor 경로가 다시 실행되어 새 회귀1개 실패 |
+| 등록 후 sheet 재확인 제거 변형 | 중간 완료 회귀1개 실패 |
+| runner 계약·실패 판정 네 변형 | 각각2·2·2·1개 실패; 원본 복구 |
+| 전체 Rust·native 여섯 조건·세 OS 서명 관문 | 이 수정의 로컬 미실행; GTK 부재, CI 필요 |
+
+두 agent 변형은 원본 바이트로 복구했다. 로그는 `.agent-works/pdf-style-startup/fix-*.log`와 `mutation-css-*.log`, 원본과 구분한 재분석은 같은 디렉터리의 `experiment-36823383493-exit-reanalysis.json`이다. 이번 메커니즘은 재현됐지만 수정 뒤 native 통과 전에는 해결·릴리스 준비 완료로 간주하지 않는다.

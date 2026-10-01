@@ -170,7 +170,7 @@ test('result parsing preserves original exit1 and false verdict instead of treat
   assert.equal(one('css-delay', ERR).classification, 'original-failure');
   assert.equal(inspectResults(results('report.pdf', 'some other failure'), exited(1), 'report.pdf').outcome, 'other-failure');
   assert.equal(inspectResults(results('report.pdf', 'The container must be absolutely positioned.'), exited(1), 'report.pdf').originalFailure, false);
-  assert.equal(inspectResults(results('report.pdf', ERR), exited(0), 'report.pdf').outcome, 'harness-malfunction');
+  assert.equal(inspectResults(results('report.pdf', ERR), exited(0), 'report.pdf').outcome, 'original-failure');
   const missing = trace().filter(row => row.phase !== 'held');
   const uncertain = one('css-delay', ERR, 'report.pdf', missing);
   assert.equal(uncertain.classification, 'injection-not-established');
@@ -313,4 +313,51 @@ test('error frame captured before frameError assignment still correlates with th
   assert.equal(result.application.originalFailure, true);
   assert.equal(result.startup.observed, true);
   assert.equal(one('css-delay', 'unrelated failure', 'report.pdf', rows).classification, 'injection-not-established');
+});
+
+
+test('complete failed results remain red when the Linux event loop exits zero', () => {
+  const cases = matrix();
+  for (const [index, target] of [[1, 'report.pdf'], [4, 'upright-image.pdf']]) {
+    const result = classifyCase({ target, mode: 'css-delay', resultsText: results(target, ERR),
+      traceText: jsonl(abortAfterFatal()), process: exited(0) });
+    assert.equal(result.classification, 'original-failure');
+    assert.equal(result.application.outcome, 'original-failure');
+    assert.equal(result.application.pdfPassed, false);
+    assert.equal(result.application.summary.failed, 1);
+    assert.equal(result.application.processExitCode, 0);
+    assert.equal(result.application.exitDiscrepancy, 'zero-exit-with-failed-results');
+    assert.deepEqual(result.application.reasons, []);
+    cases[index] = result;
+  }
+  const verdict = classifyExperiment(cases);
+  assert.equal(verdict.controlsPassed, true);
+  assert.equal(verdict.classification, 'reproduced');
+  assert.equal(verdict.originalFailures.length, 2);
+  assert.equal(verdict.exitCode, 1);
+  const other = classifyCase({ target: 'report.pdf', mode: 'css-delay', resultsText: results('report.pdf', 'unrelated failure'),
+    traceText: jsonl(trace()), process: exited(0) });
+  assert.equal(other.application.outcome, 'other-failure');
+  assert.equal(other.application.exitDiscrepancy, 'zero-exit-with-failed-results');
+  const unrelated = matrix(); unrelated[1] = other;
+  assert.equal(classifyExperiment(unrelated).exitCode, 1);
+});
+
+test('zero-exit discrepancy exception cannot excuse invalid results, abnormal exits, or failed controls', () => {
+  for (const code of [2, 3, -1, null, '0']) {
+    assert.equal(inspectResults(results('report.pdf', ERR), exited(code), 'report.pdf').outcome, 'harness-malfunction');
+  }
+  for (const problem of [{ signal: 'SIGSEGV' }, { timedOut: true }, { interrupted: true }, { spawnError: true },
+    { cleanupError: true }, { pipeTimedOut: true }]) {
+    assert.equal(inspectResults(results('report.pdf', ERR), { ...exited(0), ...problem }, 'report.pdf').outcome, 'harness-malfunction');
+  }
+  const invalid = results('report.pdf', ERR).replace('"failed":1', '"failed":0');
+  assert.equal(inspectResults(invalid, exited(0), 'report.pdf').outcome, 'harness-malfunction');
+  assert.equal(inspectResults(results(), exited(1), 'report.pdf').outcome, 'harness-malfunction');
+  assert.equal(inspectResults(results(), exited(0), 'report.pdf').exitDiscrepancy, null);
+  assert.equal(inspectResults(results('report.pdf', ERR), exited(1), 'report.pdf').exitDiscrepancy, null);
+  const cases = matrix();
+  cases[0] = classifyCase({ target: 'report.pdf', mode: 'css-control', resultsText: results('report.pdf', ERR),
+    traceText: jsonl(trace('css-control', true)), process: exited(0) });
+  assert.equal(classifyExperiment(cases).exitCode, 2);
 });
