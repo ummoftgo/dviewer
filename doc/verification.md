@@ -1651,3 +1651,24 @@ main `8b429fc`의 warm Linux run36816853550에서 upright-image.pdf는 97ms 무�
 | 전체 Rust·native debug/release 스모크 | GTK/WebKit 개발 라이브러리 부재로 이번 변경에서 미실행; 세 OS CI 필요 |
 
 VM 검사는 오류 앞 스냅샷 순서, CSS 미완료·완료·getter 실패, 첫 표본의 독립 보존, 가림과 구조화 파서 왕복을 확인한다. 두 변형은 원본 바이트로 복원했다. 아직 원인 해결이나 WebKit 재현 성공을 의미하지 않는다. 로그는 `.agent-works/pdf-style-startup/observe-*.log`와 `mutation-*.log`다.
+
+## PDF CSS 순서의 제한된 native 실험 준비 — 2026-10-01
+
+첫 관측 커밋 `0c5a6c2`의 run36820233498은 세 OS test·warm에 통과했고 초기 오류는 재현되지 않았다. 이를 수정의 증거로 삼지 않고 한정된 두 번째 실험을 준비했다. 기존 생성기 매니페스트의 report.pdf·upright-image.pdf 각각 새 프로세스에서 같은 [report.html→대상PDF] 순서로 무지연 helper·CSS 1초 지연·viewer.mjs 1초 지연을 비교한다. 정상 앱이나 기존 full smoke의 CSS·초기화 순서·deadline은 바꾸지 않는다.
+
+주입은 실제 smoke 상태+고정 환경 enum+검증된 PDF GET/200에만 적용하며 한 응답·한 helper로 제한한다. 무지연도 같은 helper를 써 thread 효과를 통제한다. 실제 sleep 설정은 0/1000ms뿐이며 스케줄러 때문에 실제 경과는 달라질 수 있어 함께 기록한다. helper는 별도 fault trace만 쓰고 single-writer Diagnostics::progress를 호출하지 않는다. finish는 helper join 뒤 trace를 flush한다. 성공 초기화 스냅샷은 opt-in 첫 PDF 한 번만 보내며, 정상 경로 computed-style 읽기는 여전히 없다.
+
+tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므로 CSS를 늦췄다는 설정만으로 실험 성립을 인정하지 않는다. viewer.mjs의 native finished가 실제 CSS hold 구간 안에 있어야 한다. 지연 CSS가 초기 오류의 iframe 제거 뒤 취소된 경우에는 components 오류·CSS 미준비 표본·teardown 시각·native 취소 순서가 함께 맞아야 후속 취소로 인정한다. CSS 무지연과 module 지연 대조가 모두 통과해야 CSS 재현으로 구분한다. 앱의 exit1/ok:false는 유지하고 미성립·불충분 관측·하네스 실패는 별도 exit2, 모든 조건 미재현은 exit0이지만 해결 주장으로 쓰지 않는다.
+
+| 검증 | 로컬 결과 |
+| --- | --- |
+| npm test | 450개 / 41파일 통과 |
+| npm run check | 오류0·경고0, 4로케일 × 504키 |
+| Node 스모크/진단/실험 판정 | 32개 통과(실험 전용18개 포함) |
+| Rust helper + 기존 diagnostics 독립 검사 | 13개 통과(새 helper4개 포함) |
+| CLI·SmokeRun·trace 비네이티브 부분까지 독립 검사 | 38개 통과; Tauri/GTK 통합 검사 대체 아님 |
+| npm run build | 통과; 기존 chunk 경고, cargo-about 부재로 Rust notices 제외 |
+| DVIEWER_FIXTURES=required cargo test --locked --offline | gio-sys의 gio-2.0.pc 부재로 테스트 실행 전 중단 |
+| 실제 여섯 조건 native 실행·전체 Rust/새 PDF 경로 검사·세 OS native smoke | 로컬 미실행; 이 커밋의 CI에서 확인 필요 |
+
+한 번 제한을 빼는 Rust 변형과 성공 snapshot의 opt-in을 빼는 JS 변형은 각각 회귀1개를 실패시켰고 원본 바이트로 복구했다. 실험 runner의 순서 증명·앱 exit 보존·오류 뒤 취소·module 대조 판정 네 변형도 각각1·2·2·1개를 실패시켰다. 새 standalone Chromium은 socket EPERM, 제공된 cloud browser의 고유 localhost 테스트 탭은 ERR_BLOCKED_BY_CLIENT로 페이지 실행 전에 막혔으며 탭과 서버를 종료했다. 로그인된 탭이나 자격증명에는 접근하지 않았다. 로컬 관측/검사 로그는 `.agent-works/pdf-style-startup/experiment-*.log`에 있다. 아직 실제 WebKit 원인 재현이나 수정 완료를 뜻하지 않는다.

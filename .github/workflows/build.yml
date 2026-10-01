@@ -11,6 +11,10 @@ on:
         description: "설치본·포터블까지 만들어 아티팩트로 남깁니다 (릴리스는 만들지 않음)"
         type: boolean
         default: false
+      pdf_startup_repro:
+        description: "Linux PDF startup CSS/module 응답 순서의 제한된 진단 실험 (릴리스 관문을 대체하지 않음)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.event_name) || '' }}
@@ -125,7 +129,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: npm test
       - name: Check smoke result framing
-        run: node --test scripts/smoke-results.test.mjs scripts/smoke-diagnostics.test.mjs
+        run: node --test scripts/smoke-results.test.mjs scripts/smoke-diagnostics.test.mjs scripts/pdf-startup-repro.test.mjs
       # The Linux test job now smokes a real binary too; its notices must be
       # prepared with the same pinned generator as warm and bundle builds.
       - uses: taiki-e/install-action@v2
@@ -166,6 +170,21 @@ jobs:
           name: smoke-diagnostics-test-linux
           path: smoke-diagnostics/
           if-no-files-found: ignore
+          retention-days: 7
+      # Explicit second-round experiment only. The ordinary full sweep above is
+      # unchanged; no expected PDF error is converted into a passing check.
+      - name: Reproduce PDF startup response ordering
+        if: runner.os == 'Linux' && github.event_name == 'workflow_dispatch' && inputs.pdf_startup_repro
+        run: xvfb-run -a dbus-run-session -- node scripts/pdf-startup-repro.mjs
+        env:
+          DVIEWER_PDF_STARTUP_ARTIFACT_DIR: pdf-startup-diagnostics
+      - name: Retain PDF startup experiment
+        if: always() && runner.os == 'Linux' && github.event_name == 'workflow_dispatch' && inputs.pdf_startup_repro
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-startup-experiment-linux
+          path: pdf-startup-diagnostics/
+          if-no-files-found: error
           retention-days: 7
       - name: Check updater release metadata and signer compatibility
         if: runner.os == 'Linux'

@@ -27,11 +27,13 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use std::sync::atomic::AtomicBool;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{Smoke, SmokeMode};
+use crate::docserve::startup_repro::{Event as StartupEvent, Experiment as StartupExperiment, Mode as StartupMode};
 
 /// Everything went as the plan said it would.
 pub const OK: i32 = 0;
@@ -76,6 +78,8 @@ pub struct SmokeRun {
     /// reach that code — it lives in a Tauri event handler. So the run cannot
     /// end when the frontend is done; it ends when the window is really gone.
     finish_when_gone: Mutex<Option<String>>,
+    pub(crate) pdf_startup_experiment: Mutex<Option<StartupExperiment>>,
+    pdf_startup_snapshot: Option<AtomicBool>,
 }
 
 impl SmokeRun {
@@ -93,6 +97,16 @@ impl SmokeRun {
         let out = File::create(&smoke.out)
             .map_err(|e| format!("cannot write {}: {e}", smoke.out.display()))?;
         let trace = crate::smoke_trace::Trace::start(&smoke.out)?;
+        // Merely setting the environment cannot affect a normal app: this
+        // configuration is read only after an actual --smoke run was requested.
+        let value = std::env::var("DVIEWER_PDF_STARTUP_REPRO").ok();
+        let startup_mode = StartupMode::parse(value.as_deref()).map_err(str::to_owned)?;
+        if startup_mode.is_some() && !matches!(smoke.mode, SmokeMode::Run { .. }) {
+            return Err("PDF startup experiment requires a smoke manifest".into());
+        }
+        if let Some(mode) = startup_mode {
+            trace.record("pdf-startup-fault",serde_json::to_value(StartupEvent::armed(mode)).expect("static fault event"));
+        }
         Ok(Self {
             plan,
             trace,
@@ -100,11 +114,17 @@ impl SmokeRun {
             started: Instant::now(),
             tally: Mutex::new((0, 0)),
             finish_when_gone: Mutex::new(None),
+            pdf_startup_experiment: Mutex::new(startup_mode.map(StartupExperiment::new)),
+            pdf_startup_snapshot: startup_mode.map(|_| AtomicBool::new(false)),
         })
     }
 
     pub fn plan(&self) -> &[Step] {
         &self.plan
+    }
+
+    pub(crate) fn startup_snapshot(&self) -> Option<&AtomicBool> {
+        self.pdf_startup_snapshot.as_ref()
     }
 
     /// Append one result and flush it.
@@ -152,6 +172,11 @@ impl SmokeRun {
     /// outside reads it that way, which is what lets a killed process be told
     /// apart from a failing one.
     pub fn finish(&self) -> i32 {
+        // All experiment response work and its final evidence must finish before
+        // the trace flush or process exit. No helper exists outside opt-in smoke.
+        let experiment_ok = self.pdf_startup_experiment.lock().as_mut().map(|experiment| experiment.join(|event| {
+            self.trace.record("pdf-startup-fault",serde_json::to_value(event).expect("static fault event"));
+        })).unwrap_or(true);
         self.trace.flush();
         let (total, failed) = *self.tally.lock();
         let summary = serde_json::json!({
@@ -164,7 +189,7 @@ impl SmokeRun {
         let mut out = self.out.lock();
         let _ = writeln!(out, "{summary}");
         let _ = out.flush();
-        if failed == 0 { OK } else { MISMATCH }
+        if !experiment_ok { BROKEN } else if failed == 0 { OK } else { MISMATCH }
     }
 }
 

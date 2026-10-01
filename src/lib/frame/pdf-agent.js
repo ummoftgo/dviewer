@@ -71,6 +71,9 @@ const IMAGE_PROBE_MS = 500;
 const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAgent ?? '');
 (() => {
   const load = location.search;
+  // Added only to the first validated PDF viewer of an explicit native smoke
+  // experiment. Ordinary users and ordinary full sweeps do not send success samples.
+  const startupRepro = document.currentScript?.hasAttribute('data-startup-repro') === true;
   const send = value => parent.postMessage({...value, load}, '*');
   let app, ready = false, failed = false, worker, workerUrl;
   let pagesLoaded = false, pendingGoto = null, applyingPage = false;
@@ -181,7 +184,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
   function stallSnapshot(reason = 'timeout') {
     clearTimeout(stallTimer);
     stallTimer = undefined;
-    if (initialized || failed || (stalled && reason !== 'error')) return;
+    if (initialized || failed || (stalled && reason === 'timeout')) return;
     stalled = true;
     let snapshot = {};
     try {
@@ -455,6 +458,7 @@ import(${JSON.stringify(workerSrc)}).then(() => {
         annotationEditorMode:-1,annotationMode:1,enableSignatureEditor:false,enableSplitMerge:false,enableMerge:false,
         disableHistory:true,disablePreferences:true,viewOnLoad:1});
       app.initializedPromise.then(() => {
+        if (startupRepro && !failed) { startupSample('initialized'); stallSnapshot('initialized'); }
         initialized = true; clearTimeout(stallTimer); stallTimer = undefined;
         stage('initializedPromise');
         // Opening inside the embedded viewer would bypass the app's document identity.

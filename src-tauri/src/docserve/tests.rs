@@ -20,7 +20,7 @@ fn traced_response(server: &DocServer, state: &AppState, url: &str, ranges: &[&s
     trace.record_path(url);
     let mut result = None;
     process_request(&trace, (), |_| serve_traced(state, &server.tokens, url, false, &document_policy(&server.host),
-        ranges, &|_| None, Some(&trace)).unwrap_or_else(not_found), |_, response| { result = Some(response); Ok(()) });
+        ranges, &|_| None, Some(&trace), None).unwrap_or_else(not_found), |_, response| { result = Some(response); Ok(()) });
     result.unwrap()
 }
 
@@ -375,7 +375,7 @@ fn receive_and_diagnostic_query_do_not_need_the_token_registry_lock() {
         process_request(&trace, (), |_| {
             entered_tx.send(()).unwrap();
             serve_traced(&state, &worker_server.tokens, "/a/", false, &document_policy(&worker_server.host),
-                &[], &|_| None, Some(&trace)).unwrap()
+                &[], &|_| None, Some(&trace), None).unwrap()
         }, |_, _| Ok(()));
     });
     entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();

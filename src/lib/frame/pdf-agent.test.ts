@@ -8,7 +8,7 @@ type TextPage = {rotate:number; items:unknown[]; styles?:Record<string,{vertical
 const textItems = (a:number,b:number,n=20) => Array.from({length:n},() => ({str:'word',transform:[a,b,-b,a,0,0],fontName:'F1'}));
 // WebView2's: the image probe runs only in Chromium.
 const CHROMIUM_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0';
-function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}], userAgent = CHROMIUM_UA) {
+function viewer(outlineError?: Error, pendingInitialization = false, pages:TextPage[] = [{rotate:0,items:[]}], userAgent = CHROMIUM_UA, startupObservation = false) {
   const listeners = new Map<string,(event: unknown) => void>();
   const captureListeners = new Map<string,(event: unknown) => void>();
   const documentListeners = new Map<string,() => void>();
@@ -107,6 +107,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     pdfjsLib:{},PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}},
   };
   const document = {title:'PDF',readyState:'complete',visibilityState:'visible',fonts:{status:'loaded'},scripts,
+    currentScript:{hasAttribute:(name:string) => startupObservation && name === 'data-startup-repro'},
     getElementById:() => container,querySelectorAll:() => styles,createElement:() => canvas,
     addEventListener(name:string,listener:() => void) {
       if (name === 'webviewerloaded') initialize=listener;
@@ -587,6 +588,30 @@ test('error snapshots retain loaded CSS and tolerate unavailable CSSOM or comput
     expect(parseFrameMessage(stall)).toEqual({type:'stall',snapshot:stall.snapshot});
     expect(stall.snapshot).toHaveProperty('startup.1.stylesheet',{present:true,sheet:unreadable ? null : true,disabled:false,load:80,error:null});
     expect(stall.snapshot).toHaveProperty('startup.1.containerPosition',unreadable ? null : 'absolute');
+    pdf.close();
+  }
+});
+
+test('only the explicit startup experiment sends one successful bounded sample without a style flush',async () => {
+  for (const enabled of [false,true]) {
+    const pdf=viewer(undefined,true,undefined,CHROMIUM_UA,enabled);
+    pdf.styles[0].sheet={}; pdf.clock(5); pdf.styleEvent(0,'load');
+    pdf.clock(8); pdf.start(); pdf.clock(9); await pdf.runInitialization();
+    pdf.clock(10); await pdf.finishInitialization();
+    const snapshots=pdf.messages.filter(message => message.type === 'stall');
+    expect(snapshots).toHaveLength(enabled ? 1 : 0);
+    expect(pdf.getComputedStyle).not.toHaveBeenCalled();
+    if (enabled) {
+      const snapshot=snapshots[0].snapshot;
+      expect(parseFrameMessage(snapshots[0])).toEqual({type:'stall',snapshot});
+      expect(snapshot).toMatchObject({reason:'initialized',startup:[
+        {phase:'webviewerloaded',at:8,stylesheet:{sheet:true,load:5}},
+        {phase:'components',at:9,stylesheet:{sheet:true,load:5}},
+        {phase:'initialized',at:10,stylesheet:{sheet:true,load:5}},
+      ]});
+    }
+    pdf.event('error',{message:'later document error'});
+    expect(pdf.messages.filter(message => message.type === 'stall')).toHaveLength(enabled ? 1 : 0);
     pdf.close();
   }
 });

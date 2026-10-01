@@ -123,4 +123,21 @@ mod tests {
         let mut html = String::new(); response.into_reader().read_to_string(&mut html).unwrap();
         assert!(html.contains("<head><script src=\"/a/_/agent.js\" data-pdf>"));
     }
+
+    #[test]
+    fn a_startup_control_snapshot_requires_smoke_and_is_claimed_by_one_valid_pdf_viewer() {
+        let state = AppState::default(); let bytes = Arc::new(DocBytes::Owned(b"%PDF-".to_vec()));
+        state.insert("main", Document::new(1,"test.pdf".into(),DocSource::Text,None,DocKind::Pdf,bytes.clone(),encoding::verbatim(bytes)));
+        let tokens = Mutex::new(HashMap::from([("a".into(),Route::new(1))]));
+        let observed = AtomicBool::new(false);
+        let asset = |_: &str| Some(b"<!doctype html><head></head>".to_vec());
+        let base = document_policy("127.0.0.1:12345");
+        assert!(serve_traced(&state,&tokens,"/a/_/pdfjs/web/viewer.html?file=/b/",true,&base,&[],&asset,None,Some(&observed)).is_none());
+        assert!(!observed.load(Ordering::Relaxed));
+        for (smoke,expected) in [(false,false),(true,true),(true,false)] {
+            let response = serve_traced(&state,&tokens,"/a/_/pdfjs/web/viewer.html?file=/a/",smoke,&base,&[],&asset,None,Some(&observed)).unwrap();
+            let mut html = String::new(); response.into_reader().read_to_string(&mut html).unwrap();
+            assert_eq!(html.contains("data-startup-repro"),expected);
+        }
+    }
 }

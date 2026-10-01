@@ -14,6 +14,7 @@ type Response = tiny_http::Response<Box<dyn Read + Send>>;
 mod pdf;
 use pdf::{pdf_asset_path, pdf_file_matches, pdf_policy, pdf_response};
 mod diagnostics;
+pub(crate) mod startup_repro;
 use diagnostics::{Diagnostics, FrameRequest, FrameServerHealth, RequestTrace};
 pub(crate) use diagnostics::diagnostic_path;
 
@@ -104,17 +105,49 @@ impl DocServer {
                 };
                 // recv-returned is already atomic before URL parsing or allocation.
                 trace.record_path(request.url());
-                process_request(&trace, request, |request| {
+                let run = app.try_state::<crate::smoke::SmokeRun>();
+                let build = |request: &tiny_http::Request| {
                     let headers = request.headers();
                     let hosts: Vec<_> = headers.iter().filter(|h| h.field.equiv("Host")).collect();
                     let host_ok = valid_host(&hosts.iter().map(|h| h.value.as_str()).collect::<Vec<_>>(), &expected_host);
                     let response = if host_ok && request.method() == &tiny_http::Method::Get {
                         let ranges: Vec<_> = headers.iter().filter(|h| h.field.equiv("Range")).map(|h| h.value.as_str()).collect();
-                        serve_traced(&app.state::<AppState>(), &routes, request.url(), app.try_state::<crate::smoke::SmokeRun>().is_some(), &policy,
-                            &ranges, &|path| if pdf_assets.contains(path) { app.asset_resolver().get(path.to_owned()).map(|asset| asset.bytes) } else { None }, Some(&trace))
+                        serve_traced(&app.state::<AppState>(), &routes, request.url(), run.is_some(), &policy,
+                            &ranges, &|path| if pdf_assets.contains(path) { app.asset_resolver().get(path.to_owned()).map(|asset| asset.bytes) } else { None }, Some(&trace),
+                            run.as_ref().and_then(|run| run.startup_snapshot()))
                     } else { None };
                     response.unwrap_or_else(not_found)
-                }, |request, response| request.respond(response));
+                };
+                // Production (and ordinary smoke) still uses exactly one responder.
+                if run.as_ref().and_then(|run| run.startup_snapshot()).is_none() {
+                    process_request(&trace, request, build, |request, response| request.respond(response));
+                    continue;
+                }
+                trace.build_enter();
+                let response = build(&request);
+                trace.built(response.status_code().0,response.data_length());
+                let run = run.expect("experiment requires smoke state");
+                let path = diagnostic_path(request.url());
+                let token = request.url().split('?').next().and_then(|path| path.strip_prefix('/'))
+                    .and_then(|path| path.split_once('/')).map(|(token,_)| token);
+                let doc_id = token.and_then(|token| routes.lock().iter().find_map(|(key,route)|
+                    bool::from(key.as_bytes().ct_eq(token.as_bytes())).then_some(route.id)))
+                    .filter(|id| app.state::<AppState>().get(*id).is_ok_and(|doc| doc.kind() == DocKind::Pdf));
+                let mut experiment = run.pdf_startup_experiment.lock();
+                let experiment = experiment.as_mut().expect("explicit experiment mode");
+                if experiment.matches(request.method().as_str(),response.status_code().0,&path,doc_id) {
+                    let fault_trace = run.trace.clone();
+                    experiment.start(trace.sequence(),doc_id.expect("validated document"),move || request.respond(response),move |event| {
+                        fault_trace.record("pdf-startup-fault",serde_json::to_value(event).expect("static fault event"));
+                    });
+                    // The helper must not update the single-writer health fields.
+                    // This request deliberately ends at response-built there; its
+                    // actual send boundaries and outcome live in the fault trace.
+                } else {
+                    trace.respond_enter();
+                    let result = request.respond(response);
+                    trace.respond_returned(&result);
+                }
             }
         });
         Ok(Self { host, tokens, stop, worker: Some(worker), diagnostics, summaries })
@@ -275,11 +308,11 @@ fn process_request<T>(trace: &RequestTrace, request: T, build: impl FnOnce(&T) -
 #[cfg(test)]
 fn serve(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str,
     ranges: &[&str], asset: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<Response> {
-    serve_traced(state, tokens, url, smoke, policy, ranges, asset, None)
+    serve_traced(state, tokens, url, smoke, policy, ranges, asset, None, None)
 }
 
 fn serve_traced(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &str, smoke: bool, policy: &str,
-    ranges: &[&str], asset: &dyn Fn(&str) -> Option<Vec<u8>>, trace: Option<&RequestTrace>) -> Option<Response> {
+    ranges: &[&str], asset: &dyn Fn(&str) -> Option<Vec<u8>>, trace: Option<&RequestTrace>, startup_snapshot: Option<&AtomicBool>) -> Option<Response> {
     let (path, query) = url.split_once('?').unwrap_or((url, ""));
     let (token, relative) = path.strip_prefix('/')?.split_once('/')?;
     // Compare the secret in constant time; the small registry follows open HTML tabs.
@@ -311,7 +344,9 @@ fn serve_traced(state: &AppState, tokens: &Mutex<HashMap<String, Route>>, url: &
         let mut bytes = asset(&path)?;
         if viewer {
             route.served.html.fetch_add(1, Ordering::Relaxed);
-            let tag = format!("<script src=\"/{token}/_/agent.js\" data-pdf{}></script><script src=\"/{token}/_/pdf-agent.js\"></script>", if probe { " data-probe" } else { "" });
+            let observe = smoke && startup_snapshot.is_some_and(|claimed| claimed.compare_exchange(false,true,Ordering::Relaxed,Ordering::Relaxed).is_ok());
+            let tag = format!("<script src=\"/{token}/_/agent.js\" data-pdf{}></script><script src=\"/{token}/_/pdf-agent.js\"{}></script>",
+                if probe { " data-probe" } else { "" }, if observe { " data-startup-repro" } else { "" });
             let at = injection_offset(&bytes);
             bytes.splice(at..at, tag.bytes());
         } else { route.served.resource.fetch_add(1, Ordering::Relaxed); }

@@ -15,7 +15,7 @@ export interface FrameResourceTiming {
   responseStatus: number | null; duration: number | null; transferSize: number | null;
 }
 export interface FrameStartupSample {
-  phase: 'webviewerloaded' | 'components' | 'error'; at: number | null;
+  phase: 'webviewerloaded' | 'components' | 'error' | 'initialized'; at: number | null;
   readyState: 'loading' | 'interactive' | 'complete' | null;
   visibility: 'visible' | 'hidden' | 'prerender' | null;
   containerConnected: boolean | null;
@@ -37,7 +37,7 @@ export interface FrameStallSnapshot {
   styles?: {href: string | null; load: number | null; error: number | null}[];
   csp?: {directive: string; blocked: string | null; at: number | null}[];
   coreResources?: Partial<Record<PdfCorePath, FrameResourceTiming>>;
-  reason?: 'timeout' | 'error';
+  reason?: 'timeout' | 'error' | 'initialized';
   startup?: FrameStartupSample[];
 }
 export type FrameStall = FrameStallSnapshot | {raw: string};
@@ -161,14 +161,14 @@ function parseStall(value: unknown): FrameStallSnapshot | null {
     }
   }
   if (v.reason !== undefined) {
-    if (v.reason !== 'timeout' && v.reason !== 'error') return null;
+    if (v.reason !== 'timeout' && v.reason !== 'error' && v.reason !== 'initialized') return null;
     snapshot.reason = v.reason;
   }
   if (v.startup !== undefined) {
     if (!Array.isArray(v.startup) || v.startup.length > 3) return null;
     snapshot.startup = [];
     for (const sample of v.startup) {
-      if (!sample || typeof sample !== 'object' || !['webviewerloaded','components','error'].includes(sample.phase)
+      if (!sample || typeof sample !== 'object' || !['webviewerloaded','components','error','initialized'].includes(sample.phase)
         || !nullableCount(sample.at) || !['loading','interactive','complete',null].includes(sample.readyState)
         || !['visible','hidden','prerender',null].includes(sample.visibility) || !nullableBoolean(sample.containerConnected)
         || !['static','relative','absolute','fixed','sticky',null].includes(sample.containerPosition)) return null;

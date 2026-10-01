@@ -75,6 +75,10 @@ Linux ARM(aarch64)은 아직 없습니다. 크로스 컴파일보다 ARM 러너�
 
 CI 전용 실패는 관측 커밋을 먼저 넣는다. 두 바퀴의 진단·재현 안에 원인이 잡히지 않으면 그 기능을 릴리스에서 빼고 관문을 다시 검증한다.
 
+PDF 초기 CSS 순서의 두 번째 진단은 수동 실행의 `pdf_startup_repro=true`로만 선택한다. Linux test 잡이 먼저 기존 release full smoke를 그대로 통과한 뒤, 같은 바이너리로 `scripts/pdf-startup-repro.mjs`를 실행한다. 서명·번들·권한·태그 흐름은 바꾸지 않는다. 두 PDF 각각 새 프로세스에서 HTML 대조군→대상 PDF 순서를 유지하고 CSS 무지연 helper·CSS 1초 지연·viewer.mjs 1초 지연을 한 번씩, 합계 여섯 조건만 비교한다. 별도 `pdf-startup-experiment-linux` 아티팩트에 SHA·바이너리 해시·환경·원본 결과/trace·판정을 남긴다. 재현된 앱 오류는 exit1과 ok:false로, 하네스/주입 불성립은 exit2로 남기며 성공으로 덮지 않는다. exit0의 뜻도 제한된 실험에서 미재현일 뿐 해결이 아니다.
+
+주입은 실제 `SmokeRun`과 명시적 `DVIEWER_PDF_STARTUP_REPRO=css-control|css-delay|module-delay`가 모두 있을 때, 인증된 PDF 경로의 GET/200 고정 자원 한 응답에만 적용한다. 일반 서버의 단일 스레드는 유지하며 실험 helper 하나는 종료 전 join한다. helper는 single-writer 서버 건강 상태를 쓰지 않고 별도 fault trace를 쓴다. 따라서 선택된 응답은 기존 기록에서 response-built에 머물며 실제 응답 경계는 fault trace로 읽어야 한다. 같은 HTTP 연결의 pipelining은 응답 순서를 다시 묶을 수 있어 native trace에서 실제 역전이 성립했는지 확인해야 한다. 초기 오류 뒤 iframe 제거로 지연 CSS가 취소된 경우도 원인과 후속 취소를 구분한다. 첫 PDF의 제한된 성공 초기화 표본도 이 명시적 실험에서만 수집한다.
+
 배포 키 생성·시크릿 등록·공개키 커밋·태그·공개는 사용자가 맡는다. 다음은 PowerShell 명령이며 구현 검증에서 실행한 것은 격리 시험키 생성뿐이다.
 
 ```powershell

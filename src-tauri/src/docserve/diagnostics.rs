@@ -241,6 +241,7 @@ impl Drop for WorkerGuard {
 
 pub(super) struct RequestTrace { diagnostics: Arc<Diagnostics>, sequence: u64, received_elapsed_ms: u64 }
 impl RequestTrace {
+    pub(super) fn sequence(&self) -> u64 { self.sequence }
     pub(super) fn record_path(&self, url: &str) {
         let Some(mut requests) = self.diagnostics.requests.try_lock() else {
             self.diagnostics.contention_count.fetch_add(1, Ordering::Relaxed);
