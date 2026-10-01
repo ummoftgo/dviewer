@@ -1672,3 +1672,5 @@ tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므�
 | 실제 여섯 조건 native 실행·전체 Rust/새 PDF 경로 검사·세 OS native smoke | 로컬 미실행; 이 커밋의 CI에서 확인 필요 |
 
 한 번 제한을 빼는 Rust 변형과 성공 snapshot의 opt-in을 빼는 JS 변형은 각각 회귀1개를 실패시켰고 원본 바이트로 복구했다. 실험 runner의 순서 증명·앱 exit 보존·오류 뒤 취소·module 대조 판정 네 변형도 각각1·2·2·1개를 실패시켰다. 새 standalone Chromium은 socket EPERM, 제공된 cloud browser의 고유 localhost 테스트 탭은 ERR_BLOCKED_BY_CLIENT로 페이지 실행 전에 막혔으며 탭과 서버를 종료했다. 로그인된 탭이나 자격증명에는 접근하지 않았다. 로컬 관측/검사 로그는 `.agent-works/pdf-style-startup/experiment-*.log`에 있다. 아직 실제 WebKit 원인 재현이나 수정 완료를 뜻하지 않는다.
+
+실험 첫 CI run36822652372는 native 통합 컴파일에서 DocId(u32)와 helper의 u64 경계 불일치로 멈춰 여섯 조건을 실행하지 못했다. helper가 backend의 `DocId`를 직접 사용하도록 수정하고 최대값 보존 회귀를 추가했다. 독립 harness에 남아 있던 u64 별칭도 실제 state.rs 선언과 일치시켰다. 재검사에서 helper 포함 독립 Rust14개, CLI·SmokeRun까지39개가 통과했다. 이는 컴파일 결함 수정이며 CSS 원인이나 실험 결과가 아니다.

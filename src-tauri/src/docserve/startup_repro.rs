@@ -2,6 +2,7 @@
 //! Only the chosen successful asset response moves to one helper. Its events are
 //! separate from the single-writer document-server health observations.
 use std::{io, thread::{self, JoinHandle}, time::{Duration, Instant}};
+use crate::state::DocId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode { CssControl, CssDelay, ModuleDelay }
@@ -28,7 +29,7 @@ impl Mode {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Event {
     pub phase: &'static str, pub target: &'static str, pub delay_ms: u64,
-    pub request_id: Option<u64>, pub doc_id: Option<u64>, pub result: Option<&'static str>,
+    pub request_id: Option<u64>, pub doc_id: Option<DocId>, pub result: Option<&'static str>,
     pub error_kind: Option<&'static str>, pub held_ms: Option<u64>, pub status: Option<u16>,
 }
 impl Event {
@@ -45,10 +46,10 @@ impl Experiment {
     pub(crate) fn new(mode: Mode) -> Self { Self {mode,claimed:false,worker:None,spawn_failed:false} }
     // The caller has already built the response through the ordinary authenticated
     // route. Invalid hosts, tokens, methods, missing assets and non-200s stay inline.
-    pub(crate) fn matches(&self, method: &str, status: u16, path: &str, doc_id: Option<u64>) -> bool {
+    pub(crate) fn matches(&self, method: &str, status: u16, path: &str, doc_id: Option<DocId>) -> bool {
         !self.claimed && method == "GET" && status == 200 && path == self.mode.path() && doc_id.is_some()
     }
-    pub(crate) fn start(&mut self, request_id: u64, doc_id: u64,
+    pub(crate) fn start(&mut self, request_id: u64, doc_id: DocId,
         send: impl FnOnce() -> io::Result<()> + Send + 'static,
         record: impl Fn(Event) + Send + Sync + 'static) {
         assert!(!self.claimed, "only one response may be delayed");
@@ -118,6 +119,22 @@ mod tests {
         assert_eq!(events.iter().map(|event| event.phase).collect::<Vec<_>>(),["held","release","responded","joined"]);
         assert_eq!(events[2].result,Some("error")); assert_eq!(events[2].error_kind,Some("BrokenPipe"));
         assert!(!serde_json::to_string(&*events).unwrap().contains("private"));
+    }
+
+    #[test]
+    fn document_identity_uses_the_backend_type_and_preserves_its_full_range() {
+        let doc_id: DocId = u32::MAX;
+        let mut experiment = Experiment::new(Mode::CssControl);
+        assert!(experiment.matches("GET",200,"/_/pdfjs/web/viewer.css",Some(doc_id)));
+        let (tx,rx) = mpsc::channel();
+        experiment.start(1,doc_id,|| Ok(()),move |event| { tx.send(event).unwrap(); });
+        assert!(experiment.join(|_| {}));
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(),3);
+        for event in events {
+            assert_eq!(event.doc_id,Some(doc_id));
+            assert_eq!(serde_json::to_value(event).unwrap()["docId"],u32::MAX);
+        }
     }
 
     #[test]
