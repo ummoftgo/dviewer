@@ -126,8 +126,16 @@ jobs:
         run: npm test
       - name: Check smoke result framing
         run: node --test scripts/smoke-results.test.mjs scripts/smoke-diagnostics.test.mjs
+      # The Linux test job now smokes a real binary too; its notices must be
+      # prepared with the same pinned generator as warm and bundle builds.
+      - uses: taiki-e/install-action@v2
+        if: runner.os == 'Linux'
+        with:
+          tool: cargo-about@0.9.2
       - if: runner.os == 'Linux'
         run: npm run build
+        env:
+          DVIEWER_NOTICES: required
 
       # Eleven tests in `xlsx` and `parquet` read a generated fixture, and
       # without one they step aside — so before these steps existed they
