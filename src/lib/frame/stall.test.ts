@@ -30,6 +30,8 @@ test('typed early stalls preserve unknown app state and validate bounded passive
     lifecycle:{agentStart:0,domInteractive:1,domContentLoaded:2,domComplete:null,load:null,webviewerloaded:null},
     scripts:[{src:'/_/pdfjs/web/viewer.mjs',type:'module',async:true,defer:false,load:null,error:10}],
     styles:[{href:'/_/pdfjs/web/viewer.css',load:3,error:null}],
+    reason:'error',startup:[{phase:'error',at:97,readyState:'interactive',visibility:'visible',containerConnected:true,containerPosition:'static',
+      stylesheet:{present:true,sheet:false,disabled:false,load:null,error:null}}],
     csp:[{directive:'script-src-elem',blocked:'/_/pdfjs/web/viewer.mjs',at:10}],
     coreResources:{'/_/pdfjs/build/pdf.mjs':{responseStatus:200,duration:10,transferSize:100}}};
   const frame={} as Window,data={type:'stall',snapshot:early,load:'?g=1'};
@@ -42,6 +44,9 @@ test('typed early stalls preserve unknown app state and validate bounded passive
     {scripts:Array(9).fill(early.scripts![0])}, {scripts:[{...early.scripts![0],load:false}]},
     {scripts:[{...early.scripts![0],src:'/file?secret=value'}]}, {scripts:[{...early.scripts![0],src:'/file%3fsecret'}]},
     {styles:Array(5).fill(early.styles![0])}, {styles:[{...early.styles![0],href:'/file?secret=value'}]},
+    {reason:'invented'}, {startup:Array(4).fill(early.startup![0])}, {startup:[{...early.startup![0],phase:'invented'}]},
+    {startup:[{...early.startup![0],containerPosition:'url(secret)'}]}, {startup:[{...early.startup![0],at:-1}]},
+    {startup:[{...early.startup![0],stylesheet:{...early.startup![0].stylesheet,sheet:'true'}}]},
     {csp:Array(9).fill(early.csp![0])}, {csp:[{...early.csp![0],blocked:'https://example.com/private'}]},
     {csp:[{...early.csp![0],directive:'script-src secret'}]},
     {coreResources:{'/private':{responseStatus:200}}}, {coreResources:{'/_/pdfjs/build/pdf.mjs':{duration:Infinity}}}]) {

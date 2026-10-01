@@ -99,20 +99,22 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
   const addScript = (src:string|null,type = '') => scripts.push({tagName:'SCRIPT',type,async:type === 'module',defer:false,
     getAttribute:name => name === 'src' ? src : null});
   for (const src of ['/_/agent.js','/_/pdf-agent.js','/_/pdfjs/build/pdf.mjs','/_/pdfjs/web/viewer.mjs']) addScript(`/a${src}`,src.endsWith('.mjs') ? 'module' : '');
-  const styles:{tagName:string;rel:string;getAttribute:(name:string) => string|null}[] = [
-    {tagName:'LINK',rel:'stylesheet',getAttribute:name => name === 'href' ? '/a/_/pdfjs/web/viewer.css?secret=hidden' : null},
+  const styles:{tagName:string;rel:string;sheet:object|null;disabled:boolean;getAttribute:(name:string) => string|null}[] = [
+    {tagName:'LINK',rel:'stylesheet',sheet:null,disabled:false,getAttribute:name => name === 'href' ? '/a/_/pdfjs/web/viewer.css?secret=hidden' : null},
   ];
+  const container={isConnected:true}, getComputedStyle=vi.fn(() => ({position:styles[0].sheet ? 'absolute' : 'static'}));
   const window:{pdfjsLib:object | undefined;PDFViewerApplication:typeof app | undefined;PDFViewerApplicationOptions:object} = {
     pdfjsLib:{},PDFViewerApplication:app,PDFViewerApplicationOptions:{setAll() {},getAll() {return {one:1};}},
   };
-  const document = {title:'PDF',readyState:'complete',fonts:{status:'loaded'},scripts,querySelectorAll:() => styles,createElement:() => canvas,
+  const document = {title:'PDF',readyState:'complete',visibilityState:'visible',fonts:{status:'loaded'},scripts,
+    getElementById:() => container,querySelectorAll:() => styles,createElement:() => canvas,
     addEventListener(name:string,listener:() => void) {
       if (name === 'webviewerloaded') initialize=listener;
       else documentListeners.set(name,listener);
     }};
   const navigationEntries:Record<string,number>[] = [{responseStatus:200}];
   const pure = runInNewContext(readFileSync(new URL('./pdf-agent.js',import.meta.url),'utf8') + '\n({orientationFromProfiles,directionFromEdges,installMissing,imageProbeEngine});',{
-    parent,window,document,
+    parent,window,document,getComputedStyle,
     navigator:{language:'en-GB',locale:'C',userAgent},
     // Only the rendered pages move this clock: real time spent drawing on a slow
     // runner would otherwise push a 450ms page past the 500ms budget.
@@ -122,7 +124,7 @@ function viewer(outlineError?: Error, pendingInitialization = false, pages:TextP
     addEventListener(name:string,listener:(event:unknown) => void,capture:unknown) {(capture === true ? captureListeners : listeners).set(name,listener);},
   });
   return {
-    attempts,messages,errored,resourceEntries,navigationEntries,rotationAttempts,order,textPages,renders,canvas,scripts,addScript,
+    attempts,messages,errored,resourceEntries,navigationEntries,rotationAttempts,order,textPages,renders,canvas,scripts,addScript,styles,getComputedStyle,document,
     clock(ms:number) {elapsed=ms;},
     application(present:boolean) {window.PDFViewerApplication=present ? app : undefined;},
     pdfjsLib(present:boolean) {window.pdfjsLib=present ? {} : undefined;},
@@ -529,7 +531,9 @@ test('initialization, closing and errors cancel the PDF stall timer',async () =>
       else if (finish === 'closed') pdf.close();
       else pdf.event('error',{message:'failed'});
       await vi.advanceTimersByTimeAsync(8000);
-      expect(pdf.messages.some(message => message.type === 'stall'),finish).toBe(false);
+      const snapshots=pdf.messages.filter(message => message.type === 'stall');
+      expect(snapshots,finish).toHaveLength(finish === 'failed' ? 1 : 0);
+      if (finish === 'failed') expect(snapshots[0].snapshot).toHaveProperty('reason','error');
       pdf.close();
     }
   } finally {vi.useRealTimers();}
@@ -544,6 +548,47 @@ test('a rejected initialize is reported even when initializedPromise never rejec
   ]);
   expect(pdf.messages.some(message => message.name === 'initializedPromise')).toBe(false);
   pdf.close();
+});
+
+test('early component failure captures CSS state before teardown without flushing startup styles',async () => {
+  const pdf=viewer(undefined,true); pdf.failInitialization();
+  pdf.document.readyState='interactive'; pdf.clock(26); pdf.start();
+  expect(pdf.getComputedStyle).not.toHaveBeenCalled();
+  pdf.clock(97);
+  await expect(pdf.runInitialization()).rejects.toThrow('components failed');
+  await pdf.errored;
+  expect(pdf.getComputedStyle).toHaveBeenCalledTimes(1);
+  const stall=pdf.messages.find(message => message.type === 'stall')!;
+  expect(parseFrameMessage(stall)).toEqual({type:'stall',snapshot:stall.snapshot});
+  expect(stall.snapshot).toMatchObject({reason:'error',steps:{components:'rejected'},startup:[
+    {phase:'webviewerloaded',at:26,readyState:'interactive',visibility:'visible',containerPosition:null,
+      stylesheet:{present:true,sheet:false,disabled:false,load:null,error:null}},
+    {phase:'components',at:97,containerPosition:null,stylesheet:{sheet:false}},
+    {phase:'error',at:97,containerConnected:true,containerPosition:'static',stylesheet:{sheet:false}},
+  ]});
+  expect(pdf.messages.indexOf(stall)).toBeLessThan(pdf.messages.findIndex(message => message.type === 'error'));
+  expect(JSON.stringify(stall)).not.toMatch(/127\.0|secret|fragment/);
+  pdf.styles[0].sheet={}; pdf.clock(100); pdf.styleEvent(0,'load');
+  expect(stall.snapshot).toHaveProperty('startup.2.stylesheet.sheet',false);
+  pdf.event('error',{message:'second failure'});
+  expect(pdf.messages.filter(message => message.type === 'stall')).toHaveLength(1);
+  pdf.close();
+});
+
+test('error snapshots retain loaded CSS and tolerate unavailable CSSOM or computed style',async () => {
+  for (const unreadable of [false,true]) {
+    const pdf=viewer(undefined,true); pdf.styles[0].sheet={}; pdf.clock(80); pdf.styleEvent(0,'load');
+    if (unreadable) {
+      Object.defineProperty(pdf.styles[0],'sheet',{get() {throw new Error('opaque');}});
+      pdf.getComputedStyle.mockImplementation(() => {throw new Error('detached');});
+    }
+    pdf.start(); pdf.event('error',{message:'failure'});
+    const stall=pdf.messages.find(message => message.type === 'stall')!;
+    expect(parseFrameMessage(stall)).toEqual({type:'stall',snapshot:stall.snapshot});
+    expect(stall.snapshot).toHaveProperty('startup.1.stylesheet',{present:true,sheet:unreadable ? null : true,disabled:false,load:80,error:null});
+    expect(stall.snapshot).toHaveProperty('startup.1.containerPosition',unreadable ? null : 'absolute');
+    pdf.close();
+  }
 });
 
 // warm (linux) main 92129f1: viewer.mjs never loaded, so PDF.js never announced itself and

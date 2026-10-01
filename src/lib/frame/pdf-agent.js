@@ -86,6 +86,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
   const now = () => read(() => number(performance.now()));
   const lifecycle = {agentStart:now(),domInteractive:null,domContentLoaded:null,domComplete:null,load:null,webviewerloaded:null};
   const assetEvents = new WeakMap(), csp = [];
+  const startup = [];
   const corePaths = ['/_/agent.js','/_/pdf-agent.js','/_/pdfjs/web/viewer.mjs',
     '/_/pdfjs/build/pdf.mjs','/_/pdfjs/build/pdf.worker.mjs','/_/pdfjs/web/viewer.css','/_/pdfjs/web/locale/locale.json'];
   const path = name => read(() => {
@@ -127,8 +128,24 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
     });
   });
   const stage = name => { if (!failed) send({type:'stage',name}); };
+  function startupSample(phase) {
+    if (startup.some(sample => sample.phase === phase)) return;
+    const sheet = read(() => [...document.querySelectorAll('link[rel~="stylesheet"]')]
+      .find(node => path(node.getAttribute('href')) === '/_/pdfjs/web/viewer.css'));
+    const container = read(() => app?.appConfig?.mainContainer ?? document.getElementById('viewerContainer'));
+    const choice = (value, values) => values.includes(value) ? value : null;
+    // Do not force style/layout before the PDF.js check: that could conceal the race.
+    // Only the failure sample reads computed style, after initialization already failed.
+    startup.push({phase,at:now(),readyState:read(() => choice(document.readyState,['loading','interactive','complete'])),
+      visibility:read(() => choice(document.visibilityState,['visible','hidden','prerender'])),
+      containerConnected:read(() => container ? !!container.isConnected : null),
+      containerPosition:phase === 'error' ? read(() => choice(getComputedStyle(container).position,['static','relative','absolute','fixed','sticky'])) : null,
+      stylesheet:{present:!!sheet,sheet:read(() => sheet ? !!sheet.sheet : null),disabled:read(() => sheet ? !!sheet.disabled : null),
+        ...(assetEvents.get(sheet) ?? {load:null,error:null})}});
+  }
   const error = (code, cause) => {
     if (failed) return;
+    if (!initialized) { startupSample('error'); stallSnapshot('error'); }
     failed = true; ready = false; pendingGoto = null;
     cancelImageProbe?.();
     clearTimeout(stallTimer);
@@ -150,6 +167,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
     const original = owner[method];
     owner[method] = async function (...args) {
       steps[step] = 'pending';
+      if (step === 'components') startupSample('components');
       try {
         const result = await original.apply(this,args);
         steps[step] = 'resolved';
@@ -160,9 +178,10 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
       }
     };
   }
-  function stallSnapshot() {
+  function stallSnapshot(reason = 'timeout') {
+    clearTimeout(stallTimer);
     stallTimer = undefined;
-    if (initialized || failed || stalled) return;
+    if (initialized || failed || (stalled && reason !== 'error')) return;
     stalled = true;
     let snapshot = {};
     try {
@@ -214,7 +233,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
       navigationStatus:read(() => number(navigation.responseStatus)),steps:{...steps},resources,
       application:{global:read(() => !!window.PDFViewerApplication),local:app != null,
         pdfjsLib:read(() => !!window.pdfjsLib),options:read(() => !!window.PDFViewerApplicationOptions)},
-      lifecycle:observed,scripts,styles,csp:[...csp],coreResources};
+      lifecycle:observed,scripts,styles,csp:[...csp],coreResources,reason,startup:[...startup]};
     while (JSON.stringify(snapshot).length > 8192 && resources.length) resources.shift();
     } catch (cause) { snapshot.raw = String(cause?.message ?? cause ?? 'snapshot failed').slice(0,2000); }
     send({type:'stall',snapshot});
@@ -393,6 +412,7 @@ const imageProbeEngine = userAgent => /\b(?:Chrome|Chromium|Edg)\//.test(userAge
     lifecycle.webviewerloaded = now();
     stage('webviewerloaded');
     app = window.PDFViewerApplication;
+    startupSample('webviewerloaded');
     const options = window.PDFViewerApplicationOptions;
     try {
       // initializedPromise is only resolved by PDF.js; a rejected initialize() leaves it pending.

@@ -1635,3 +1635,19 @@ debug incremental과 dviewer dev 산출물 508개·4.1GiB를 정리했다. main 
 실제 pdf-agent를 실행하는 VM에서 app이 없는 8초 메시지를 parseFrameMessage로 왕복해 구조화된 null과 핵심 자원 목록이 남는지 확인했다. null을 다시 거부하는 변형은 해당 테스트 1개를 실패시켰고, 핵심 자원을 최근 15개로 제한하는 변형도 1개를 실패시켰다. 서버의 즉시 recv 발행을 빼는 변형은 1개, try_lock을 blocking lock으로 바꾸는 변형은 1개를 실패시켰다. 모두 복구했다. 가짜 load/source, 범위를 넘는 script/style/CSP 목록과 경로, teardown 이후 이벤트의 원인 구분, 복사한 초기 스냅샷 보존을 검사한다.
 
 서버 fault 검사는 실제 응답 경계 helper를 build/write 내부에서 멈추고 독립 조회가 완료되는지 확인하며, recv 오류·worker panic·bounded history와 경합 손실도 구분한다. 네이티브 신호는 첫 fixture 전에 readiness를 확인하고 원래 전체 sweep을 한 번 실행해 iframe 자원 coverage를 검증한다. 단일 통과는 미재현일 뿐 원인 해결이 아니다. 프로세스 인자·환경 전체·토큰·문서 본문·pcap은 아티팩트에 넣지 않는다. app/native 로그만으로 정확한 tiny_http 내부 enqueue 손실은 증명할 수 없으며, 필요하면 별도로 허가한 wire 관측이나 좁은 라이브러리 계측을 검토한다.
+
+## PDF 초기 CSS 오류의 순간 관측 — 2026-10-01
+
+main `8b429fc`의 warm Linux run36816853550에서 upright-image.pdf는 97ms 무렵 components의 `The container must be absolutely positioned` 오류 뒤 60초 timeout이었다. 네이티브 WebKit 관측에서 viewer.mjs의 자원 완료는 26ms, locale 요청 시작은 66ms, viewer.css의 자원 완료는 80ms였다. 자원 완료 관측은 CSS 적용 완료를 뜻하지 않으며, 다른 여섯 PDF의 성공만으로 원인을 확정하지 않는다. 기존 8초 스냅샷은 조기 오류 때 취소되어 이 순간의 CSS 상태를 남기지 못했다.
+
+이번 관측은 webviewerloaded·components 진입·첫 초기화 오류의 최대 세 표본을 남긴다. 준비 상태·가시성·container 연결 여부와 고정 viewer.css의 sheet 존재·disabled·load/error 관측 시각을 보존한다. computed position은 실패한 뒤에만 읽어 정상 초기화 전에 스타일 계산을 강제하지 않는다. 초기 오류는 iframe 제거 전에 기존의 제한된 스냅샷을 전송한다. URL·문서 내용·CSS 텍스트는 추가하지 않으며, 초기화 순서·타이머·CSS·PDF.js 배포물은 바꾸지 않는다.
+
+| 검증 | 로컬 결과 |
+| --- | --- |
+| npm test | 449개 / 41파일 통과 |
+| npm run check | 오류0·경고0, 4로케일 × 504키 |
+| 조기 오류 스냅샷 제거 변형 | 새 회귀1개 실패 |
+| 정상 경로 computed-style 읽기 변형 | 새 회귀1개 실패 |
+| 전체 Rust·native debug/release 스모크 | GTK/WebKit 개발 라이브러리 부재로 이번 변경에서 미실행; 세 OS CI 필요 |
+
+VM 검사는 오류 앞 스냅샷 순서, CSS 미완료·완료·getter 실패, 첫 표본의 독립 보존, 가림과 구조화 파서 왕복을 확인한다. 두 변형은 원본 바이트로 복원했다. 아직 원인 해결이나 WebKit 재현 성공을 의미하지 않는다. 로그는 `.agent-works/pdf-style-startup/observe-*.log`와 `mutation-*.log`다.

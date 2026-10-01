@@ -14,6 +14,14 @@ export type PdfCorePath = typeof PDF_CORE_PATHS[number];
 export interface FrameResourceTiming {
   responseStatus: number | null; duration: number | null; transferSize: number | null;
 }
+export interface FrameStartupSample {
+  phase: 'webviewerloaded' | 'components' | 'error'; at: number | null;
+  readyState: 'loading' | 'interactive' | 'complete' | null;
+  visibility: 'visible' | 'hidden' | 'prerender' | null;
+  containerConnected: boolean | null;
+  containerPosition: 'static' | 'relative' | 'absolute' | 'fixed' | 'sticky' | null;
+  stylesheet: {present: boolean; sheet: boolean | null; disabled: boolean | null; load: number | null; error: number | null};
+}
 export interface FrameStallSnapshot {
   readyState: string; l10n: string | null; pdfViewer: boolean | null; preferences: boolean | null; initialized: boolean | null;
   options: number | null; locale: string | null; language: string | null; fonts: string | null;
@@ -29,6 +37,8 @@ export interface FrameStallSnapshot {
   styles?: {href: string | null; load: number | null; error: number | null}[];
   csp?: {directive: string; blocked: string | null; at: number | null}[];
   coreResources?: Partial<Record<PdfCorePath, FrameResourceTiming>>;
+  reason?: 'timeout' | 'error';
+  startup?: FrameStartupSample[];
 }
 export type FrameStall = FrameStallSnapshot | {raw: string};
 export const ORIENTATION_REASONS = ['timeout','sparse','ambiguous','upright','sideways','disagree','error','skipped-engine'] as const;
@@ -148,6 +158,26 @@ function parseStall(value: unknown): FrameStallSnapshot | null {
       const fields = timing(entry);
       if (!fields) return null;
       snapshot.coreResources[name as PdfCorePath] = fields;
+    }
+  }
+  if (v.reason !== undefined) {
+    if (v.reason !== 'timeout' && v.reason !== 'error') return null;
+    snapshot.reason = v.reason;
+  }
+  if (v.startup !== undefined) {
+    if (!Array.isArray(v.startup) || v.startup.length > 3) return null;
+    snapshot.startup = [];
+    for (const sample of v.startup) {
+      if (!sample || typeof sample !== 'object' || !['webviewerloaded','components','error'].includes(sample.phase)
+        || !nullableCount(sample.at) || !['loading','interactive','complete',null].includes(sample.readyState)
+        || !['visible','hidden','prerender',null].includes(sample.visibility) || !nullableBoolean(sample.containerConnected)
+        || !['static','relative','absolute','fixed','sticky',null].includes(sample.containerPosition)) return null;
+      const sheet = sample.stylesheet;
+      if (!sheet || typeof sheet !== 'object' || typeof sheet.present !== 'boolean' || !nullableBoolean(sheet.sheet)
+        || !nullableBoolean(sheet.disabled) || !nullableCount(sheet.load) || !nullableCount(sheet.error)) return null;
+      snapshot.startup.push({phase:sample.phase,at:sample.at,readyState:sample.readyState,visibility:sample.visibility,
+        containerConnected:sample.containerConnected,containerPosition:sample.containerPosition,
+        stylesheet:{present:sheet.present,sheet:sheet.sheet,disabled:sheet.disabled,load:sheet.load,error:sheet.error}});
     }
   }
   return JSON.stringify(snapshot).length <= 8192 ? snapshot : null;
