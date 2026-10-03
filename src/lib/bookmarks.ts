@@ -8,9 +8,9 @@ export interface BookmarkAnchor { id: string; text: string }
 export type BookmarkLocation =
   | {kind:'tree'; path:string}
   | {kind:'grid'; row:number; collection?:string; hasHeader?:boolean; plain?:boolean; expanded?:boolean}
-  | {kind:'log'; line:number; plain?:boolean; expanded?:boolean}
+  | {kind:'log'; line:number; sourceLine?:boolean; plain?:boolean; expanded?:boolean}
   | {kind:'pdf'; page:number};
-export interface BookmarkTarget {source:BookmarkSource; anchor:BookmarkAnchor; target?:BookmarkLocation; fingerprint?:string}
+export interface BookmarkTarget {source:BookmarkSource; anchor:BookmarkAnchor; target?:BookmarkLocation; fingerprint?:string; treeNode?:number; logRow?:number}
 export interface Bookmark {
   id: string;
   label: string;
@@ -20,7 +20,7 @@ export interface Bookmark {
   target?: BookmarkLocation;
   fingerprint?: string;
 }
-export interface BookmarkJump { id: string; anchor: BookmarkAnchor; request: number; target?: BookmarkLocation; ready?: boolean }
+export interface BookmarkJump { id: string; anchor: BookmarkAnchor; request: number; target?: BookmarkLocation; ready?: boolean; row?:number; generation?: number; workspaceBound?: boolean; fingerprint?: string }
 
 const text = (value: unknown): value is string => typeof value === 'string' && value.length <= 65536;
 const natural = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
@@ -35,10 +35,10 @@ export function readBookmarkLocation(value: unknown): BookmarkLocation | undefin
     case 'grid': {
       const coordinate = loc.kind === 'log' ? loc.line : loc.row;
       if (!natural(coordinate) || (loc.collection !== undefined && (!text(loc.collection) || !loc.collection))
-        || ['hasHeader','plain','expanded'].some(key => loc[key] !== undefined && typeof loc[key] !== 'boolean')) return;
+        || ['hasHeader','plain','expanded','sourceLine'].some(key => loc[key] !== undefined && typeof loc[key] !== 'boolean')) return;
       const modes = {...(loc.plain === undefined ? {} : {plain:loc.plain as boolean}),
         ...(loc.expanded === undefined ? {} : {expanded:loc.expanded as boolean})};
-      return loc.kind === 'log' ? {kind:'log',line:coordinate,...modes}
+      return loc.kind === 'log' ? {kind:'log',line:coordinate,...(loc.sourceLine === undefined ? {} : {sourceLine:loc.sourceLine as boolean}),...modes}
         : {kind:'grid',row:coordinate,...(loc.collection === undefined ? {} : {collection:loc.collection as string}),
           ...(loc.hasHeader === undefined ? {} : {hasHeader:loc.hasHeader as boolean}),...modes};
     }
@@ -72,6 +72,12 @@ export function bookmarkLocationText(item: Pick<Bookmark,'target'|'anchor'>): st
     case 'pdf': return String(target.page);
   }
 }
+/** Never clamp a missing bookmarked PDF page to a different page. */
+export function pdfBookmarkPage(location: BookmarkLocation | undefined, pages: number): number | null {
+  return location?.kind === 'pdf' && Number.isSafeInteger(pages) && pages >= 1
+    && natural(location.page) && location.page >= 1 && location.page <= pages ? location.page : null;
+}
+
 export function sameBookmarkLocation(a?: BookmarkLocation, b?: BookmarkLocation): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }

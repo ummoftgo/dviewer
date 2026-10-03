@@ -1,4 +1,5 @@
 //! Bounded clipboard selections and streaming grid exports in displayed order.
+mod json;
 use crate::error::{Error, Result, Subject};
 use crate::grid::{order::Order, Grid, GridScalar, ScalarKind};
 use crate::state::{AppState, DocId, Document};
@@ -127,6 +128,49 @@ fn append_bounded(buffer: &mut String, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn append_field(buffer: &mut String, text: &str, separator: char) -> Result<()> {
+    let quoted = text.contains([separator, '\r', '\n', '"']);
+    let required = text.len().saturating_add(if quoted {
+        text.bytes()
+            .filter(|&b| b == b'"')
+            .count()
+            .saturating_add(2)
+    } else {
+        0
+    });
+    if buffer.len().saturating_add(required) > MAX_COPY_BYTES {
+        return Err(too_large());
+    }
+    if quoted {
+        buffer.push('"');
+        for (at, part) in text.split('"').enumerate() {
+            if at > 0 {
+                buffer.push_str("\"\"");
+            }
+            buffer.push_str(part);
+        }
+        buffer.push('"');
+    } else {
+        buffer.push_str(text);
+    }
+    Ok(())
+}
+fn write_field(output: &mut impl Write, text: &str, separator: char) -> Result<()> {
+    if text.contains([separator, '\r', '\n', '"']) {
+        output.write_all(b"\"")?;
+        for (at, part) in text.split('"').enumerate() {
+            if at > 0 {
+                output.write_all(b"\"\"")?;
+            }
+            output.write_all(part.as_bytes())?;
+        }
+        output.write_all(b"\"")?;
+    } else {
+        output.write_all(text.as_bytes())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn grid_range_text(
     state: State<'_, AppState>,
@@ -156,10 +200,16 @@ fn range_text(snapshot: &Snapshot, request: RangeRequest) -> Result<String> {
     }) {
         return Err(too_large());
     }
+    snapshot.check()?;
     let mut output = String::new();
     let has_header = request.headers.is_some();
     if let Some(headers) = request.headers {
-        append_bounded(&mut output, &record(headers, '\t'))?;
+        for (at, header) in headers.iter().enumerate() {
+            if at > 0 {
+                append_bounded(&mut output, "\t")?;
+            }
+            append_field(&mut output, header, '\t')?;
+        }
     }
     for row in request.start..request.start + request.count {
         snapshot.check()?;
@@ -168,49 +218,66 @@ fn range_text(snapshot: &Snapshot, request: RangeRequest) -> Result<String> {
             append_bounded(&mut output, "\n")?;
         }
         for (at, &column) in request.columns.iter().enumerate() {
+            snapshot.check()?;
             let value = snapshot.grid.scalar(source, column)?;
             if at > 0 {
                 append_bounded(&mut output, "\t")?;
             }
-            append_bounded(&mut output, &field(&scalar_text(value), '\t'))?;
+            append_field(&mut output, &scalar_text(value), '\t')?;
         }
     }
     snapshot.check()?;
     Ok(output)
 }
 
-fn unique_headers(headers: &[String]) -> Vec<String> {
-    // Reserve all original labels first: a duplicate "a" must not steal "a (2)".
-    let reserved: HashSet<&str> = headers.iter().map(String::as_str).collect();
-    let mut used: HashSet<String> = HashSet::new();
-    headers
-        .iter()
-        .map(|header| {
-            let mut name = header.clone();
-            let mut suffix = 2;
-            while used.contains(&name) {
-                name = format!("{header} ({suffix})");
-                suffix += 1;
-                if reserved.contains(name.as_str()) {
-                    continue;
-                }
+fn unique_headers(
+    headers: &[String],
+    mut check: impl FnMut() -> Result<()>,
+) -> Result<Vec<String>> {
+    // Reserve all original labels first. Cache the next suffix per label so
+    // thousands of duplicate names do not restart an increasingly long search.
+    let mut reserved = HashSet::new();
+    for (at, header) in headers.iter().enumerate() {
+        if at.is_multiple_of(4096) {
+            check()?;
+        }
+        reserved.insert(header.as_str());
+    }
+    let mut used = HashSet::new();
+    let mut suffixes: HashMap<&str, usize> = HashMap::new();
+    let mut result = Vec::with_capacity(headers.len());
+    for (at, header) in headers.iter().enumerate() {
+        if at.is_multiple_of(4096) {
+            check()?;
+        }
+        if used.insert(header.clone()) {
+            result.push(header.clone());
+            continue;
+        }
+        let suffix = suffixes.entry(header.as_str()).or_insert(2);
+        loop {
+            if suffix.is_multiple_of(4096) {
+                check()?;
+            }
+            let name = format!("{header} ({suffix})");
+            *suffix += 1;
+            if !reserved.contains(name.as_str()) && used.insert(name.clone()) {
+                result.push(name);
                 break;
             }
-            while used.contains(&name) || (name != *header && reserved.contains(name.as_str())) {
-                name = format!("{header} ({suffix})");
-                suffix += 1;
-            }
-            used.insert(name.clone());
-            name
-        })
-        .collect()
+        }
+    }
+    check()?;
+    Ok(result)
 }
+
 fn scalar_text(cell: GridScalar) -> String {
     match cell.kind {
         ScalarKind::Null | ScalarKind::Missing => String::new(),
         _ => cell.text,
     }
 }
+#[cfg(test)]
 fn json_value(cell: GridScalar) -> Result<Option<String>> {
     Ok(Some(match cell.kind {
         ScalarKind::Missing => return Ok(None),
@@ -242,6 +309,22 @@ fn json_record(headers: &[String], cells: Vec<GridScalar>) -> Result<String> {
         }
     }
     Ok(format!("{{{}}}", fields.join(",")))
+}
+
+struct ExportSlot {
+    doc_id: DocId,
+    cancel: Arc<AtomicBool>,
+}
+impl Drop for ExportSlot {
+    fn drop(&mut self) {
+        let mut jobs = jobs().lock().unwrap();
+        if jobs
+            .get(&self.doc_id)
+            .is_some_and(|(_, flag)| Arc::ptr_eq(flag, &self.cancel))
+        {
+            jobs.remove(&self.doc_id);
+        }
+    }
 }
 
 #[tauri::command]
@@ -278,67 +361,93 @@ pub async fn grid_export(
         }
     }
     tauri::async_runtime::spawn_blocking(move || {
-        struct Slot(DocId, u64);
-        impl Drop for Slot {
-            fn drop(&mut self) {
-                let mut jobs = jobs().lock().unwrap();
-                if jobs.get(&self.0).is_some_and(|(id, _)| *id == self.1) {
-                    jobs.remove(&self.0);
-                }
-            }
-        }
-        let _slot = Slot(doc_id, request_id);
-        snapshot.check()?;
-        write_export(Path::new(&path), format, headers, |writer| {
-            let check = || {
-                snapshot.check()?;
-                crate::grid::order::check_cancel(&cancel)
-            };
-            // Natural and filtered source order use each adapter's sequential scan.
-            // A sorted permutation needs random access; no copied records are retained.
-            let sequential = snapshot
-                .order
-                .as_ref()
-                .is_none_or(|o| o.rows.windows(2).all(|r| r[0] < r[1]));
-            if sequential && snapshot.rows() > 0 {
-                let mut at = 0usize;
-                let selected = snapshot.order.as_ref().map(|o| o.rows.as_slice());
-                snapshot.grid.scan_selected_scalars(
-                    &columns,
-                    selected,
-                    &cancel,
-                    &mut |_source, _column, cell| {
-                        if at == 0 {
-                            check()?;
-                            writer.begin_row()?;
-                        }
-                        writer.cell(at, cell.clone())?;
-                        at += 1;
-                        if at == columns.len() {
-                            writer.end_row()?;
-                            at = 0;
-                        }
-                        Ok(())
-                    },
-                )?;
-            } else {
-                for row in 0..snapshot.rows() {
-                    check()?;
-                    writer.begin_row()?;
-                    let source = snapshot.source_row(row)?;
-                    for (at, &column) in columns.iter().enumerate() {
-                        check()?;
-                        writer.cell(at, snapshot.grid.scalar(source, column)?)?;
-                    }
-                    writer.end_row()?;
-                }
-            }
-            check()?;
-            Ok(snapshot.rows())
-        })
+        let _slot = ExportSlot {
+            doc_id,
+            cancel: cancel.clone(),
+        };
+        export_snapshot(
+            &snapshot,
+            &columns,
+            headers,
+            Path::new(&path),
+            format,
+            &cancel,
+        )
     })
     .await
     .map_err(Error::internal)?
+}
+
+fn export_snapshot(
+    snapshot: &Snapshot,
+    columns: &[u32],
+    headers: Vec<String>,
+    path: &Path,
+    format: ExportFormat,
+    cancel: &Arc<AtomicBool>,
+) -> Result<u32> {
+    snapshot.columns(columns)?;
+    if headers.len() != columns.len()
+        || headers.iter().map(String::len).sum::<usize>() > MAX_COPY_BYTES
+    {
+        return Err(too_large());
+    }
+    let check = || {
+        snapshot.check()?;
+        crate::grid::order::check_cancel(cancel)
+    };
+    write_export(path, format, headers, &check, |writer| {
+        writer.cancel = Some(Arc::clone(cancel));
+        // Natural and filtered source order use each adapter's sequential scan.
+        // A sorted permutation needs random access; no copied records are retained.
+        let sequential = snapshot
+            .order
+            .as_ref()
+            .is_none_or(|o| o.rows.windows(2).all(|r| r[0] < r[1]));
+        if sequential && snapshot.rows() > 0 {
+            let mut at = 0usize;
+            let mut emitted = 0u32;
+            let selected = snapshot.order.as_ref().map(|o| o.rows.as_slice());
+            snapshot.grid.scan_selected_scalars(
+                columns,
+                selected,
+                cancel,
+                &mut |source, column, cell| {
+                    check()?;
+                    if column != columns[at] || source != snapshot.source_row(emitted)? {
+                        return Err(Error::Cancelled);
+                    }
+                    if at == 0 {
+                        writer.begin_row()?;
+                    }
+                    writer.cell(at, cell)?;
+                    at += 1;
+                    if at == columns.len() {
+                        writer.end_row()?;
+                        emitted += 1;
+                        at = 0;
+                    }
+                    Ok(())
+                },
+            )?;
+            if at != 0 || emitted != snapshot.rows() {
+                return Err(Error::Cancelled);
+            }
+        } else {
+            for row in 0..snapshot.rows() {
+                check()?;
+                writer.begin_row()?;
+                let source = snapshot.source_row(row)?;
+                for (at, &column) in columns.iter().enumerate() {
+                    check()?;
+                    writer.cell(at, &snapshot.grid.scalar(source, column)?)?;
+                }
+                writer.end_row()?;
+            }
+        }
+        check()?;
+        Ok(snapshot.rows())
+    })
 }
 
 /// Native smoke uses the production IPC implementation and isolated temporary files.
@@ -443,6 +552,7 @@ struct RowWriter<'a> {
     format: ExportFormat,
     names: Vec<String>,
     first: bool,
+    cancel: Option<Arc<AtomicBool>>,
 }
 impl RowWriter<'_> {
     fn begin_row(&mut self) -> Result<()> {
@@ -452,34 +562,71 @@ impl RowWriter<'_> {
         }
         Ok(())
     }
-    fn cell(&mut self, at: usize, cell: GridScalar) -> Result<()> {
+    fn cell(&mut self, at: usize, cell: &GridScalar) -> Result<()> {
         match self.format {
             ExportFormat::Csv => {
                 if !self.first {
                     self.output.write_all(b",")?;
                 }
-                self.output
-                    .write_all(field(&scalar_text(cell), ',').as_bytes())?;
+                let text = if matches!(cell.kind, ScalarKind::Null | ScalarKind::Missing) {
+                    ""
+                } else {
+                    cell.text.as_str()
+                };
+                write_field(self.output, text, ',')?;
             }
             ExportFormat::Jsonl => {
-                let Some(value) = json_value(cell)? else {
+                if cell.kind == ScalarKind::Missing {
                     return Ok(());
-                };
+                }
                 if !self.first {
                     self.output.write_all(b",")?;
                 }
-                self.output.write_all(
-                    serde_json::to_string(&self.names[at])
-                        .map_err(Error::internal)?
-                        .as_bytes(),
-                )?;
+                serde_json::to_writer(&mut *self.output, &self.names[at])
+                    .map_err(Error::internal)?;
                 self.output.write_all(b":")?;
-                self.output.write_all(value.as_bytes())?;
+                match cell.kind {
+                    ScalarKind::Null => self.output.write_all(b"null")?,
+                    ScalarKind::Boolean => {
+                        if cell.text.eq_ignore_ascii_case("true") {
+                            self.output.write_all(b"true")?;
+                        } else if cell.text.eq_ignore_ascii_case("false") {
+                            self.output.write_all(b"false")?;
+                        } else {
+                            return Err(Error::internal("invalid boolean scalar"));
+                        }
+                    }
+                    ScalarKind::Number => {
+                        serde_json::from_str::<serde::de::IgnoredAny>(&cell.text).map_err(
+                            |error| Error::ParseFailed {
+                                subject: Subject::Table,
+                                detail: error.to_string(),
+                            },
+                        )?;
+                        self.output.write_all(cell.text.as_bytes())?;
+                    }
+                    ScalarKind::Structured => {
+                        if serde_json::from_str::<serde::de::IgnoredAny>(&cell.text).is_ok() {
+                            self.output.write_all(cell.text.as_bytes())?;
+                        } else {
+                            self.output.write_all(
+                                json::strict_with_cancel(&cell.text, self.cancel.as_deref())?
+                                    .as_bytes(),
+                            )?;
+                        }
+                    }
+                    ScalarKind::Text | ScalarKind::Binary => {
+                        serde_json::to_writer(&mut *self.output, &cell.text)
+                            .map_err(Error::internal)?
+                    }
+                    ScalarKind::Missing => unreachable!(),
+                }
             }
         }
         self.first = false;
         Ok(())
     }
+
     fn end_row(&mut self) -> Result<()> {
         if matches!(self.format, ExportFormat::Jsonl) {
             self.output.write_all(b"}")?;
@@ -492,8 +639,10 @@ fn write_export(
     path: &Path,
     format: ExportFormat,
     headers: Vec<String>,
+    mut check: impl FnMut() -> Result<()>,
     drive: impl FnOnce(&mut RowWriter<'_>) -> Result<u32>,
 ) -> Result<u32> {
+    check()?;
     // create_new protects both the source and every existing destination.
     let file = OpenOptions::new().write(true).create_new(true).open(path)?;
     struct PartialFile<'a> {
@@ -515,21 +664,30 @@ fn write_export(
     let result = (|| {
         if matches!(format, ExportFormat::Csv) {
             for (at, header) in headers.iter().enumerate() {
+                if at.is_multiple_of(4096) {
+                    check()?;
+                }
                 if at > 0 {
                     output.write_all(b",")?;
                 }
-                output.write_all(field(header, ',').as_bytes())?;
+                write_field(&mut output, header, ',')?;
             }
             output.write_all(b"\n")?;
         }
         let mut rows = RowWriter {
             output: &mut output,
             format,
-            names: unique_headers(&headers),
+            names: if matches!(format, ExportFormat::Jsonl) {
+                unique_headers(&headers, &mut check)?
+            } else {
+                vec![]
+            },
             first: true,
+            cancel: None,
         };
         let count = drive(&mut rows)?;
         output.flush()?;
+        check()?;
         Ok(count)
     })();
     drop(output);
@@ -722,30 +880,315 @@ mod tests {
     fn streaming_export_removes_cancelled_and_failed_files_without_overwriting() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rows.csv");
-        let result = write_export(&path, ExportFormat::Csv, vec!["n".into()], |writer| {
-            writer.begin_row()?;
-            writer.cell(
-                0,
-                GridScalar {
-                    text: "one".into(),
-                    kind: ScalarKind::Text,
-                },
-            )?;
-            writer.end_row()?;
-            Err(Error::Cancelled)
-        });
+        let result = write_export(
+            &path,
+            ExportFormat::Csv,
+            vec!["n".into()],
+            || Ok(()),
+            |writer| {
+                writer.begin_row()?;
+                writer.cell(
+                    0,
+                    &GridScalar {
+                        text: "one".into(),
+                        kind: ScalarKind::Text,
+                    },
+                )?;
+                writer.end_row()?;
+                Err(Error::Cancelled)
+            },
+        );
         assert_eq!(result, Err(Error::Cancelled));
         assert!(!path.exists());
-        assert!(
-            write_export(&path, ExportFormat::Csv, vec!["n".into()], |_| Err(
-                Error::NoSuchCell
-            ))
-            .is_err()
-        );
+        assert!(write_export(
+            &path,
+            ExportFormat::Csv,
+            vec!["n".into()],
+            || Ok(()),
+            |_| Err(Error::NoSuchCell)
+        )
+        .is_err());
         assert!(!path.exists());
         std::fs::write(&path, "original").unwrap();
-        assert!(write_export(&path, ExportFormat::Csv, vec!["n".into()], |_| Ok(0)).is_err());
+        assert!(write_export(
+            &path,
+            ExportFormat::Csv,
+            vec!["n".into()],
+            || Ok(()),
+            |_| Ok(0)
+        )
+        .is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "original");
+    }
+    #[test]
+    fn header_allocation_is_cancellable_and_does_not_restart_duplicate_searches() {
+        let headers = vec!["same".into(); 10_000];
+        let mut checks = 0;
+        let names = unique_headers(&headers, || {
+            checks += 1;
+            if checks > 12 {
+                Err(Error::Cancelled)
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+        assert_eq!(names.last().unwrap(), "same (10000)");
+        assert!(checks <= 12);
+        assert_eq!(
+            unique_headers(&headers, || Err(Error::Cancelled)),
+            Err(Error::Cancelled)
+        );
+    }
+    #[test]
+    fn tsv_preflights_escaped_bytes_without_cutting_or_expanding_the_value() {
+        let mut output = String::new();
+        assert_eq!(
+            append_field(&mut output, &"\"".repeat(MAX_COPY_BYTES / 2), '\t'),
+            Err(too_large())
+        );
+        assert!(output.is_empty());
+        append_field(&mut output, "a\t\"\n😀", '\t').unwrap();
+        assert_eq!(output, "\"a\t\"\"\n😀\"");
+    }
+    #[test]
+    fn final_cancellation_and_panic_remove_the_partial_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("final.csv");
+        let cancelled = std::cell::Cell::new(false);
+        assert_eq!(
+            write_export(
+                &path,
+                ExportFormat::Csv,
+                vec!["n".into()],
+                || if cancelled.get() {
+                    Err(Error::Cancelled)
+                } else {
+                    Ok(())
+                },
+                |writer| {
+                    writer.begin_row()?;
+                    writer.cell(
+                        0,
+                        &GridScalar {
+                            text: "row".into(),
+                            kind: ScalarKind::Text,
+                        },
+                    )?;
+                    writer.end_row()?;
+                    cancelled.set(true);
+                    Ok(1)
+                }
+            ),
+            Err(Error::Cancelled)
+        );
+        assert!(!path.exists());
+        let panicked = std::panic::catch_unwind(|| {
+            write_export(
+                &path,
+                ExportFormat::Csv,
+                vec!["n".into()],
+                || Ok(()),
+                |_| panic!("writer failed"),
+            )
+        });
+        assert!(panicked.is_err());
+        assert!(!path.exists());
+    }
+    #[test]
+    fn reused_request_id_does_not_let_an_old_job_drop_remove_the_new_token() {
+        let id = u32::MAX;
+        let old = Arc::new(AtomicBool::new(false));
+        let current = Arc::new(AtomicBool::new(false));
+        jobs().lock().unwrap().insert(id, (7, current.clone()));
+        drop(ExportSlot {
+            doc_id: id,
+            cancel: old.clone(),
+        });
+        grid_export_cancel(id, 7);
+        assert!(current.load(Ordering::Relaxed));
+        assert!(!old.load(Ordering::Relaxed));
+        drop(ExportSlot {
+            doc_id: id,
+            cancel: current,
+        });
+        assert!(!jobs().lock().unwrap().contains_key(&id));
+    }
+    #[test]
+    fn structured_jsonc_export_keeps_raw_precision_and_quoted_comment_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source-jsonc.jsonl");
+        let scalar = GridScalar {
+            text: r#"{"n":18446744073709551617,/* note */"d":0.12345678901234567890123456789,"s":"// literal /* note */ ,] \\\"","a":[true,],}"#.into(),
+            kind: ScalarKind::Structured,
+        };
+        write_export(
+            &path,
+            ExportFormat::Jsonl,
+            vec!["value".into()],
+            || Ok(()),
+            |writer| {
+                writer.begin_row()?;
+                writer.cell(0, &scalar)?;
+                writer.end_row()?;
+                Ok(1)
+            },
+        )
+        .unwrap();
+        let output = std::fs::read_to_string(&path).unwrap();
+        assert!(output.contains("18446744073709551617"));
+        assert!(output.contains("0.12345678901234567890123456789"));
+        assert!(output.contains(r#""s":"// literal /* note */ ,] \\\"""#));
+        serde_json::from_str::<serde::de::IgnoredAny>(&output).unwrap();
+        assert!(!output.contains("/* note */\"d\""));
+
+        // Invalid tokens separated by comments must fail and remove the output.
+        let path = dir.path().join("invalid-jsonc.jsonl");
+        let result = write_export(
+            &path,
+            ExportFormat::Jsonl,
+            vec!["value".into()],
+            || Ok(()),
+            |writer| {
+                writer.begin_row()?;
+                writer.cell(
+                    0,
+                    &GridScalar {
+                        text: "[1/* comment */2]".into(),
+                        kind: ScalarKind::Structured,
+                    },
+                )?;
+                writer.end_row()?;
+                Ok(1)
+            },
+        );
+        assert!(matches!(result, Err(Error::ParseFailed { .. })));
+        assert!(!path.exists());
+    }
+    #[test]
+    fn streamed_field_escaping_keeps_types_and_original_breaks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("escaped.jsonl");
+        let scalar = GridScalar {
+            text: "line\n\0\t\"\\😀".into(),
+            kind: ScalarKind::Text,
+        };
+        write_export(
+            &path,
+            ExportFormat::Jsonl,
+            vec!["name\0".into()],
+            || Ok(()),
+            |writer| {
+                writer.begin_row()?;
+                writer.cell(0, &scalar)?;
+                writer.end_row()?;
+                Ok(1)
+            },
+        )
+        .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["name\0"], scalar.text);
+        let path = dir.path().join("escaped.csv");
+        write_export(
+            &path,
+            ExportFormat::Csv,
+            vec!["name".into()],
+            || Ok(()),
+            |writer| {
+                writer.begin_row()?;
+                writer.cell(0, &scalar)?;
+                writer.end_row()?;
+                Ok(1)
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            format!("name\n{}\n", field(&scalar.text, ','))
+        );
+    }
+    #[test]
+    fn actual_filtered_and_sorted_exports_use_display_order_full_scalars() {
+        let snapshot = csv_snapshot(&format!(
+            "id,value\ndrop,{}\nkeep,shown\n",
+            "x".repeat(MAX_COPY_BYTES + 1)
+        ));
+        let (revision, cancel) = snapshot.doc.start_order();
+        let order = Arc::new(
+            Order::build(
+                snapshot.grid.as_ref(),
+                None,
+                "keep",
+                Some(0),
+                &cancel,
+                &mut |_, _| {},
+            )
+            .unwrap(),
+        );
+        snapshot
+            .doc
+            .finish_order(revision, Some(order.clone()))
+            .unwrap();
+        let snapshot = Snapshot {
+            order: Some(order),
+            revision: snapshot.doc.grid_revision(),
+            ..snapshot
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("filtered.csv");
+        assert_eq!(
+            export_snapshot(
+                &snapshot,
+                &[1, 0],
+                vec!["value".into(), "id".into()],
+                &path,
+                ExportFormat::Csv,
+                &cancel
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "value,id\nshown,keep\n"
+        );
+        let mut sorted = csv_snapshot("id,value\n1,a\n2,b\n3,c\n");
+        let (revision, cancel) = sorted.doc.start_order();
+        let order = Arc::new(
+            Order::build(
+                sorted.grid.as_ref(),
+                Some(crate::grid::order::Sort {
+                    column: 0,
+                    descending: true,
+                }),
+                "",
+                None,
+                &cancel,
+                &mut |_, _| {},
+            )
+            .unwrap(),
+        );
+        sorted
+            .doc
+            .finish_order(revision, Some(order.clone()))
+            .unwrap();
+        sorted.order = Some(order);
+        sorted.revision = sorted.doc.grid_revision();
+        let path = dir.path().join("sorted.jsonl");
+        assert_eq!(
+            export_snapshot(
+                &sorted,
+                &[1, 0],
+                vec!["value".into(), "id".into()],
+                &path,
+                ExportFormat::Jsonl,
+                &cancel
+            )
+            .unwrap(),
+            3
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(),"{\"value\":\"c\",\"id\":\"3\"}\n{\"value\":\"b\",\"id\":\"2\"}\n{\"value\":\"a\",\"id\":\"1\"}\n");
     }
     #[test]
     fn streamed_rows_follow_projection_and_exact_numbers() {
@@ -756,19 +1199,20 @@ mod tests {
                 &path,
                 ExportFormat::Jsonl,
                 vec!["number".into(), "value".into()],
+                || Ok(()),
                 |writer| {
                     for row in 0..3 {
                         writer.begin_row()?;
                         writer.cell(
                             0,
-                            GridScalar {
+                            &GridScalar {
                                 text: "9007199254740993".into(),
                                 kind: ScalarKind::Number,
                             },
                         )?;
                         writer.cell(
                             1,
-                            GridScalar {
+                            &GridScalar {
                                 text: format!("row {row}"),
                                 kind: ScalarKind::Text,
                             },
@@ -804,7 +1248,11 @@ mod tests {
     #[test]
     fn duplicate_labels_do_not_steal_existing_suffixed_labels() {
         assert_eq!(
-            unique_headers(&["a".into(), "a".into(), "a (2)".into(), "a".into()]),
+            unique_headers(
+                &["a".into(), "a".into(), "a (2)".into(), "a".into()],
+                || Ok(())
+            )
+            .unwrap(),
             vec!["a", "a (3)", "a (2)", "a (4)"]
         );
     }

@@ -211,6 +211,8 @@ let nextKey = 0;
 export const gridStates = new GridStateStore(undefined, undefined, error => {
   console.warn('[dviewer] could not persist grid state:', error);
   toasts.show(t('gridState.saveFailed'), 'info');
+}, notice => {
+  toasts.show(t(notice === 'pruned' ? 'gridState.storagePruned' : 'gridState.conditionsNotSaved'), 'info', 6000);
 });
 
 class GridOrderState {

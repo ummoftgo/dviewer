@@ -227,3 +227,29 @@ fn a_scoped_predicate_does_not_read_an_unrelated_oversized_cell() {
     let order = Order::build_with_predicates(&grid, None, "", None, &conditions, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
     assert_eq!(order.rows, [0]);
 }
+
+#[test]
+fn cancellation_during_first_row_progress_wins_before_the_next_scalar() {
+    struct StopBeforeNext(JsonArrayGrid);
+    impl Grid for StopBeforeNext {
+        fn row_count(&self) -> u32 { self.0.row_count() }
+        fn column_count(&self) -> u32 { self.0.column_count() }
+        fn page(&self, start: u32, count: u32) -> Result<TablePage> { self.0.page(start, count) }
+        fn cell_text(&self, row: u32, column: u32) -> Result<crate::table::CellText> { self.0.cell_text(row, column) }
+        fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+            if column == 1 { return Err(Error::Internal { detail: "a cancelled scan decoded the next scalar".into() }); }
+            self.0.scalar(row, column)
+        }
+        fn row_text(&self, row: u32) -> Result<crate::table::CellText> { self.0.row_text(row) }
+        fn search(&self, query: &str, case: bool, how: Interpretation, cancel: &AtomicBool) -> Result<TableSearch> {
+            self.0.search(query, case, how, cancel)
+        }
+    }
+    let grid = StopBeforeNext(grid(r#"[{"n":1,"huge":"unread"}]"#));
+    let cancel = AtomicBool::new(false);
+    let predicates = [crate::grid::predicate::Predicate { column: 0, op: crate::grid::predicate::PredicateOp::Gt, value: "0".into() },
+        crate::grid::predicate::Predicate { column: 1, op: crate::grid::predicate::PredicateOp::Contains, value: "unread".into() }];
+    let result = Order::build_with_predicates(&grid, None, "", None, &predicates, &cancel,
+        &mut |done, _| { if done == 0 { cancel.store(true, AtomicOrdering::Relaxed); } });
+    assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+}

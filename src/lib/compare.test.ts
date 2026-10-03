@@ -77,3 +77,72 @@ it('discarded comparison requests never become current again', () => {
   expect(requests.current(first)).toBe(false); expect(requests.current(second)).toBe(true);
   requests.cancel(); expect(requests.current(second)).toBe(false);
 });
+
+describe('comparison boundary regressions', () => {
+  it('accepts exact byte and line limits, counts UTF-8 bytes, and bounds direct line callers', () => {
+    const exact = 'x'.repeat(COMPARE_MAX_BYTES);
+    expect(sourceLines(exact)).toEqual([exact]);
+    expect(compareLines([exact], [exact]).changes).toEqual([]);
+    expect(() => compareLines([exact + 'x'], [''])).toThrow('limit');
+    expect(() => compareLines(['😀'.repeat(COMPARE_MAX_BYTES / 4) + 'x'], [''])).toThrow('limit');
+    expect(sourceLines('\n'.repeat(COMPARE_MAX_LINES - 1)).length).toBe(COMPARE_MAX_LINES);
+    for (const value of [NaN, Infinity, -1]) expect(() => checkCompareSize(value)).toThrow('limit');
+  });
+  it('accepts exactly one million LCS cells and rejects the next square', () => {
+    expect(compareLines(Array(999).fill('a'), Array(999).fill('b')).changes.length).toBe(999);
+    expect(() => compareLines(Array(1000).fill('a'), Array(1000).fill('b'))).toThrow('complexity');
+  });
+  it('retains full original strings and detects a change after thousands of identical characters', () => {
+    const first = 'x'.repeat(5000) + '\t"original"', second = 'x'.repeat(5000) + '\t"changed"';
+    expect(compareLines([first], [second]).rows[0]).toMatchObject({kind:'changed', left:first, right:second});
+  });
+  it('preserves both source sequences and optimal edit counts with duplicate lines', () => {
+    const inputs: string[][] = [[]];
+    for (let length = 1; length <= 4; length++) for (let mask = 0; mask < 2 ** length; mask++) inputs.push(Array.from({length},(_,index) => mask & (1 << index) ? 'a' : 'b'));
+    for (const left of inputs) for (const right of inputs) {
+      const rows = compareLines(left,right).rows;
+      expect(rows.flatMap(row => row.left === null ? [] : [row.left])).toEqual(left);
+      expect(rows.flatMap(row => row.right === null ? [] : [row.right])).toEqual(right);
+      const distance = Array.from({length:left.length+1},() => Array(right.length+1).fill(0));
+      for (let i = 0; i <= left.length; i++) distance[i][0] = i;
+      for (let j = 0; j <= right.length; j++) distance[0][j] = j;
+      for (let i = 1; i <= left.length; i++) for (let j = 1; j <= right.length; j++) distance[i][j] = left[i-1] === right[j-1] ? distance[i-1][j-1] : Math.min(distance[i-1][j]+1,distance[i][j-1]+1);
+      expect(rows.reduce((sum,row) => sum+(row.kind === 'same' ? 0 : row.kind === 'changed' ? 2 : 1),0)).toBe(distance[left.length][right.length]);
+    }
+  });
+  it('accepts exact JSON node/depth limits and refuses their first overflow', () => {
+    const nodes = '[' + Array(19999).fill('0').join(',') + ']';
+    expect(compareJson(nodes, nodes).changes).toEqual([]);
+    expect(() => compareJson('[' + Array(20000).fill('0').join(',') + ']', '[]')).toThrow('limit');
+    const depth = '['.repeat(128) + '0' + ']'.repeat(128);
+    expect(compareJson(depth, depth).changes).toEqual([]);
+    expect(() => compareJson('['.repeat(129) + '0' + ']'.repeat(129), 'null')).toThrow('limit');
+  });
+  it('compares huge internal zero runs in one pass without truncating their last significant digit', () => {
+    const prefix = '1' + '0'.repeat(100000);
+    expect(compareJson(prefix + '1', prefix + '2').changes).toEqual([0]);
+    expect(compareJson(prefix + '10', prefix + '1e1').changes).toEqual([]);
+  });
+  it('normalizes decimal signs and exponent offsets exactly, including tiny differences', () => {
+    for (const [a,b] of [['-1.23400e+4','-12340'],['1e-400','10e-401'],['0e-9999999999','-0.000'],['1e+0000000009','1000000000']]) expect(compareJson(a,b).changes).toEqual([]);
+    expect(compareJson('0.123456789012345678901','0.123456789012345678902').changes).toEqual([0]);
+    expect(compareJson('1e9999999999','10e9999999998').changes).toEqual([]);
+    for (const value of ['1e10000000000','0e10000000000']) expect(() => compareJson(value,'0')).toThrow('limit');
+  });
+  it('rejects duplicate keys inside nested objects but permits matching keys in separate objects', () => {
+    expect(() => compareJson('{"a":{"b":1,"\\u0062":2}}','{}')).toThrow('json');
+    expect(compareJson('[{"a":1},{"a":1}]','[{"a":1},{"a":1}]').changes).toEqual([]);
+    expect(compareJson('{"é":1,"é":2}','{"é":1,"é":2}').changes).toEqual([]);
+  });
+  it('distinguishes nested ordering from array position changes and deletion', () => {
+    expect(compareJson('[{"a":1,"b":2},3]','[{"b":2,"a":1}]').rows.map(row => [row.kind,row.path])).toEqual([['order','$[0]'],['removed','$[1]']]);
+  });
+  it('guards both document generations as well as replacement and cancellation tickets', () => {
+    const requests = new CompareRequests(); let a: number | undefined = 4, b: number | undefined = 9;
+    const ticket = requests.begin(), current = requests.guard(ticket, () => a, () => b);
+    expect(current()).toBe(true); a = 5; expect(current()).toBe(false); a = 4; b = 10; expect(current()).toBe(false);
+    b = 9; expect(current()).toBe(true); requests.cancel(); expect(current()).toBe(false);
+    const replacement = requests.guard(requests.begin(), () => a, () => b);
+    expect(replacement()).toBe(true); b = undefined; expect(replacement()).toBe(false);
+  });
+});

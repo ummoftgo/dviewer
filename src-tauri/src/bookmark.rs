@@ -22,7 +22,7 @@ fn offsets(len: u64) -> [u64; 3] {
         len.saturating_sub(SAMPLE as u64),
     ]
 }
-fn file_fingerprint(mut file: File) -> Result<(String, u64, bool)> {
+fn file_fingerprint(mut file: File) -> Result<(String, u64, bool, u64)> {
     let before = file.metadata()?;
     let len = before.len();
     let modified = before
@@ -46,7 +46,38 @@ fn file_fingerprint(mut file: File) -> Result<(String, u64, bool)> {
     if len != after.len() || before.modified().ok() != after.modified().ok() {
         return Err(Error::internal("source changed while fingerprinting"));
     }
-    Ok((format!("v1:{len}:{modified:?}:{digest:016x}"), digest, gzip))
+    Ok((
+        format!("v1:{len}:{modified:?}:{digest:016x}"),
+        digest,
+        gzip,
+        len,
+    ))
+}
+fn same_file_metadata(before: &std::fs::Metadata, current: &std::fs::Metadata) -> bool {
+    if before.len() != current.len() || before.modified().ok() != current.modified().ok() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if before.dev() != current.dev() || before.ino() != current.ino() {
+            return false;
+        }
+    }
+    true
+}
+fn checked_file_fingerprint(
+    file: File,
+    path: &std::path::Path,
+) -> Result<(String, u64, bool, u64)> {
+    let before = file.metadata()?;
+    let sampled = file_fingerprint(file)?;
+    // An atomic editor save can replace the pathname while this handle still
+    // points at the previous file. Validate the path as well as the open handle.
+    if !same_file_metadata(&before, &std::fs::metadata(path)?) {
+        return Err(Error::internal("source replaced while fingerprinting"));
+    }
+    Ok(sampled)
 }
 fn bytes_digest(bytes: &[u8]) -> u64 {
     let len = bytes.len() as u64;
@@ -64,8 +95,20 @@ fn bytes_fingerprint(bytes: &[u8]) -> String {
     format!("v1:{}:url:{:016x}", bytes.len(), bytes_digest(bytes))
 }
 
-fn verify_loaded(loaded: &crate::bytes::DocBytes, disk_digest: u64, gzip: bool) -> Result<()> {
+fn verify_loaded(
+    loaded: &crate::bytes::DocBytes,
+    disk_digest: u64,
+    gzip: bool,
+    disk_len: u64,
+) -> Result<()> {
     if !gzip {
+        // Reading a cached node after truncation may touch an inaccessible mmap
+        // page. Its recorded length is safe to inspect; do not sample that map.
+        if loaded.len() as u64 != disk_len {
+            return Err(Error::internal(
+                "source size changed; reload before bookmarking",
+            ));
+        }
         if let crate::bytes::DocBytes::Owned(bytes) = loaded {
             if bytes_digest(bytes) != disk_digest {
                 return Err(Error::internal("source changed; reload before bookmarking"));
@@ -80,14 +123,15 @@ pub async fn bookmark_fingerprint(state: State<'_, AppState>, doc_id: DocId) -> 
     let doc = state.get(doc_id)?;
     tauri::async_runtime::spawn_blocking(move || match &doc.source {
         DocSource::File { path } => {
-            let (fingerprint, disk_digest, gzip) = file_fingerprint(File::open(path)?)?;
+            let (fingerprint, disk_digest, gzip, disk_len) =
+                checked_file_fingerprint(File::open(path)?, std::path::Path::new(path))?;
             // An editor can save before the watcher reloads. Owned source bytes are
             // safe to compare with the same bounded samples, so never save a stale
             // coordinate against a new disk fingerprint. Gzip source bytes have
             // already been decompressed; mapped files retain their existing race
             // limitation and are not touched again merely for a bookmark.
             let loaded = doc.source_bytes();
-            verify_loaded(&loaded, disk_digest, gzip)?;
+            verify_loaded(&loaded, disk_digest, gzip, disk_len)?;
             Ok(fingerprint)
         }
         DocSource::Url { .. } => Ok(bytes_fingerprint(&doc.source_bytes())),
@@ -95,6 +139,36 @@ pub async fn bookmark_fingerprint(state: State<'_, AppState>, doc_id: DocId) -> 
     })
     .await
     .map_err(Error::internal)?
+}
+
+#[tauri::command]
+pub fn bookmark_log_line(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    row: u32,
+    plain: bool,
+) -> Result<Option<u32>> {
+    let doc = state.get(doc_id)?;
+    if doc.kind() != crate::state::DocKind::Text {
+        return Ok(None);
+    }
+    Ok(doc.table().and_then(|table| table.source_line(row, plain)))
+}
+
+#[tauri::command]
+pub fn bookmark_log_row(
+    state: State<'_, AppState>,
+    doc_id: DocId,
+    line: u32,
+    plain: bool,
+) -> Result<Option<u32>> {
+    let doc = state.get(doc_id)?;
+    if doc.kind() != crate::state::DocKind::Text {
+        return Ok(None);
+    }
+    Ok(doc
+        .table()
+        .and_then(|table| table.row_for_source_line(line, plain)))
 }
 
 #[cfg(test)]
@@ -117,10 +191,61 @@ mod tests {
     #[test]
     fn loaded_owned_samples_match_the_disk_digest_and_reject_stale_content() {
         let loaded = crate::bytes::DocBytes::from(b"still loaded".to_vec());
-        assert!(verify_loaded(&loaded, bytes_digest(b"still loaded"), false).is_ok());
-        assert!(verify_loaded(&loaded, bytes_digest(b"new contents"), false).is_err());
+        assert!(verify_loaded(&loaded, bytes_digest(b"still loaded"), false, 12).is_ok());
+        assert!(verify_loaded(&loaded, bytes_digest(b"new contents"), false, 12).is_err());
         // Compressed disk samples cannot be compared with decompressed source bytes.
-        assert!(verify_loaded(&loaded, bytes_digest(b"compressed"), true).is_ok());
+        assert!(verify_loaded(&loaded, bytes_digest(b"compressed"), true, 10).is_ok());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn truncated_mapped_source_is_rejected_without_reading_inaccessible_sample_pages() {
+        let dir = std::env::temp_dir().join(format!(
+            "dviewer-bookmark-truncate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("source");
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        file.set_len(8192).unwrap();
+        // SAFETY: the test never reads the mapped contents, including after
+        // deliberately truncating the backing file. Only its length is used.
+        let mapped = unsafe { memmap2::Mmap::map(&file).unwrap() };
+        let loaded = crate::bytes::DocBytes::Mapped(mapped);
+        file.set_len(0).unwrap();
+        assert!(verify_loaded(&loaded, bytes_digest(b""), false, 0).is_err());
+        drop(loaded);
+        drop(file);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn atomic_path_replacement_cannot_verify_samples_from_the_previous_handle() {
+        let dir = std::env::temp_dir().join(format!(
+            "dviewer-bookmark-replace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("source");
+        std::fs::write(&path, b"first").unwrap();
+        let opened = File::open(&path).unwrap();
+        std::fs::rename(&path, dir.join("previous")).unwrap();
+        std::fs::write(&path, b"other").unwrap();
+        assert!(checked_file_fingerprint(opened, &path).is_err());
+        assert!(checked_file_fingerprint(File::open(&path).unwrap(), &path).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn file_sampling_matches_repeated_reads_and_equal_length_rewrite() {

@@ -11,6 +11,7 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { flushValues } from './lib/persist';
+  import { traceSmokeProgress } from './lib/smokeProgress';
   import Icon from "./lib/components/Icon.svelte";
   import SettingsPanel from "./lib/components/SettingsPanel.svelte";
   import { reportDelivery, reportNewWindow, runSmoke } from "./lib/smoke";
@@ -81,8 +82,11 @@
   async function initialize() {
     const status = await ipc.smokeStatus();
     smoking = status.active;
+    if (smoking) traceSmokeProgress('initialize:status');
     const request = await ipc.startupRequest();
+    if (smoking) traceSmokeProgress('initialize:startup');
     await Promise.all([settings.load(), recents.load(), bookmarks.load()]);
+    if (smoking) traceSmokeProgress('initialize:stores');
     if (status.active) {
       if (status.window !== 'main') return reportNewWindow(status.window, request);
       return runSmoke();

@@ -38,6 +38,7 @@
     errorMessage,
   } from "../../ipc";
   import { n, t } from "../../i18n";
+  import { bookmarks } from "../../state/bookmarks.svelte";
   import type { DocTab } from "../../state/docs.svelte";
 
   interface Props {
@@ -117,6 +118,7 @@
         if (!same()) return;
         listedEmpty = result.items.length === 0;
         target.collections = result.items;
+        bookmarks.collectionAvailable(target,result.items.map(item => item.name));
         const pos = target.pendingPosition;
         const saved = pos?.kind === 'grid' ? result.items.find(item => item.name === pos.collection) : undefined;
         if (pos?.kind === 'grid' && !saved) target.finishPosition(false);

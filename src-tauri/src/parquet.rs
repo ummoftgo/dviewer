@@ -17,6 +17,8 @@
 //! showing a hundred rows of it — and it doubles the dependency footprint to
 //! get there.
 
+mod scalar;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -238,9 +240,9 @@ impl Grid for ParquetDoc {
                 break;
             };
             let held = self.group(group)?;
-            let within = held.len().min(
-                offset + (start.saturating_add(count) - index) as usize,
-            );
+            let within = held
+                .len()
+                .min(offset + (start.saturating_add(count) - index) as usize);
             for at in offset..within {
                 let cells = (0..self.columns.len())
                     .map(|column| match self.field(&held, at, column) {
@@ -268,31 +270,35 @@ impl Grid for ParquetDoc {
             .field(&held, offset, column as usize)
             .ok_or(Error::NoSuchCell)?;
         Ok(match &field {
-            Field::Null => CellText { null: true, ..CellText::default() },
+            Field::Null => CellText {
+                null: true,
+                ..CellText::default()
+            },
             // Hex is already cut to fit, and says whether it was.
             Field::Bytes(bytes) => {
                 let (text, truncated) = hex_cell(bytes.data(), false);
-                CellText { text, truncated, ..CellText::default() }
+                CellText {
+                    text,
+                    truncated,
+                    ..CellText::default()
+                }
             }
             other => CellText::capped(full_text(other)),
         })
     }
 
     fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
-        use crate::grid::{GridScalar, ScalarKind};
-        if column as usize >= self.columns.len() { return Err(Error::NoSuchCell); }
+        if column as usize >= self.columns.len() {
+            return Err(Error::NoSuchCell);
+        }
         let (group, offset) = self.locate(row).ok_or(Error::NoSuchRow)?;
         let held = self.group(group)?;
-        let field = self.field(&held, offset, column as usize).ok_or(Error::NoSuchCell)?;
-        let kind = match &field {
-            Field::Null => ScalarKind::Null, Field::Str(_) => ScalarKind::Text, Field::Bool(_) => ScalarKind::Boolean,
-            Field::Bytes(_) => ScalarKind::Binary,
-            Field::Group(_) | Field::ListInternal(_) | Field::MapInternal(_) => ScalarKind::Structured,
-            Field::Byte(_) | Field::Short(_) | Field::Int(_) | Field::Long(_) | Field::UByte(_) | Field::UShort(_)
-                | Field::UInt(_) | Field::ULong(_) | Field::Float(_) | Field::Double(_) | Field::Decimal(_) => ScalarKind::Number,
-            _ => ScalarKind::Text,
-        };
-        GridScalar::checked(self.cell_text(row, column)?, kind)
+        let field = held
+            .get(offset)
+            .and_then(|row| row.get_column_iter().nth(column as usize))
+            .map(|(_, field)| field)
+            .ok_or(Error::NoSuchCell)?;
+        scalar::read(field)
     }
 
     fn row_text(&self, row: u32) -> Result<CellText> {
@@ -329,8 +335,8 @@ impl Grid for ParquetDoc {
         // Its own reader, so a search over a large file does not hold the lock
         // the viewport needs — and its own decoding, so the two groups the
         // reader is looking at are not evicted by the ones being searched.
-        let searching = SerializedFileReader::new(SharedBytes::new(Arc::clone(&self.bytes)))
-            .map_err(failed)?;
+        let searching =
+            SerializedFileReader::new(SharedBytes::new(Arc::clone(&self.bytes))).map_err(failed)?;
 
         let mut hits = Vec::new();
         let mut capped = false;
@@ -367,7 +373,8 @@ fn empty() -> TableCell {
     TableCell {
         text: String::new(),
         truncated: false,
-        null: false, preview_bytes: None,
+        null: false,
+        preview_bytes: None,
     }
 }
 
@@ -377,7 +384,8 @@ fn cell_of(field: &Field) -> TableCell {
         return TableCell {
             text: String::new(),
             truncated: false,
-            null: true, preview_bytes: None,
+            null: true,
+            preview_bytes: None,
         };
     }
     if let Field::Bytes(bytes) = field {
@@ -385,7 +393,8 @@ fn cell_of(field: &Field) -> TableCell {
         return TableCell {
             text,
             truncated,
-            null: false, preview_bytes: Some(crate::grid::BINARY_PREVIEW_BYTES),
+            null: false,
+            preview_bytes: Some(crate::grid::BINARY_PREVIEW_BYTES),
         };
     }
 
@@ -397,7 +406,8 @@ fn cell_of(field: &Field) -> TableCell {
             return TableCell {
                 text: out,
                 truncated: true,
-                null: false, preview_bytes: None,
+                null: false,
+                preview_bytes: None,
             };
         }
         // Quotes left alone: a cell is a value, not a quoted string.
@@ -407,7 +417,8 @@ fn cell_of(field: &Field) -> TableCell {
     TableCell {
         text: out,
         truncated: false,
-        null: false, preview_bytes: None,
+        null: false,
+        preview_bytes: None,
     }
 }
 
@@ -595,7 +606,10 @@ mod tests {
     #[test]
     fn a_timestamp_is_written_the_way_every_other_one_here_is() {
         assert_eq!(timestamp(1_788_000_000_000, 1_000), "2026-08-29T10:40:00");
-        assert_eq!(timestamp(1_788_000_000_500, 1_000), "2026-08-29T10:40:00.500");
+        assert_eq!(
+            timestamp(1_788_000_000_500, 1_000),
+            "2026-08-29T10:40:00.500"
+        );
         assert_eq!(
             timestamp(1_788_000_000_000_123, 1_000_000),
             "2026-08-29T10:40:00.000123"
@@ -663,7 +677,10 @@ mod tests {
         assert!(missing.null);
         assert_eq!(missing.text, "");
         assert_eq!(text_of(&doc, 5, 1), "");
-        assert!(doc.cell_text(5, 1).expect("cell").null, "and says so when read whole");
+        assert!(
+            doc.cell_text(5, 1).expect("cell").null,
+            "and says so when read whole"
+        );
 
         // Bytes are hex, cut with their size, and whole when copied.
         assert_eq!(shown(&doc, 0, 5).text, "x'010203'");
@@ -679,7 +696,11 @@ mod tests {
     #[test]
     fn a_window_crossing_row_groups_is_still_in_order() {
         let Some(doc) = fixture() else { return };
-        assert_eq!(doc.group_count(), 3, "the fixture is written two rows a group");
+        assert_eq!(
+            doc.group_count(),
+            3,
+            "the fixture is written two rows a group"
+        );
 
         let page = doc.page(0, 6).expect("page");
         assert_eq!(page.rows.len(), 6);
@@ -743,7 +764,10 @@ mod tests {
         let Some(doc) = fixture() else { return };
         let idle = AtomicBool::new(false);
 
-        let hits = doc.search("Björn", false, Interpretation::Literal, &idle).expect("search").hits;
+        let hits = doc
+            .search("Björn", false, Interpretation::Literal, &idle)
+            .expect("search")
+            .hits;
         assert_eq!(
             hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
             [(4, 1)]
@@ -752,12 +776,18 @@ mod tests {
         // A timestamp is searched as it is written, not as the integer behind
         // it — and as a substring, so a whole second matches the fraction that
         // follows it too. Both rows in the last group are that second.
-        let hits = doc.search("2026-08-29T10:40:04", false, Interpretation::Literal, &idle).expect("search").hits;
+        let hits = doc
+            .search("2026-08-29T10:40:04", false, Interpretation::Literal, &idle)
+            .expect("search")
+            .hits;
         assert_eq!(
             hits.iter().map(|h| (h.row, h.column)).collect::<Vec<_>>(),
             [(4, 3), (5, 3)]
         );
-        let hits = doc.search("10:40:04.500", false, Interpretation::Literal, &idle).expect("search").hits;
+        let hits = doc
+            .search("10:40:04.500", false, Interpretation::Literal, &idle)
+            .expect("search")
+            .hits;
         assert_eq!(hits.len(), 1, "the fraction narrows it to one");
 
         // A cancelled search says so rather than answering "nothing found".
@@ -766,7 +796,11 @@ mod tests {
             doc.search("가", false, Interpretation::Literal, &cancelled),
             Err(Error::Cancelled)
         ));
-        assert!(doc.search("", false, Interpretation::Literal, &idle).expect("search").hits.is_empty());
+        assert!(doc
+            .search("", false, Interpretation::Literal, &idle)
+            .expect("search")
+            .hits
+            .is_empty());
     }
 
     /// A columnar file read out of a buffer is the same file.
@@ -811,5 +845,4 @@ mod tests {
             assert!(cell.preview_bytes.is_none());
         }
     }
-
 }

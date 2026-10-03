@@ -185,6 +185,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bookmark::bookmark_fingerprint,
+            bookmark::bookmark_log_line,
+            bookmark::bookmark_log_row,
             docserve::frame_url,
             docserve::frame_served,
             docserve::frame_external,

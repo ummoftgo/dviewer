@@ -61,6 +61,7 @@ test('typed source locations round-trip independently of heading anchors, reject
     {kind:'tree',path:'$.orders[3].name'},
     {kind:'grid',row:42,collection:'Orders',hasHeader:false,plain:false,expanded:true},
     {kind:'log',line:8,plain:true,expanded:false},
+    {kind:'log',line:5,sourceLine:true,plain:false,expanded:false},
     {kind:'pdf',page:3},
   ];
   for (const target of locations) {
@@ -69,7 +70,7 @@ test('typed source locations round-trip independently of heading anchors, reject
   }
   for (const target of [{kind:'pdf',page:0},{kind:'pdf',page:1.5},{kind:'tree',path:''},
     {kind:'grid',row:-1},{kind:'grid',row:0,collection:''},{kind:'grid',row:0,plain:'true'},
-    {kind:'log',line:NaN},{kind:'unknown',row:1}]) expect(readBookmarks([{...item,target}])).toEqual([]);
+    {kind:'log',line:NaN},{kind:'log',line:5,sourceLine:'true'},{kind:'unknown',row:1}]) expect(readBookmarks([{...item,target}])).toEqual([]);
   expect(readBookmarks([{...item,fingerprint:'x'.repeat(257)}])).toEqual([]);
 });
 
@@ -90,4 +91,13 @@ test('durable tree token coordinates display exact readable keys without replaci
   expect(bookmarkLocationText({...item,target:{kind:'tree',path}})).toBe('$["a.b"][4][""]');
   expect(bookmarkLocationText({...item,target:{kind:'tree',path:'$.old'}})).toBe('$.old');
   expect(bookmarkLocationText({...item,target:{kind:'tree',path:'[]'}})).toBe('[]');
+});
+
+test('PDF page boundaries stay exact and missing pages never silently clamp to the last page', async () => {
+  const {pdfBookmarkPage} = await import('./bookmarks');
+  expect(pdfBookmarkPage({kind:'pdf',page:1},4)).toBe(1);
+  expect(pdfBookmarkPage({kind:'pdf',page:4},4)).toBe(4);
+  for (const page of [0,-1,1.5,5,Number.MAX_SAFE_INTEGER + 1]) expect(pdfBookmarkPage({kind:'pdf',page},4)).toBeNull();
+  for (const count of [0,-1,1.5,NaN,Infinity]) expect(pdfBookmarkPage({kind:'pdf',page:1},count)).toBeNull();
+  expect(pdfBookmarkPage({kind:'grid',row:1},4)).toBeNull();
 });

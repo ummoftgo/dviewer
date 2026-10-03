@@ -849,4 +849,8 @@ export const gridExportCancel = (docId: number, requestId: number) => invoke<voi
 /** Samples at most 12 KiB; local fingerprints also include size and modification time. */
 export const bookmarkFingerprint = (docId: number) => invoke<string>('bookmark_fingerprint', { docId });
 
+/** Convert indexed log records to physical source lines without reading cell values. */
+export const bookmarkLogLine = (docId:number, row:number, plain:boolean) => invoke<number | null>('bookmark_log_line', {docId,row,plain});
+export const bookmarkLogRow = (docId:number, line:number, plain:boolean) => invoke<number | null>('bookmark_log_row', {docId,line,plain});
+
 export const smokeGridExport = (docId: number) => invoke<Record<string, unknown>>('smoke_grid_export', { docId });

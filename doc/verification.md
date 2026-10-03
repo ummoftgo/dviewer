@@ -1700,16 +1700,16 @@ tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므�
 
 | 검사 | 최종 결과 |
 | --- | --- |
-| `DVIEWER_FIXTURES=required cargo test --locked --offline` | 603 통과, 실패·무시 0 |
-| `npm test` | 46 파일·524 테스트 통과 |
-| `npm run check` | 오류 0·경고 0, 4 로케일 × 575 키, 사전 밖 문자열 127 파일 통과 |
+| `DVIEWER_FIXTURES=required cargo test --locked --offline` | 631 통과, 실패·무시 0 |
+| `npm test` | 47 파일·584 테스트 통과 |
+| `npm run check` | 오류 0·경고 0, 4 로케일 × 580 키, 사전 밖 문자열 129 파일 통과 |
 | `npm run build` | 성공; 기존 chunk 경고와 cargo-about 부재로 Rust notices 생략 안내 유지 |
 | `cargo clippy --all-targets --locked --offline` | 성공; lib 25·lib test 27 경고(23 중복). 기존 코드 경고이며 전체 기준선 수는 별도 측정하지 않음 |
 | custom-protocol debug/release 빌드 | 둘 다 성공 |
-| 전체 rustfmt 검사 | 실패. 수정 전 `HEAD:src-tauri/src/cli.rs`도 실패하는 기존 포맷 차이 확인. 새 Rust 모듈 3개는 rustfmt 적용 |
+| 전체 rustfmt 검사 | 실패. 수정 전 `HEAD:src-tauri/src/cli.rs`도 실패하는 기존 포맷 차이 확인. 새 Rust 모듈 5개는 rustfmt 적용 |
 | macOS native/UI, Windows/Linux | 아래 실행 기록 참조; 단위 검사 결과로 대체하지 않음 |
 
-필수 픽스처의 파일 감시·loopback 테스트는 sandbox 안에서 EPERM·시간 초과가 있었으므로 허용된 native 환경에서 최종 전체 Rust 검사를 실행했다. 그 결과가 위의 603개다. 생성기 기준 smoke 매니페스트는 기존 61개에서 69개로 늘었다. 새 시나리오는 tree/grid/log/PDF 위치 책갈피, 표 상태 다시 열기·재읽기, 문서 비교, 복합 조건과 10만 행 조건 취소다. 기존 Markdown 시나리오에 이미지/Mermaid 확대 반복·테마 정리, 전체 값 셀 시나리오에 범위 선택·production 내보내기 IPC를 연결했다.
+필수 픽스처의 파일 감시·loopback 테스트는 sandbox 안에서 EPERM·시간 초과가 있었으므로 허용된 native 환경에서 최종 전체 Rust 검사를 실행했다. 1차603개, 추가 검토 뒤 위의631개다. 생성기 기준 smoke 매니페스트는 기존61개에서69개로 늘었다. 새 시나리오는 tree/grid/log/PDF 위치 책갈피, 표 상태 다시 열기·재읽기, 문서 비교, 복합 조건과10만 행 조건 취소다. 기존 Markdown 시나리오에 이미지/Mermaid 확대 반복·테마 정리, 전체 값 셀 시나리오에 범위 선택·production 내보내기 IPC를 연결했다.
 
 ### 고의 변형 검사
 
@@ -1730,3 +1730,15 @@ tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므�
 연결된 Mac의 잠금 때문에 CUA가 화면 접근을 거부했다. 잠금 해제를 요청했지만 실제 클릭·클립보드 readback·저장 대화상자·재시작 복원·PDF 책갈피는 확인하지 못했다. 화면 접근 거부만으로 전체 스모크 정체의 원인을 확정하지 않는다. 전체 release 스모크와 Windows/Linux native 검사는 실행하지 않았다. 세 OS 초록이라는 저장소 마일스톤 완료 조건은 충족했다고 주장하지 않는다. 기존 PDF 간헐 초기 정체는 별도 미해결 사항으로 유지한다.
 
 최종 재빌드 도중 rustc가 생성된 `dist/pdfjs/web/cmaps/GBKp-EUC-H 3.bcmap` 읽기에서 멈췄다. 1초 스택 표본과 열린 파일로 확인했으며 공식 ZIP에서 추출한 cache에는 이 중복 이름이 없었다. 새 clone의 dist에 생긴 숫자 suffix 생성 파일 284개를 격리하고 빌드를 재시도했다. 사용자 원본이나 소스 변경 없이 처리한 환경 문제이며, 파일 생성의 원인은 확정하지 않았다.
+
+### 추가 경계 검토와 최종 재검증
+
+위 표는 추가 검토 뒤 최종631 Rust·584 Vitest 결과로 갱신했다(1차603·524). Node smoke/diagnostic/repro34개도 통과했다. 저장/실행 조건의1MiB·8MiB 불일치, f64 비교 정밀도, 늦은 책갈피 navigation, 물리 로그 줄과 레코드 좌표 혼동을 수정했다. 저장은 직렬화64MiB·200항목, 숫자는 정확한 십진 mantissa/지수, 로그는 기존 offset 이진 검색이다. Parquet source 구조는 bounded JSON으로 직렬화하며 map 쌍·decimal 예상4096자리 상한을 적용했다. JSONC 내보내기는 숫자 토큰을 유지하며 주석/끝 쉼표만 제거한다. CSV/JSON 문자열은 writer로 직접 흘리고 각 셀과 flush 후 취소/snapshot을 검사한다. compare paging은 실제 UTF-8 bytes·total·generation 검증을 공유한다.
+
+새 Parquet test import가 private factory를 참조한 최초 compile 실패는 public Row와 실제 slice writer로 수정했다. 추가 clippy needless_borrow도 제거했으며 최종25/27 경고는1차와 같다. 새 책갈피 open의 이전 pending 취소 guard를 제거한 변형은 신규 회귀1개가 assertion 실패했고 원복 뒤 통과했다. 초기 세 변형과 합쳐 네 guard 변형을 확인했다.
+
+관찰 코드는 테스트 대기를 진행시키지 않고 단계·실제 requestAnimationFrame 횟수·타이머 전달만 기록한다. 기본 dist의 최종 debug60초 관찰에서 초기화/IPC와 첫 sample.md 준비는 약0.8초에 도달했다. 기존 main에도 있는 Markdown recommendation의 fonts.ready는 완료됐고 이후 ResizeObserver/rAF 초기 배치 대기에서 멈췄다. document.visibilityState=hidden, focused=false, 프레임0회,2초 타이머만 도착했고10/30/45초 타이머 기록은 없었다. 외부60초 deadline이 종료했으며 sweep은0bytes였다. 부모 native CPU는10초0.74초→55초0.75초였으나 별도 WebContent를 측정하지 않았으므로 전체 JS CPU loop의 부재를 증명하지 않는다. 새 이미지 확대 단계에는 도달하지 않았다. hidden renderer의 실행 정지와 일치하지만 잠금 해제 대조군 전에는 OS 잠금만을 유일한 원인으로 확정하지 않는다.0/69는69개 새 기능 실패라는 뜻이 아니다.
+
+생성 suffix 재등장도 확인했다. 최종 frontend rebuild 직후0개였으나 release rustc가GBK-EUC-V 3.bcmap 읽기에서 다시 대기했다.1초 스택은 EmbeddedAssets/std::fs::read를 가리켰고 빌드는3분37초에 스스로 완료됐다(중단 시도 시 두 PID는 이미 종료). canonical 생성 자료471개를/tmp/dviewer-workflows-dist-20261004에 SHA와 함께 복사하고 suffix283개를 제외했다. TAURI_CONFIG의 build.frontendDist만 이 입력으로 지정하여 debug/release를 직렬 재빌드했다(10.55/33.81초). 저장소 설정·사용자 앱·보안 설정을 변경하지 않았으며 입력 hash는 .agent-works/isolated-build-input.json에 있다.
+
+격리 입력의 최종 debug도60초 관찰에서 같은 단계·hidden·프레임0·2초 타이머 이후 중단을 보였다. 기본 입력의 결과와 함께 .agent-works/native-progress-default-input 및 native-progress에 SHA·trace·부모 프로세스 관측을 보존했다. 따라서 이 renderer 정체가 suffix 자료 포함 여부로 해소된다고 주장하지 않는다. 최종 제한된 native 왕복은 .agent-works/native-window-check의 SHA와 결과를 따른다. 전체69개 UI·release 전수·Windows/Linux 검증과 실제 클릭은 계속 미확인이다.

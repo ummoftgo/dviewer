@@ -2,6 +2,8 @@ import type { Messages } from "./ko";
 
 export const ja: Messages = {
   "gridState.saveFailed": "表の表示状態を保存できませんでした。",
+  "gridState.storagePruned": "保存上限に収めるため、古い表の表示状態を削除しました。",
+  "gridState.conditionsNotSaved": "この表の状態は64MiBの保存上限を超えています。列構成と表示モードのみ保存しました。フィルターと並べ替えは次回復元されません。",
   "gridState.restored": "保存済みのフィルターと並べ替えを復元しました。下の操作で解除できます。",
   "gridState.schemaChanged": "列構成が変更されたため、保存済みの表の状態を適用しませんでした。",
   "gridState.restoring": "保存済みの表の状態を復元しています…",
@@ -34,6 +36,9 @@ export const ja: Messages = {
   "frame.imageRotation": "向きを自動補正しました（画像・{deg}°）",
   "frame.reverseRotation": "反対向き",
   "frame.noText": "このページには検索・コピーできるテキストがありません。",
+  "bookmarkLocation.treeSelection": "選択した JSON の位置",
+  "bookmarkLocation.logSelection": "選択したログの位置",
+  "bookmarkLocation.logRecord": "ログレコード {location}",
   "bookmarkLocation.tree": "JSON パス {location}",
   "bookmarkLocation.grid": "元の行 {location}",
   "bookmarkLocation.log": "ログ行 {location}",

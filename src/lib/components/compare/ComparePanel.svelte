@@ -3,7 +3,8 @@
   import { t } from '../../i18n';
   import { docLines, docSourceText, errorMessage } from '../../ipc';
   import type { DocTab } from '../../state/docs.svelte';
-  import { checkCompareSize, compareLines, compareJson, CompareError, CompareRequests, COMPARE_MAX_LINES, type Comparison, type DiffRow } from '../../compare';
+  import { CompareError, CompareRequests, type Comparison, type DiffRow } from '../../compare';
+  import { loadComparison } from '../../compareLoad';
   import Icon from '../Icon.svelte';
 
   interface Props { tabs: DocTab[]; initialLeftId?: number; onClose: () => void }
@@ -38,7 +39,7 @@
   const rightRows = $derived(result?.rows.slice(rightStart, rightStart + Math.ceil(rightHeight / rowHeight) + 20) ?? []);
 
   $effect(() => {
-    const a = left, b = right, ag = a?.meta.generation, bg = b?.meta.generation;
+    const a = left, b = right;
     const asJson = structural && !raw;
     void refresh;
     const ticket = requests.begin();
@@ -49,8 +50,8 @@
     });
     if (!a || !b || a.id === b.id) { busy = false; return () => requests.cancel(); }
     busy = true;
-    const current = () => requests.current(ticket) && a.meta.generation === ag && b.meta.generation === bg;
-    void load(a, b, asJson, current).then(value => {
+    const current = requests.guard(ticket, () => a.meta.generation, () => b.meta.generation);
+    void loadComparison({id: a.id, byteLen: a.meta.byteLen}, {id: b.id, byteLen: b.meta.byteLen}, asJson, current, {lines: docLines, sourceText: docSourceText}).then(value => {
       if (current()) { result = value; busy = false; }
     }).catch(cause => {
       if (!current()) return;
@@ -59,38 +60,6 @@
     });
     return () => requests.cancel();
   });
-
-  async function lines(tab: DocTab, current: () => boolean) {
-    const first = await docLines(tab.id, 0, 1000);
-    if (!current()) throw new Error('cancelled');
-    if (first.total > COMPARE_MAX_LINES) throw new CompareError('limit');
-    const all = first.lines;
-    let bytes = 0;
-    const countBytes = (values: string[]) => {
-      for (const value of values) bytes += new TextEncoder().encode(value).length + 1;
-      checkCompareSize(Math.max(0, bytes - 1));
-    };
-    countBytes(first.lines);
-    while (all.length < first.total) {
-      const page = await docLines(tab.id, all.length, 1000);
-      if (!current()) throw new Error('cancelled');
-      if (page.total !== first.total || !page.lines.length) throw new CompareError('limit');
-      countBytes(page.lines); all.push(...page.lines);
-    }
-    return all;
-  }
-
-  async function load(a: DocTab, b: DocTab, asJson: boolean, current: () => boolean): Promise<Comparison> {
-    checkCompareSize(a.meta.byteLen); checkCompareSize(b.meta.byteLen);
-    if (asJson) {
-      const [one, two] = await Promise.all([docSourceText(a.id), docSourceText(b.id)]);
-      if (!current()) throw new Error('cancelled');
-      return compareJson(one, two);
-    }
-    const [one, two] = await Promise.all([lines(a, current), lines(b, current)]);
-    if (!current()) throw new Error('cancelled');
-    return compareLines(one, two);
-  }
 
   function cancel() { requests.cancel(); busy = false; result = null; }
   function scroll(side: 'left' | 'right') {

@@ -6,11 +6,13 @@ import { gridOrderCancel } from '../ipc';
 export function watchGridState(readTab: () => DocTab): void {
   $effect(() => {
     const tab = readTab();
-    JSON.stringify([tab.gridStateReady, tab.gridStateRestoring, tab.gridSchema, tab.collection,
-      tab.columnWidths, tab.columnOrder, tab.hiddenColumns, tab.frozenCount, tab.tableWidthMode,
-      tab.tableFillRatios, tab.order.sort, tab.order.filter, tab.order.filterColumn,
-      tab.order.predicates, tab.order.running, tab.tableStats?.hasHeader, tab.tableStats?.plain,
-      tab.tableStats?.expanded, tab.gridStats?.formulas]);
+    // Subscribe without serializing potentially large accepted filter values.
+    [tab.gridStateReady, tab.gridStateRestoring, tab.gridSchema, tab.collection,
+      tab.frozenCount, tab.tableWidthMode, tab.order.sort?.column, tab.order.sort?.descending,
+      tab.order.filter, tab.order.filterColumn, tab.order.running, tab.tableStats?.hasHeader,
+      tab.tableStats?.plain, tab.tableStats?.expanded, tab.gridStats?.formulas];
+    [tab.columnWidths, tab.columnOrder, tab.hiddenColumns, tab.tableFillRatios].forEach(values => values?.forEach(value => { void value; }));
+    tab.order.predicates.forEach(predicate => { void predicate.column; void predicate.op; void predicate.value; });
     untrack(() => { void tab.rememberGridState(); });
   });
   onDestroy(() => {

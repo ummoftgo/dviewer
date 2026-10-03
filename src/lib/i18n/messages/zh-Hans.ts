@@ -2,6 +2,8 @@ import type { Messages } from "./ko";
 
 export const zhHans: Messages = {
   "gridState.saveFailed": "无法保存表格视图状态。",
+  "gridState.storagePruned": "已删除较旧的表格视图状态，以保持在存储限制内。",
+  "gridState.conditionsNotSaved": "此表格状态超过64MiB存储限制。仅保存了列配置和视图模式；筛选与排序下次将不会恢复。",
   "gridState.restored": "已恢复保存的筛选和排序。可使用下方控件清除。",
   "gridState.schemaChanged": "列结构已更改，因此未应用已保存的表格状态。",
   "gridState.restoring": "正在恢复保存的表格状态…",
@@ -34,6 +36,9 @@ export const zhHans: Messages = {
   "frame.imageRotation": "已自动校正方向（图像・{deg}°）",
   "frame.reverseRotation": "反向",
   "frame.noText": "本页没有可查找或复制的文本。",
+  "bookmarkLocation.treeSelection": "已选择的 JSON 位置",
+  "bookmarkLocation.logSelection": "已选择的日志位置",
+  "bookmarkLocation.logRecord": "日志记录 {location}",
   "bookmarkLocation.tree": "JSON 路径 {location}",
   "bookmarkLocation.grid": "源行 {location}",
   "bookmarkLocation.log": "日志行 {location}",

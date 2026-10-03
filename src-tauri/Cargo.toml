@@ -60,6 +60,8 @@ tauri-plugin-single-instance = "2"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 rusqlite = { version = "0.37", features = ["bundled", "serialize"] }
 calamine = { version = "0.36", features = ["dates"] }
+# Already used by Parquet; exact unscaled decimal bytes must not go through f64.
+num-bigint = "0.5.1"
 # Without arrow: its reader builds columnar batches, which is the shape for
 # computing over a file and not for showing a hundred rows of one. The codecs
 # are what real files are written with; `flate2-rust_backend` reuses the backend

@@ -1,6 +1,7 @@
 import type { GridPredicate, GridPredicateOp } from './ipc';
 
 export const predicateOps: GridPredicateOp[] = ['equals', 'contains', 'gt', 'gte', 'lt', 'lte', 'empty', 'null', 'missing'];
+export const MAX_PREDICATE_VALUE_BYTES = 8 * 1024 * 1024;
 export const numericOps = new Set<GridPredicateOp>(['gt', 'gte', 'lt', 'lte']);
 export function needsPredicateValue(op: GridPredicateOp): boolean {
   return !['empty', 'null', 'missing'].includes(op);
@@ -11,6 +12,6 @@ export function validNumericPredicate(value: string): boolean {
 }
 export function validPredicates(predicates: GridPredicate[], columnCount: number): boolean {
   return predicates.length <= 32 && predicates.every(p => Number.isInteger(p.column) && p.column >= 0 && p.column < columnCount
-    && predicateOps.includes(p.op) && (numericOps.has(p.op) ? validNumericPredicate(p.value) : true)
+    && predicateOps.includes(p.op) && new TextEncoder().encode(p.value).byteLength <= MAX_PREDICATE_VALUE_BYTES && (numericOps.has(p.op) ? validNumericPredicate(p.value) : true)
     && (needsPredicateValue(p.op) || p.value === ''));
 }

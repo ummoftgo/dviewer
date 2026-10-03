@@ -112,9 +112,10 @@
     if (!jump || !target || (target.kind !== 'grid' && target.kind !== 'log') || jump.ready === false
       || !viewport || !(tab.tableStats || tab.gridStats) || bookmarkRequest === jump.request) return;
     if (target.kind === 'grid' && target.collection && target.collection !== tab.collection) return;
+    const row = target.kind === 'grid' ? target.row : target.sourceLine === true ? jump.row : target.line;
+    if (row === undefined) return;
     bookmarkRequest = jump.request;
     untrack(() => {
-      const row = target.kind === 'grid' ? target.row : target.line;
       if (row >= rowCount || columnCount === 0) { bookmarks.complete(tab,jump,false); return; }
       tab.pendingCell = {row,column:0};
       bookmarks.complete(tab,jump,true);

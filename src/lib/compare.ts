@@ -12,6 +12,8 @@ export function checkCompareSize(byteLen: number) {
   if (!Number.isFinite(byteLen) || byteLen < 0 || byteLen > COMPARE_MAX_BYTES) throw new CompareError('limit');
 }
 export function sourceLines(text: string): string[] {
+  // UTF-8 is never shorter than the UTF-16 code-unit count. Refuse huge inputs before allocating encoded copies.
+  checkCompareSize(text.length);
   checkCompareSize(new TextEncoder().encode(text).length);
   const lines = text.split('\n').map((line, index, all) => index < all.length - 1 && line.endsWith('\r') ? line.slice(0, -1) : line);
   if (lines.length > COMPARE_MAX_LINES) throw new CompareError('limit');
@@ -31,7 +33,15 @@ function comparison(rows: DiffRow[]): Comparison {
 }
 /** Exact line LCS with unchanged prefix/suffix removed before allocating. */
 export function compareLines(left: readonly string[], right: readonly string[]): Comparison {
-  if (Math.max(left.length, right.length) > COMPARE_MAX_LINES) throw new CompareError('limit');
+  for (const lines of [left, right]) {
+    if (lines.length > COMPARE_MAX_LINES) throw new CompareError('limit');
+    let bytes = Math.max(0, lines.length - 1);
+    for (const line of lines) {
+      checkCompareSize(bytes + line.length);
+      bytes += new TextEncoder().encode(line).length;
+      checkCompareSize(bytes);
+    }
+  }
   let prefix = 0;
   while (prefix < Math.min(left.length, right.length) && left[prefix] === right[prefix]) prefix++;
   let suffix = 0;
@@ -68,16 +78,19 @@ interface JsonNode { type: 'object' | 'array' | 'string' | 'number' | 'boolean' 
 function numberIdentity(token: string): string {
   const match = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(token)!;
   let digits = (match[2] + (match[3] ?? '')).replace(/^0+/, '');
-  if (!digits) return '0';
   const exponentToken = (match[4] ?? '0').replace(/^([+-]?)0+/, '$1') || '0';
   if (exponentToken.replace(/^[+-]/, '').length > 10) throw new CompareError('limit');
+  if (!digits) return '0';
   let exponent = BigInt(exponentToken === '+' || exponentToken === '-' ? '0' : exponentToken) - BigInt((match[3] ?? '').length);
-  const zeros = /0+$/.exec(digits)?.[0].length ?? 0;
-  digits = digits.slice(0, digits.length - zeros); exponent += BigInt(zeros);
+  // An unanchored /0+$/ can retry a long internal zero run quadratically. Scan once from the right.
+  let end = digits.length;
+  while (end > 0 && digits[end - 1] === '0') end--;
+  exponent += BigInt(digits.length - end); digits = digits.slice(0, end);
   return `${match[1]}${digits}e${exponent}`;
 }
 /** Preserves number precision, original key order and string escape semantics. Duplicate keys are ambiguous and refused. */
 function parseJson(source: string): JsonNode {
+  checkCompareSize(source.length);
   checkCompareSize(new TextEncoder().encode(source).length);
   let at = 0, count = 0;
   const fail = (): never => { throw new CompareError('json'); };
@@ -152,5 +165,9 @@ export class CompareRequests {
   private generation = 0;
   begin(): number { return ++this.generation; }
   cancel() { this.generation++; }
+  guard(ticket: number, ...generations: (() => number | undefined)[]): () => boolean {
+    const snapshots = generations.map(read => read());
+    return () => this.current(ticket) && generations.every((read, index) => read() === snapshots[index]);
+  }
   current(ticket: number): boolean { return ticket === this.generation; }
 }

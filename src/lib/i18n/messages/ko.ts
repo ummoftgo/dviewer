@@ -7,6 +7,8 @@
  */
 export const ko = {
   "gridState.saveFailed": "표 보기 상태를 저장하지 못했습니다.",
+  "gridState.storagePruned": "저장 한도에 맞추기 위해 오래된 표 보기 상태를 정리했습니다.",
+  "gridState.conditionsNotSaved": "이 표의 상태가 64MiB 저장 한도를 넘어 열 구성과 보기 모드만 저장했습니다. 필터·정렬은 다음에 복원되지 않습니다.",
   "gridState.restored": "저장된 필터·정렬을 복원했습니다. 아래 조건에서 해제할 수 있습니다.",
   "gridState.schemaChanged": "열 구성이 변경되어 저장된 표 상태를 적용하지 않았습니다.",
   "gridState.restoring": "저장된 표 상태를 복원하는 중입니다…",
@@ -39,6 +41,9 @@ export const ko = {
   "frame.imageRotation": "방향 자동 교정됨(이미지) ({deg}°)",
   "frame.reverseRotation": "반대로",
   "frame.noText": "현재 페이지는 텍스트가 없어 찾기·복사할 수 없습니다.",
+  "bookmarkLocation.treeSelection": "선택한 JSON 위치",
+  "bookmarkLocation.logSelection": "선택한 로그 위치",
+  "bookmarkLocation.logRecord": "로그 레코드 {location}",
   "bookmarkLocation.tree": "JSON 경로 {location}",
   "bookmarkLocation.grid": "원본 행 {location}",
   "bookmarkLocation.log": "로그 줄 {location}",

@@ -1230,6 +1230,7 @@ dependencies = [
  "minisign",
  "minisign-verify",
  "notify",
+ "num-bigint",
  "parking_lot",
  "parquet",
  "percent-encoding",

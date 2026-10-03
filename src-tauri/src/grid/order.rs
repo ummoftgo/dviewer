@@ -149,6 +149,7 @@ impl Order {
             }
             if let Some(scalar) = scalar {
                 for (index, predicate) in predicates.iter().enumerate() {
+                    check_cancel(cancel)?;
                     if predicate.column == column { predicate_matches[index] = predicate.matches(scalar); }
                 }
             }

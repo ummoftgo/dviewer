@@ -973,6 +973,23 @@ describe('document grid state restoration', () => {
     expect(tab.order.filter).toBe('value');
     expect(tab.gridStateNotice).toBe('restored');
   });
+  test('an applied condition above 1 MiB is captured and restored together with layout', async () => {
+    const tab = table('/long-condition-grid.csv');
+    tab.gridStateReady = true;
+    tab.columnWidths = [220, 90]; tab.columnOrder = [1, 0];
+    const predicates = [{ column: 0, op: 'contains' as const, value: 'x'.repeat(1024 * 1024 + 1) }];
+    vi.mocked(ipc.gridOrder).mockResolvedValueOnce({ shown: 1, total: 10, indexBytes: 4, peakBytes: 4 });
+    expect(await tab.applyOrder(null, '', null, predicates)).toBe(true);
+    await tab.rememberGridState();
+    const reopened = table('/long-condition-grid.csv');
+    const state = await reopened.savedGridState();
+    expect(state?.predicates[0].value.length).toBe(predicates[0].value.length);
+    expect(state?.widths).toEqual([220, 90]);
+    vi.mocked(ipc.gridOrder).mockResolvedValueOnce({ shown: 1, total: 10, indexBytes: 4, peakBytes: 4 });
+    await reopened.restoreGridState(state);
+    expect(reopened.order.predicates[0].value.length).toBe(predicates[0].value.length);
+    expect(reopened.columnOrder).toEqual([1, 0]);
+  });
   test('bookmark source coordinates supersede saved scans but retain compatible layout', async () => {
     const tab = table('/bookmarked-grid.csv');
     tab.gridRestoreOrderAllowed = false;

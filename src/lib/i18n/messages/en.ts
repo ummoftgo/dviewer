@@ -2,6 +2,8 @@ import type { Messages } from "./ko";
 
 export const en: Messages = {
   "gridState.saveFailed": "Could not save the table view state.",
+  "gridState.storagePruned": "Older table view states were removed to stay within the storage limit.",
+  "gridState.conditionsNotSaved": "This table state exceeds the 64MiB storage limit. Only columns and view modes were saved; filters and sorting will not be restored next time.",
   "gridState.restored": "Saved filters and sorting restored. Clear them using the controls below.",
   "gridState.schemaChanged": "The columns changed, so the saved table state was not applied.",
   "gridState.restoring": "Restoring the saved table state…",
@@ -34,6 +36,9 @@ export const en: Messages = {
   "frame.imageRotation": "Orientation corrected automatically (image) ({deg}°)",
   "frame.reverseRotation": "Reverse",
   "frame.noText": "This page has no text to find or copy.",
+  "bookmarkLocation.treeSelection": "Selected JSON location",
+  "bookmarkLocation.logSelection": "Selected log location",
+  "bookmarkLocation.logRecord": "Log record {location}",
   "bookmarkLocation.tree": "JSON path {location}",
   "bookmarkLocation.grid": "Source row {location}",
   "bookmarkLocation.log": "Log line {location}",

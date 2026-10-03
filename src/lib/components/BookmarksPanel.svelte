@@ -18,10 +18,10 @@
   }
   let {tab, draft, onDone, onClose}: Props = $props();
   function locationLabel(item: Pick<Bookmark,'target'|'anchor'>): string {
-    return item.target ? t(`bookmarkLocation.${item.target.kind}`,{location:bookmarkLocationText(item)})
+    return item.target ? t(item.target.kind === 'log' && !item.target.sourceLine && !item.target.plain ? 'bookmarkLocation.logRecord' : `bookmarkLocation.${item.target.kind}`,{location:bookmarkLocationText(item)})
       : item.anchor.id === '' ? t('bookmarks.top') : item.anchor.text;
   }
-  let label = $derived(draft ? locationLabel(draft) : '');
+  let label = $derived(draft ? draft.treeNode !== undefined ? t('bookmarkLocation.treeSelection') : draft.logRow !== undefined ? t('bookmarkLocation.logSelection') : locationLabel(draft) : '');
   let saving = $state(false);
   let draftTabId: number | undefined;
   let draftGeneration: number | undefined;

@@ -8,7 +8,7 @@
   import { toasts } from '../../state/toast.svelte';
   import { frameLocation, frameMessage } from '../../frame/messages';
   import { frameDiagnostic, captureFrameObservation, markFrameTeardown, parentCspViolation } from '../../frame/diagnostics';
-  import { resolveAnchor } from '../../bookmarks';
+  import { resolveAnchor, pdfBookmarkPage } from '../../bookmarks';
   import { bookmarks } from '../../state/bookmarks.svelte';
   import Toc from '../markdown/Toc.svelte';
   import FrameSearchBar from './FrameSearchBar.svelte';
@@ -80,9 +80,9 @@
   $effect(() => {
     const jump = tab.pendingBookmark;
     if (jump?.target?.kind !== 'pdf' || !tab.frameContentLoaded || !tab.frameReady || sentBookmark === jump.request) return;
-    const page = jump.target.page;
+    const page = pdfBookmarkPage(jump.target,tab.framePages);
     untrack(() => {
-      if (page > tab.framePages) { bookmarks.complete(tab,jump,false); return; }
+      if (page === null) { bookmarks.complete(tab,jump,false); return; }
       sentBookmark = jump.request;
       // Reuse the established PDF goto bridge; startup and rendering are unchanged.
       post({type:'goto',page});

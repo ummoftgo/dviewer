@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
-import { GridStateStore, gridSourceKey, readGridState, readGridStates, type SavedGridState } from './grid-state';
+import { GridStateStore, gridSourceKey, readGridState, readGridStates, jsonStringBytes, jsonUtf8Bytes, MAX_GRID_STATE_BYTES, type SavedGridState } from './grid-state';
+import { validPredicates, MAX_PREDICATE_VALUE_BYTES } from './grid-predicates';
 
 function saved(change: Partial<SavedGridState> = {}): SavedGridState {
   return { identity: 'file:a.csv', collection: null, schema: '["name","age"]', widths: [180, 90],
@@ -29,6 +30,28 @@ describe('persistent grid source identity', () => {
 });
 
 describe('stored column schema and controls', () => {
+  test('an applied predicate above 1 MiB remains persistable with the column layout', () => {
+    const state = saved({ predicates: [{ column: 0, op: 'contains', value: 'x'.repeat(1024 * 1024 + 1) }] });
+    expect(validPredicates(state.predicates, 2)).toBe(true);
+    const stored = readGridState(state);
+    expect(stored?.predicates).toEqual(state.predicates);
+    expect(stored?.widths).toEqual([180, 90]);
+  });
+  test('predicate persistence follows the exact UTF-8 byte limit instead of character count', () => {
+    const bytes = MAX_PREDICATE_VALUE_BYTES;
+    const value = '界'.repeat(Math.floor(bytes / 3)) + 'a'.repeat(bytes % 3);
+    const state = saved({ predicates: [{ column: 0, op: 'equals', value }] });
+    expect(new TextEncoder().encode(value).byteLength).toBe(bytes);
+    expect(validPredicates(state.predicates, 2)).toBe(true);
+    expect(readGridState(state)?.predicates[0].value.length).toBe(value.length);
+    state.predicates[0].value += 'a';
+    expect(validPredicates(state.predicates, 2)).toBe(false);
+    expect(readGridState(state)).toBeNull();
+  });
+  test('the existing string filter has no arbitrary 1 MiB character cap', () => {
+    const state = saved({ filter: 'x'.repeat(1024 * 1024 + 1) });
+    expect(readGridState(state)?.filter.length).toBe(state.filter.length);
+  });
   test('round trip copies every committed view choice', () => {
     const input = saved();
     const result = readGridState(JSON.parse(JSON.stringify(input)))!;
@@ -55,6 +78,107 @@ describe('stored column schema and controls', () => {
   test('store version and duplicate identity+collection entries are guarded', () => {
     expect(readGridStates({ version: 2, entries: [saved()] })).toEqual([]);
     expect(readGridStates({ version: 1, entries: [saved(), saved(), saved({ collection: 'other' }), {}] })).toHaveLength(2);
+  });
+});
+
+describe('bounded UTF-8 grid state storage', () => {
+  const encoder = new TextEncoder();
+  const envelope = (entries: SavedGridState[]) => ({ version: 1, entries });
+  test.each(['', 'ASCII', '"\\\b\f\n\r\t\x00\x1f', '한글界', '😀', '\ud800', '\udfff', '\ud800A\udfff', '😀\ud800\x00'])
+    ('JSON string byte accounting exactly matches serialization for %j', value => {
+      expect(jsonStringBytes(value)).toBe(encoder.encode(JSON.stringify(value)).byteLength);
+    });
+  test('nested state and envelope accounting includes keys, delimiters and escaped conditions', () => {
+    const state = saved({ filter: '\x00😀"\ud800', predicates: [{ column: 1, op: 'equals', value: '\n界\\\udfff' }] });
+    expect(jsonUtf8Bytes(envelope([state]))).toBe(encoder.encode(JSON.stringify(envelope([state]))).byteLength);
+    expect(MAX_GRID_STATE_BYTES).toBe(64 * 1024 * 1024);
+  });
+  test.each([0, 1, -1])('the exact byte cap %+d is applied before writing', async difference => {
+    const state = saved({ filter: '界😀\x00'.repeat(40) });
+    const exact = jsonUtf8Bytes(envelope([state]));
+    const write = vi.fn(async (_value: unknown) => {}), notice = vi.fn();
+    const store = new GridStateStore(async () => undefined, write, undefined, notice, exact + difference);
+    await store.remember(state); await store.flush();
+    const snapshot = write.mock.calls[0][0] as { entries: SavedGridState[] };
+    expect(jsonUtf8Bytes(snapshot)).toBeLessThanOrEqual(exact + difference);
+    expect(snapshot.entries[0].filter).toBe(difference < 0 ? '' : state.filter);
+    expect(snapshot.entries[0].widths).toEqual(state.widths);
+    expect(notice.mock.calls).toEqual(difference < 0 ? [['conditionsNotSaved']] : []);
+  });
+  test('oldest complete entries are pruned at the byte bound in memory and on load', async () => {
+    const states = ['a', 'b', 'c'].map(identity => saved({ identity, filter: 'x'.repeat(100) }));
+    const budget = jsonUtf8Bytes(envelope(states.slice(0, 2)));
+    const notice = vi.fn(), write = vi.fn(async (_value: unknown) => {});
+    const store = new GridStateStore(async () => undefined, write, undefined, notice, budget);
+    for (const state of states) await store.remember(state);
+    await store.flush();
+    expect(await store.get('a', null)).toBeNull();
+    expect((write.mock.calls[0][0] as { entries: SavedGridState[] }).entries.map(s => s.identity)).toEqual(['b', 'c']);
+    expect(notice).toHaveBeenCalledExactlyOnceWith('pruned');
+    const loadedNotice = vi.fn();
+    expect(readGridStates(envelope(states), budget, loadedNotice).map(s => s.identity)).toEqual(['b', 'c']);
+    expect(loadedNotice).toHaveBeenCalledExactlyOnceWith('pruned');
+  });
+  test('an oversized replacement preserves its new layout and removes previously stored conditions', async () => {
+    const previous = saved({ filter: 'old accepted filter' });
+    const notice = vi.fn(), write = vi.fn(async (_value: unknown) => {});
+    const budget = jsonUtf8Bytes(envelope([previous])) + 10;
+    const store = new GridStateStore(async () => envelope([previous]), write, undefined, notice, budget);
+    const large = saved({ widths: [300, 100], filter: '\x00'.repeat(100), predicates: [{ column: 0, op: 'contains', value: 'z'.repeat(100) }] });
+    await store.remember(large); await store.remember(large); await store.flush();
+    const result = await store.get(previous.identity, null);
+    expect(result?.widths).toEqual([300, 100]);
+    expect(result?.order).toEqual([1, 0]);
+    expect(result?.filter).toBe(''); expect(result?.filterColumn).toBeNull();
+    expect(result?.predicates).toEqual([]); expect(result?.sort).toBeNull();
+    expect(notice).toHaveBeenCalledExactlyOnceWith('conditionsNotSaved');
+    expect(jsonUtf8Bytes(write.mock.calls[0][0])).toBeLessThanOrEqual(budget);
+    const reopen = new GridStateStore(async () => write.mock.calls[0][0]);
+    expect((await reopen.get(previous.identity, null))?.filter).toBe('');
+  });
+  test('load applies layout fallback to the newest oversized duplicate rather than restoring old conditions', () => {
+    const previous = saved({ filter: 'old filter' });
+    const large = saved({ widths: [320, 80], filter: '\x00'.repeat(1000) });
+    const budget = jsonUtf8Bytes(envelope([previous])) + 10;
+    const notice = vi.fn();
+    const loaded = readGridStates(envelope([previous, large]), budget, notice);
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].widths).toEqual([320, 80]);
+    expect(loaded[0].filter).toBe('');
+    expect(notice).toHaveBeenCalledExactlyOnceWith('conditionsNotSaved');
+  });
+  test('accepted predicates whose escaped JSON exceeds the production budget preserve layout and report the omission', async () => {
+    const value = '\x00'.repeat(6 * 1024 * 1024);
+    const state = saved({ predicates: [{ column: 0, op: 'contains', value }, { column: 1, op: 'equals', value }] });
+    expect(validPredicates(state.predicates, 2)).toBe(true);
+    const write = vi.fn(async (_value: unknown) => {}), notice = vi.fn();
+    const store = new GridStateStore(async () => undefined, write, undefined, notice);
+    await store.remember(state); await store.flush();
+    const snapshot = write.mock.calls[0][0] as { entries: SavedGridState[] };
+    expect(snapshot.entries[0].widths).toEqual([180, 90]);
+    expect(snapshot.entries[0].predicates).toEqual([]);
+    expect(snapshot.entries[0].filter).toBe('');
+    expect(jsonUtf8Bytes(snapshot)).toBeLessThanOrEqual(MAX_GRID_STATE_BYTES);
+    expect(notice).toHaveBeenCalledExactlyOnceWith('conditionsNotSaved');
+  });
+  test('oversized queries are never deep copied or serialized before fallback', async () => {
+    const large = saved({ filter: '\x00'.repeat(10000) });
+    const budget = jsonUtf8Bytes(envelope([saved()])) + 10;
+    const store = new GridStateStore(async () => undefined, async () => {}, undefined, undefined, budget);
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      await store.remember(large); await store.flush();
+      expect(stringify.mock.calls.some(([value]) => value === large || (typeof value === 'object' && value !== null && !Array.isArray(value) && 'entries' in value))).toBe(false);
+    } finally { stringify.mockRestore(); }
+  });
+  test('the 200 entry count bound also keeps the newest states', () => {
+    const states = Array.from({ length: 201 }, (_, at) => saved({ identity: String(at) }));
+    const notice = vi.fn();
+    const kept = readGridStates(envelope(states), MAX_GRID_STATE_BYTES, notice);
+    expect(kept).toHaveLength(200);
+    expect(kept[0].identity).toBe('1');
+    expect(kept.at(-1)?.identity).toBe('200');
+    expect(notice).toHaveBeenCalledExactlyOnceWith('pruned');
   });
 });
 
