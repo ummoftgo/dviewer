@@ -1694,3 +1694,39 @@ tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므�
 | 전체 Rust·native 여섯 조건·세 OS 서명 관문 | 이 수정의 로컬 미실행; GTK 부재, CI 필요 |
 
 두 agent 변형은 원본 바이트로 복구했다. 로그는 `.agent-works/pdf-style-startup/fix-*.log`와 `mutation-css-*.log`, 원본과 구분한 재분석은 같은 디렉터리의 `experiment-36823383493-exit-reanalysis.json`이다. 이번 메커니즘은 재현됐지만 수정 뒤 native 통과 전에는 해결·릴리스 준비 완료로 간주하지 않는다.
+## 문서 작업 흐름 여섯 기능 — 2026-10-04 로컬 검증
+
+공식 main `d5b54a865c7bd2f8a68bfb466b9e966a7c693b98`에서 분리한 `feature/document-workflows`의 검사다. 설계·수용 기준은 [document-workflows-plan.md](document-workflows-plan.md), 동작과 자원 경계는 README와 architecture에 기록했다. 버전과 원격 저장소는 바꾸지 않았다.
+
+| 검사 | 최종 결과 |
+| --- | --- |
+| `DVIEWER_FIXTURES=required cargo test --locked --offline` | 603 통과, 실패·무시 0 |
+| `npm test` | 46 파일·524 테스트 통과 |
+| `npm run check` | 오류 0·경고 0, 4 로케일 × 575 키, 사전 밖 문자열 127 파일 통과 |
+| `npm run build` | 성공; 기존 chunk 경고와 cargo-about 부재로 Rust notices 생략 안내 유지 |
+| `cargo clippy --all-targets --locked --offline` | 성공; lib 25·lib test 27 경고(23 중복). 기존 코드 경고이며 전체 기준선 수는 별도 측정하지 않음 |
+| custom-protocol debug/release 빌드 | 둘 다 성공 |
+| 전체 rustfmt 검사 | 실패. 수정 전 `HEAD:src-tauri/src/cli.rs`도 실패하는 기존 포맷 차이 확인. 새 Rust 모듈 3개는 rustfmt 적용 |
+| macOS native/UI, Windows/Linux | 아래 실행 기록 참조; 단위 검사 결과로 대체하지 않음 |
+
+필수 픽스처의 파일 감시·loopback 테스트는 sandbox 안에서 EPERM·시간 초과가 있었으므로 허용된 native 환경에서 최종 전체 Rust 검사를 실행했다. 그 결과가 위의 603개다. 생성기 기준 smoke 매니페스트는 기존 61개에서 69개로 늘었다. 새 시나리오는 tree/grid/log/PDF 위치 책갈피, 표 상태 다시 열기·재읽기, 문서 비교, 복합 조건과 10만 행 조건 취소다. 기존 Markdown 시나리오에 이미지/Mermaid 확대 반복·테마 정리, 전체 값 셀 시나리오에 범위 선택·production 내보내기 IPC를 연결했다.
+
+### 고의 변형 검사
+
+세 변형을 각각 실행한 뒤 원본 바이트와 SHA 일치를 확인해 복구했다. 컴파일 실패를 판정으로 사용하지 않았다.
+
+| 변형 | 잡은 테스트 | 관측 |
+| --- | --- | --- |
+| 저장 schema 일치 guard 제거 | schema mismatch restores neither layout nor expensive order | Vitest 1 실패 |
+| JSON 객체 키 순서를 값 변경으로 분류 | classifies key order separately from value changes | Vitest 1 실패 |
+| NULL 조건을 빈 문자열 조건으로 변경 | empty_null_missing_are_distinct_and_text_is_typed | Rust assertion 1 실패 |
+
+### native 실행과 미확인 범위
+
+첫 debug 전체 스모크는 600초 기한을 넘겼고 완료한 문서는 0개, 미완료는 69개였다. 단일 인스턴스 전달은 통과했다. 새 창은 Markdown을 ready까지 열었지만 destruction/reclaim 기록이 없어 실패했다. 이 검사로 close-request API가 내부적으로 호출하는 `destroy` 권한 누락을 발견해 창 범위 capability에 추가했다. 이후 최종 바이너리의 제한된 전달·새 창 닫기 재검사는 별도 기록하며, 전체 스모크의 통과로 대체하지 않는다.
+
+수정 뒤 최종 debug/release 각각 단일 인스턴스 전달과 새 창 열기·닫기·문서1개 회수 검사가 통과했다(총4개). 각 실행은 격리된 identifier를 사용하고 실제 native webview/IPC로 Markdown ready 및 reclaim 기록을 확인했다. `.agent-works/native-window-check/{summary.json,*-new.jsonl}`에 바이너리 SHA와 결과가 있다. UI 기능의 69개 전수 검사가 통과한 것은 아니다.
+
+연결된 Mac의 잠금 때문에 CUA가 화면 접근을 거부했다. 잠금 해제를 요청했지만 실제 클릭·클립보드 readback·저장 대화상자·재시작 복원·PDF 책갈피는 확인하지 못했다. 화면 접근 거부만으로 전체 스모크 정체의 원인을 확정하지 않는다. 전체 release 스모크와 Windows/Linux native 검사는 실행하지 않았다. 세 OS 초록이라는 저장소 마일스톤 완료 조건은 충족했다고 주장하지 않는다. 기존 PDF 간헐 초기 정체는 별도 미해결 사항으로 유지한다.
+
+최종 재빌드 도중 rustc가 생성된 `dist/pdfjs/web/cmaps/GBKp-EUC-H 3.bcmap` 읽기에서 멈췄다. 1초 스택 표본과 열린 파일로 확인했으며 공식 ZIP에서 추출한 cache에는 이 중복 이름이 없었다. 새 clone의 dist에 생긴 숫자 suffix 생성 파일 284개를 격리하고 빌드를 재시도했다. 사용자 원본이나 소스 변경 없이 처리한 환경 문제이며, 파일 생성의 원인은 확정하지 않았다.

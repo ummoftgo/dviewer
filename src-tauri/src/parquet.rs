@@ -278,6 +278,23 @@ impl Grid for ParquetDoc {
         })
     }
 
+    fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+        use crate::grid::{GridScalar, ScalarKind};
+        if column as usize >= self.columns.len() { return Err(Error::NoSuchCell); }
+        let (group, offset) = self.locate(row).ok_or(Error::NoSuchRow)?;
+        let held = self.group(group)?;
+        let field = self.field(&held, offset, column as usize).ok_or(Error::NoSuchCell)?;
+        let kind = match &field {
+            Field::Null => ScalarKind::Null, Field::Str(_) => ScalarKind::Text, Field::Bool(_) => ScalarKind::Boolean,
+            Field::Bytes(_) => ScalarKind::Binary,
+            Field::Group(_) | Field::ListInternal(_) | Field::MapInternal(_) => ScalarKind::Structured,
+            Field::Byte(_) | Field::Short(_) | Field::Int(_) | Field::Long(_) | Field::UByte(_) | Field::UShort(_)
+                | Field::UInt(_) | Field::ULong(_) | Field::Float(_) | Field::Double(_) | Field::Decimal(_) => ScalarKind::Number,
+            _ => ScalarKind::Text,
+        };
+        GridScalar::checked(self.cell_text(row, column)?, kind)
+    }
+
     fn row_text(&self, row: u32) -> Result<CellText> {
         let (group, offset) = self.locate(row).ok_or(Error::NoSuchRow)?;
         let held = self.group(group)?;

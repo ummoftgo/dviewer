@@ -994,6 +994,17 @@ impl crate::grid::Grid for TableDoc {
         TableDoc::cell_text(self, row, column).ok_or(Error::NoSuchCell)
     }
 
+    fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+        if let Records::Jsonl(layout) = self.reading() {
+            let record = row.checked_add(self.header_offset()).ok_or(Error::NoSuchRow)?;
+            let (start, end) = self.record_span(record).ok_or(Error::NoSuchRow)?;
+            return crate::jsonl::value_scalar(&self.bytes, start, end, &layout, column as usize);
+        }
+        let cell = TableDoc::cell_text(self, row, column).ok_or(Error::NoSuchCell)?;
+        let kind = if cell.missing { crate::grid::ScalarKind::Missing } else { crate::grid::ScalarKind::Text };
+        crate::grid::GridScalar::checked(cell, kind)
+    }
+
     fn row_text(&self, row: u32) -> Result<CellText> {
         Ok(CellText {
             text: TableDoc::row_text(self, row).ok_or(Error::NoSuchRow)?,

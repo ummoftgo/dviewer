@@ -899,3 +899,17 @@ PDF는 세 OS 모두에서 연다. 한때 Windows로 제한했지만, WebKit의 
 2. 이미지 경로에서 비결정적인 곳은 PDF.js 워커의 `OffscreenCanvas`→`transferToImageBitmap`→메인 `drawImage` 뿐이라, WebKit 에서 `isOffscreenCanvasSupported:false` 와 20ms 뒤 다시 읽기를 넣었다(가지 cffcc96). 그러자 벡터 픽스처 둘이 두 차례 모두 `orientation response missing` 으로 실패했다. 다시 읽기의 차이 관측(`probe-unsettled`)은 없었다. 원시 픽셀 `putImageData` 가 느려 500ms 예산을 넘긴 것으로 추정하지만 판정 수치가 실패 줄에 실리지 않아 확인하지 못했다.
 
 워커 ImageBitmap 가설은 확인되지 않은 채 남는다. 후속 후보는 셋이다. WebKit 에서 판정 예산을 늘리거나 해상도를 줄이는 것, 판정만 별도 PDF.js 인스턴스·메인 스레드 복호로 하는 것, WebKit 의 ImageBitmap 동작을 따로 재현하는 것.
+
+## 문서 작업 흐름: 지속 상태·전체 값·위치·비교
+
+상세 설계와 수용 기준은 [document-workflows-plan.md](document-workflows-plan.md)에 있다. `grid-state.ts`는 버전1/최대200개 원본+컬렉션 상태를 검증하고 직렬화한 debounce queue로 저장한다. runtime docId를 identity로 저장하지 않는다. 열 이름/수/로그 layout schema signature가 일치할 때만 열 구성을 적용하며 `grid-watch.svelte.ts`는 scan 중간 상태를 저장하지 않는다. `DocTab.gridLayoutRevision`은 복원된 width mode가 자동 폭 추천에 의해 덮이는 것을 막는다. 새 store 복원 스캔은 활성 Table/Collection mount 이후에만 수행하며 typed bookmark는 자기 원본 행을 우선한다. 창 close-request 때 상태 capture/queue flush와 plugin store save를 완료한다.
+
+`GridScalar`는 원본 타입과 전체 값을 공통 경계로 만든다. 표시용 디코더는 조건·범위 복사·내보내기에 쓰지 않는다. 각 scalar8MiB를 넘으면 오류이고 클립보드100k cells/합계8MiB는 거절한다. 조건32개는 AND이고 Text equals/contains, finite numeric compare, empty/NULL/missing은 별개다. 정수는 i128, 그 밖의 소수 비교는 f64다. SQLite typed scan은 별도 연결의 sequential query로 진행하며 각4096 cells에서 취소한다.
+
+범위는 표시 행/열의 anchor/focus다. 열 숨김/이동·order revision 변화 때 범위를 비우고 복사는 표시 순서의 projection으로 source row를 조회한다. 내보내기는 create_new로 원본과 기존 destination을 보호하고 불완전 파일은 RAII로 지운다. 자연 순서/필터 결과는 sequential scan, 정렬 결과는 저장된 원본 row 순열을 조회한다. 값은 한 셀씩 BufWriter로 쓰며 JSON 숫자와 structured 원문 토큰을 재직렬화하여 반올림하지 않는다. 정렬된 SQLite view/WITHOUT ROWID 조회는 기존 OFFSET 비용 때문에 느릴 수 있다. source generation, table/order revision, grid/order Arc snapshot이 바뀌면 내보내기를 취소한다.
+
+책갈피는 기존 heading anchor를 유지하며 typed target를 추가한다. tree는 기존 저장용 position path, table/log는 원본 row+interpretation, PDF는 page bridge를 재사용한다. source fingerprint는 전체 파일 읽기를 피한12KiB sampling+size/mtime며 URL은 열린 payload sample이다. 새 파일 fingerprint와 기존 loaded owned bytes의 sample이 다르면 stale 위치 capture를 거절한다. fingerprint가 있는 모든 책갈피에 표본 확인이며 전체 파일 일치를 보장하지 않는다는 문구를 표시하고 mismatch는 재지정 UI로 해결한다. mmap과 gzip의 loaded-byte 대조는 기존 자원/변환 특성 때문에 제외한다.
+
+비교는 읽기 방식에 속한 독립 패널이다. file2MiB의 명시적 전체 적재 예외를 추가했고 lines10k, LCS1M cells, JSON20k nodes/depth128으로 CPU/메모리를 제한한다. 줄 전문은 paged docLines로 가져오고 DOM은 가상화한다. JSON parser는 숫자 토큰 정밀도와 원래 객체 키 순서를 보존한다. key order는 value change와 별도 결과이며 array는 index correspondence다. stale load는 요청 세대가 차단한다. 출력 미리보기180자/path1024자는 비교 값의 정확도를 제한하지 않는다.
+
+시각 자료 확대는 기존 img/SVG를 placeholder와 교환해 modal에 잠시 옮긴다. 새 다운로드/렌더 없이 CSS transform으로 확대·이동하며 close/문서 변경/테마 변경 때 원래 style/DOM/focus/scroll을 복원한다. geometry는 별도 순수 모듈로 시험한다. PDF 초기 로딩 메커니즘에는 변경이 없다.

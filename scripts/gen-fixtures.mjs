@@ -587,6 +587,16 @@ await writeFile(path.join(OUT, 'columns.csv'), [
 ].join('\n'));
 console.log('  columns.csv (hide, reorder, frozen columns)');
 
+await writeFile(path.join(OUT, 'workflow-filter.jsonl'), [
+  { n: 3, tag: 'keep', v: null },
+  { n: 1, tag: 'keep', v: '' },
+  { n: 2, tag: 'drop' },
+  { n: 'bad', tag: 'keep', v: 'null' },
+].map(row => JSON.stringify(row)).join('\n'));
+console.log('  workflow-filter.jsonl (typed AND predicates)');
+await writeFile(path.join(OUT, 'workflow-filter-cancel.jsonl'), Array.from({ length: 100000 }, (_, n) => JSON.stringify({n,tag:'keep',v:null})).join('\n'));
+console.log('  workflow-filter-cancel.jsonl (cancel and restart scan)');
+
 // The cell detail panel. Row 1 is longer than the grid's 1,000-character
 // preview, so the panel shows more than the cell; rows 2–4 are the three
 // blanks the grid cannot tell apart (empty, quoted empty, a row that stops
@@ -1399,20 +1409,27 @@ const SMOKE = [
   { file: "grid-cases.json", expect: "tree", then: "treeSearchEnter" },
   { file: "2026-09-quarterly-revenue-report-final.json", expect: "tree" },
   { file: "strict.json", expect: "tree" },
+  { file: "strict.json", expect: "tree", then: "locationBookmarks" },
   { file: "sample.jsonc", expect: "tree" },
   { file: "deep.json", expect: "tree" },
   { file: "sample.yaml", expect: "tree" },
   { file: "sample.toml", expect: "tree", then: "notices" },
   { file: "sample.xml", expect: "tree" },
   { file: "sample.csv", expect: "table", then: "toggleHeader" },
+  { file: "sample.csv", expect: "table", then: "locationBookmarks" },
+  { file: "sample.csv", expect: "table", then: "gridState" },
   { file: "cell-detail.csv", expect: "table", then: "cellDetail" },
   { file: "semicolon.csv", expect: "table" },
   { file: "reading.txt", expect: "table", then: "textReading" },
+  { file: "reading.txt", expect: "table", then: "documentCompare" },
   { file: "big.log", expect: "table", then: "textRawVirtual" },
   { file: "sample.log", expect: "table" },
+  { file: "sample.log", expect: "table", then: "locationBookmarks" },
   { file: "edge.log", expect: "table" },
   { file: "sample.tsv", expect: "table" },
   { file: "stream.jsonl", expect: "table" },
+  { file: "workflow-filter.jsonl", expect: "table", then: "gridPredicates" },
+  { file: "workflow-filter-cancel.jsonl", expect: "table", then: "gridPredicateCancel" },
   { file: "sample.sqlite", expect: "collection" },
   { file: "sample.xlsx", expect: "collection" },
   { file: "sample.xlsx", expect: "collection", then: "collectionWidths" },
@@ -1458,6 +1475,7 @@ const SMOKE = [
   // Keep the isolated HTML frame last while investigating macOS slowdown.
   { file: "report.html", expect: "frame", then: "htmlFrame" },
   { file: 'report.pdf', expect: 'frame', then: 'pdfFrame' },
+  { file: 'report.pdf', expect: 'frame', then: 'locationBookmarks' },
   { file: 'sideways.pdf', expect: 'frame', then: 'pdfOrientation' },
   { file: 'sideways-image.pdf', expect: 'frame', then: 'pdfImageOrientation' },
   { file: 'upright-image.pdf', expect: 'frame', then: 'pdfImageUpright' },

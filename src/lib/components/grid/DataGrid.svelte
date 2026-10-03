@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { bookmarks } from '../../state/bookmarks.svelte';
   /**
    * Rows and columns, windowed.
    *
@@ -20,6 +21,8 @@
    * carries a tone.
    */
   import { tick, untrack } from "svelte";
+  import { save } from "@tauri-apps/plugin-dialog";
+  import { containsCell, rangeBounds, rangeColumns, type GridRange } from "./range";
   import type { TableMode } from '../markdown/tables';
   import { shortcutKey } from "../../keys";
   import { n, t } from "../../i18n";
@@ -29,6 +32,7 @@
     errorMessage,
     gridCellText,
     gridRows,
+    gridRangeText, gridExport, gridExportCancel, type GridExportFormat,
     type TableRow,
     type GridSort,
   } from "../../ipc";
@@ -100,6 +104,27 @@
   let rows = $state<TableRow[]>([]);
   let windowStart = $state(0);
   let requestSeq = 0;
+  let range = $state<GridRange | null>(null);
+  let bookmarkRequest = -1;
+  $effect(() => {
+    const jump = tab.pendingBookmark;
+    const target = jump?.target;
+    if (!jump || !target || (target.kind !== 'grid' && target.kind !== 'log') || jump.ready === false
+      || !viewport || !(tab.tableStats || tab.gridStats) || bookmarkRequest === jump.request) return;
+    if (target.kind === 'grid' && target.collection && target.collection !== tab.collection) return;
+    bookmarkRequest = jump.request;
+    untrack(() => {
+      const row = target.kind === 'grid' ? target.row : target.line;
+      if (row >= rowCount || columnCount === 0) { bookmarks.complete(tab,jump,false); return; }
+      tab.pendingCell = {row,column:0};
+      bookmarks.complete(tab,jump,true);
+    });
+  });
+  let dragging = $state(false);
+  let copying = $state(false);
+  let exporting = $state<number | null>(null);
+  let choosingExport = $state(false);
+  let exportSequence = 0;
   let menu = $state<{ x: number; y: number; row: number; column: number } | null>(null);
 
   const rowHeight = $derived(
@@ -117,10 +142,23 @@
   const pinned = $derived(frozenOffsets(layout.widths, tab.frozenCount, numberWidth));
   const pinnedWidth = $derived(numberWidth + layout.widths.slice(0, tab.frozenCount).reduce((sum, width) => sum + width, 0));
   const totalWidth = $derived(totalOf(presentation, numberWidth));
+  $effect(() => {
+    void tab.order.revision;
+    void tab.collection;
+    void columns.join(',');
+    range = null;
+    dragging = false;
+  });
+
   let measuredMode = untrack(() => widthMode);
+  let restoredLayoutRevision = untrack(() => tab.gridLayoutRevision);
 
   $effect(() => {
     const mode = widthMode;
+    const revision = tab.gridLayoutRevision;
+    if (revision !== restoredLayoutRevision) {
+      restoredLayoutRevision = revision; measuredMode = mode; return;
+    }
     if (mode === measuredMode || !current()) return;
     measuredMode = mode;
     untrack(() => {
@@ -257,7 +295,7 @@
       windowStart = start;
       rows = page.rows;
       capturePosition();
-      if (tab.selectedCell) selectCell(tab.selectedCell.row, tab.selectedCell.column);
+      if (tab.selectedCell) selectCell(tab.selectedCell.row, tab.selectedCell.column, false, false);
       if (tab.columnWidths.length !== columnCount) measureColumns(page.rows);
     } catch (err) {
       if (current() && seq === requestSeq) tab.error = errorMessage(err);
@@ -354,6 +392,47 @@
     }
   }
 
+  async function copyRange(headers = false) {
+    if (!range || copying) return;
+    const bounds = rangeBounds(range);
+    const projected = rangeColumns(range, columns);
+    const revision = tab.order.revision, collection = tab.collection;
+    copying = true;
+    try {
+      const text = await gridRangeText(tab.id, { start: bounds.firstRow, count: bounds.lastRow - bounds.firstRow + 1,
+        columns: projected, headers: headers ? projected.map(columnName) : null });
+      if (!current() || tab.order.revision !== revision || tab.collection !== collection) throw { code: 'cancelled' };
+      await copyText(text);
+      toasts.show(t('gridRange.copied'));
+    } catch (err) {
+      toasts.show((err as {code?: string})?.code === 'tooLarge' ? t('gridRange.copyLimit') : errorMessage(err), 'error');
+    } finally { copying = false; }
+  }
+
+  async function exportResults(format: GridExportFormat) {
+    if (exporting !== null || choosingExport || tab.order.running) return;
+    choosingExport = true;
+    const projected = [...columns], headers = projected.map(columnName);
+    const revision = tab.order.revision, collection = tab.collection;
+    const requestId = Date.now() + (++exportSequence);
+    try {
+      const path = await save({ title: t('gridRange.exportTitle'), defaultPath: `${tab.meta.title}.${format}`,
+        filters: [{ name: format.toUpperCase(), extensions: [format] }] });
+      if (!path) return;
+      if (!current() || tab.order.revision !== revision || tab.collection !== collection) throw { code: 'cancelled' };
+      exporting = requestId;
+      const count = await gridExport(tab.id, requestId, path, format, projected, headers);
+      if (current()) toasts.show(t('gridRange.exported', { n: count }));
+    } catch (err) {
+      if (current()) toasts.show(errorMessage(err), 'error');
+    } finally { choosingExport = false; if (exporting === requestId) exporting = null; }
+  }
+
+  function cancelExport() {
+    if (exporting !== null) void gridExportCancel(tab.id, exporting);
+  }
+  $effect(() => () => { if (exporting !== null) void gridExportCancel(tab.id, exporting); });
+
   async function copyColumnName(column: number) {
     try {
       await copyText(columnName(column));
@@ -365,7 +444,7 @@
 
   function openMenu(event: MouseEvent, row: number, column: number) {
     event.preventDefault();
-    if (row >= 0) selectCell(row, column);
+    if (row >= 0 && !containsCell(range, row, positions.get(column) ?? -1)) selectCell(row, column);
     menu = { x: event.clientX, y: event.clientY, row, column };
   }
 
@@ -419,6 +498,10 @@
       ]),
     ];
     return [
+      { label: t('gridRange.copy'), icon: 'copy', disabled: !range || copying, action: () => void copyRange() },
+      { label: t('gridRange.copyHeaders'), icon: 'copy', disabled: !range || copying, action: () => void copyRange(true) },
+      { label: t('gridRange.csv'), disabled: exporting !== null || choosingExport, action: () => void exportResults('csv') },
+      { label: t('gridRange.jsonl'), disabled: exporting !== null || choosingExport, action: () => void exportResults('jsonl') },
       { label: t("table.copyValue"), icon: "copy", action: () => void copyCell(row, column), hint: "Ctrl C" },
       { label: t("table.copyRow"), icon: "copy", action: () => void copyRow(row) },
       { label: t("table.copyColumn"), icon: "copy", action: () => void copyColumnName(column) },
@@ -434,19 +517,34 @@
 
   // --- keyboard -----------------------------------------------------------
 
-  function move(rowDelta: number, columnDelta: number) {
+  function move(rowDelta: number, columnDelta: number, extend = false) {
     if (!columns.length) return;
     const cell = tab.selectedCell ?? { row: -1, column: columns[0] };
     const row = Math.min(rowCount - 1, Math.max(0, cell.row + rowDelta));
     const at = positions.get(cell.column) ?? 0;
     const column = columns[Math.min(columns.length - 1, Math.max(0, at + columnDelta))];
-    selectCell(row, column);
+    selectCell(row, column, extend);
     scrollRowIntoView(row);
     scrollColumnIntoView(column);
   }
 
-  function selectCell(row: number, column: number) {
+  function selectCell(row: number, column: number, extend = false, updateRange = true) {
+    if (updateRange) {
+      const point = { row, column: positions.get(column) ?? 0 };
+      range = { anchor: extend && range ? range.anchor : point, focus: point };
+    }
     tab.selectedCell = selectedCell(tab.selectedCell, row, column, rows[row - windowStart]);
+  }
+
+  function startSelection(event: PointerEvent, row: number, column: number) {
+    if (event.button !== 0 || tab.order.running) return;
+    event.preventDefault();
+    viewport?.focus();
+    selectCell(row, column, event.shiftKey);
+    dragging = true;
+  }
+  function extendSelection(event: PointerEvent, row: number, column: number) {
+    if (dragging && (event.buttons & 1)) selectCell(row, column, true);
   }
 
   async function sourceRow(displayRow: number): Promise<number> {
@@ -478,48 +576,61 @@
     if (event.ctrlKey || event.metaKey) {
       if (shortcutKey(event) === "c" && tab.selectedCell) {
         event.preventDefault();
-        void copyCell(tab.selectedCell.row, tab.selectedCell.column);
+        if (range) void copyRange(event.shiftKey);
+        else void copyCell(tab.selectedCell.row, tab.selectedCell.column);
       }
       return;
     }
     switch (event.key) {
+      case "Escape":
+        range = null; dragging = false; event.preventDefault();
+        break;
       case "ArrowDown":
         event.preventDefault();
-        move(1, 0);
+        move(1, 0, event.shiftKey);
         break;
       case "ArrowUp":
         event.preventDefault();
-        move(-1, 0);
+        move(-1, 0, event.shiftKey);
         break;
       case "ArrowRight":
         event.preventDefault();
-        move(0, 1);
+        move(0, 1, event.shiftKey);
         break;
       case "ArrowLeft":
         event.preventDefault();
-        move(0, -1);
+        move(0, -1, event.shiftKey);
         break;
       case "PageDown":
         event.preventDefault();
-        move(visibleCount() - 1, 0);
+        move(visibleCount() - 1, 0, event.shiftKey);
         break;
       case "PageUp":
         event.preventDefault();
-        move(-(visibleCount() - 1), 0);
+        move(-(visibleCount() - 1), 0, event.shiftKey);
         break;
       case "Home":
         event.preventDefault();
-        move(-rowCount, -columnCount);
+        move(-rowCount, -columnCount, event.shiftKey);
         break;
       case "End":
         event.preventDefault();
-        move(rowCount, columnCount);
+        move(rowCount, columnCount, event.shiftKey);
         break;
     }
   }
 </script>
 
-<svelte:window onresize={() => void ensureWindow(true)} />
+<svelte:window onresize={() => void ensureWindow(true)} onpointerup={() => { dragging = false; }} onpointercancel={() => { dragging = false; }} />
+
+<div class="range-tools" role="toolbar" aria-label={t('gridRange.tools')}>
+  <button type="button" onclick={() => void copyRange()} disabled={!range || copying || tab.order.running}>{t('gridRange.copy')}</button>
+  <button type="button" onclick={() => void copyRange(true)} disabled={!range || copying || tab.order.running}>{t('gridRange.copyHeaders')}</button>
+  <button type="button" onclick={() => void exportResults('csv')} disabled={exporting !== null || choosingExport || tab.order.running}>{t('gridRange.csv')}</button>
+  <button type="button" onclick={() => void exportResults('jsonl')} disabled={exporting !== null || choosingExport || tab.order.running}>{t('gridRange.jsonl')}</button>
+  {#if exporting !== null}<button type="button" onclick={cancelExport}>{t('gridRange.cancel')}</button>{/if}
+  {#if range}{@const bounds = rangeBounds(range)}<span>{t('gridRange.size', { rows: bounds.lastRow - bounds.firstRow + 1, columns: bounds.lastColumn - bounds.firstColumn + 1 })}</span>{/if}
+</div>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 <div
@@ -539,6 +650,7 @@
   aria-colcount={columns.length}
   aria-label={label}
   aria-busy={tab.order.running}
+  aria-multiselectable="true"
   style="--row-height: {rowHeight}px; --number-width: {numberWidth}px"
 >
   <div class="head" style="width: {totalWidth}px" role="row">
@@ -583,18 +695,20 @@
           <div
             class="cell"
             class:frozen={pinned[at] !== null}
-            class:selected={tab.selectedCell?.row === displayRow &&
-              tab.selectedCell?.column === column}
+            class:selected={containsCell(range, displayRow, at)}
             class:hit={isHit(displayRow, column)}
             class:null={cell?.null}
             data-level={cellTone?.(column, cell?.text)}
             style="width: {columnWidth(column)}px; left: {pinned[at] === null ? 'auto' : `${pinned[at]}px`}"
             role="gridcell"
+            aria-selected={containsCell(range, displayRow, at)}
             data-column={column}
             tabindex="-1"
             data-truncated={cell?.truncated ? "true" : undefined}
             title={cellTitle(cell, tab.kind)}
-            onclick={() => selectCell(displayRow, column)}
+            onclick={(event) => { if (event.detail === 0) selectCell(displayRow, column, event.shiftKey); }}
+            onpointerdown={(event) => startSelection(event, displayRow, column)}
+            onpointerenter={(event) => extendSelection(event, displayRow, column)}
             oncontextmenu={(e) => openMenu(e, displayRow, column)}
           >
             {#if cell?.null}
@@ -620,6 +734,11 @@
 {/if}
 
 <style>
+  .range-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; padding: .25rem .5rem; border-bottom: 1px solid var(--border); font-family: var(--font-ui); font-size: .85em; }
+  .range-tools button { background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: .2rem .4rem; cursor: pointer; }
+  .range-tools button:disabled { opacity: .5; cursor: default; }
+  .range-tools span { color: var(--text-muted); margin-left: auto; }
+  .body { user-select: none; }
   .grid.empty { display: none; }
   .grid.ordering .body { pointer-events: none; }
   button.name { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }

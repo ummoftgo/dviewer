@@ -1,5 +1,6 @@
 <script lang="ts">
   import { session } from './lib/state/session.svelte';
+  import ComparePanel from './lib/components/compare/ComparePanel.svelte';
   import BookmarksPanel from './lib/components/BookmarksPanel.svelte';
   import { bookmarks, bookmarkTarget } from './lib/state/bookmarks.svelte';
   import UpdateDialog from "./lib/components/UpdateDialog.svelte";
@@ -8,6 +9,8 @@
   import { family, nextMainTab, nextSubtab } from "./lib/subtabs";
   import { onMount } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { flushValues } from './lib/persist';
   import Icon from "./lib/components/Icon.svelte";
   import SettingsPanel from "./lib/components/SettingsPanel.svelte";
   import { reportDelivery, reportNewWindow, runSmoke } from "./lib/smoke";
@@ -28,7 +31,7 @@
   import * as ipc from "./lib/ipc";
   import { detectSystemLocale, t } from "./lib/i18n";
   import { pickFiles } from "./lib/open";
-  import { workspace } from "./lib/state/docs.svelte";
+  import { workspace, gridStates } from "./lib/state/docs.svelte";
   import { shortcutKey } from "./lib/keys";
   import { nextFocusMode } from './lib/focusMode';
   import { toasts } from './lib/state/toast.svelte';
@@ -37,6 +40,7 @@
   import { applySettings, settings, watchSystemTheme } from "./lib/state/settings.svelte";
 
   let settingsOpen = $state(false);
+  let compareOpen = $state(false);
   let showToc = $state(true);
   let bookmarksOpen = $state(false);
   let bookmarkDraft = $state<ReturnType<typeof bookmarkTarget>>(null);
@@ -88,6 +92,23 @@
   }
 
   $effect(() => { session.watch(); });
+  onMount(() => {
+    let closing = false, flushed = false;
+    const window = getCurrentWindow();
+    const stop = window.onCloseRequested(event => {
+      if (smoking || flushed) return;
+      event.preventDefault();
+      if (closing) return;
+      closing = true;
+      void (async () => {
+        await Promise.all(workspace.tabs.map(tab => tab.rememberGridState()));
+        await Promise.all([gridStates.flush(), session.save(), bookmarks.flush()]);
+        await flushValues();
+      })().catch(error => console.warn('[dviewer] could not flush closing state:', error))
+        .finally(() => { flushed = true; void window.close(); });
+    });
+    return () => { void stop.then(unlisten => unlisten()); };
+  });
   let positionRestored = $state(false);
   $effect(() => {
     const at = active?.positionRestoredAt ?? 0;
@@ -356,6 +377,7 @@
       {bookmarksOpen}
       onAddBookmark={addBookmark}
       onToggleBookmarks={toggleBookmarks}
+      onCompare={() => { compareOpen = true; }}
       onToggleFocus={() => changeFocus('F11')}
       onToggleToc={() => { showToc = bookmarksOpen || !showToc; bookmarksOpen = false; bookmarkDraft = null; }}
       onOpenSettings={() => (settingsOpen = true)}
@@ -436,6 +458,10 @@
 
 {#if settingsOpen}
   <SettingsPanel onClose={() => (settingsOpen = false)} />
+{/if}
+
+{#if compareOpen}
+  <ComparePanel tabs={workspace.tabs} initialLeftId={active?.id} onClose={() => { compareOpen = false; main?.focus(); }} />
 {/if}
 
 <Toast />

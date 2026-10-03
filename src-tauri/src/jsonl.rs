@@ -218,6 +218,31 @@ pub fn value_text(
     })
 }
 
+pub fn node_scalar(bytes: &[u8], node: &Node) -> crate::error::Result<crate::grid::GridScalar> {
+    use crate::grid::{GridScalar, ScalarKind};
+    let kind = match node.kind { Kind::String => ScalarKind::Text, Kind::Number => ScalarKind::Number,
+        Kind::Bool => ScalarKind::Boolean, Kind::Null => ScalarKind::Null, _ => ScalarKind::Structured };
+    let (text, truncated) = node_text(bytes, node, crate::table::MAX_CELL_TEXT_BYTES);
+    GridScalar::checked(CellText { text, truncated, ..CellText::default() }, kind)
+}
+
+pub fn value_scalar(bytes: &[u8], start: u32, end: u32, layout: &JsonlLayout, column: usize)
+    -> crate::error::Result<crate::grid::GridScalar> {
+    use crate::grid::{GridScalar, ScalarKind};
+    if column >= layout.column_count() { return Err(crate::error::Error::NoSuchCell); }
+    let line = &bytes[start as usize..end as usize];
+    if let Some(nodes) = object_nodes(line) {
+        return match by_column(line, &nodes, 0, layout)[column] {
+            Some(node) => node_scalar(line, node),
+            None => Ok(GridScalar { text: String::new(), kind: ScalarKind::Missing }),
+        };
+    }
+    let cell = value_text(bytes, start, end, layout, column, crate::table::MAX_CELL_TEXT_BYTES)
+        .ok_or(crate::error::Error::NoSuchCell)?;
+    let kind = if cell.missing { ScalarKind::Missing } else { ScalarKind::Text };
+    GridScalar::checked(cell, kind)
+}
+
 /// One record as the grid draws it.
 ///
 /// The same decoders the tree uses, over the same nodes: a string loses its

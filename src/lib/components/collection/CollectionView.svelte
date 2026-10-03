@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import { currentCollection } from '../../collectionCurrent';
+  import { watchGridState } from '../../state/grid-watch.svelte';
   /**
    * One file, several collections, one grid.
    *
@@ -54,6 +55,7 @@
   let selection = 0;
   onDestroy(() => { live = false; });
   const current = () => currentCollection(target, tab, docId, generation, live);
+  watchGridState(() => tab);
 
   let grid = $state<ReturnType<typeof DataGrid>>();
   let controls = $state<ReturnType<typeof GridControls>>();
@@ -66,6 +68,7 @@
     };
   });
   let loading = $state(false);
+  let listedEmpty = $state(false);
   let showSchema = $state(false);
 
   /**
@@ -100,18 +103,27 @@
   // tab that already has its list has already paid for it — switching tabs must
   // not reconnect.
   $effect(() => {
-    if (!current() || target.collections.length > 0 || target.error) return;
+    if (!current() || target.error || loading) return;
+    if (target.collections.length > 0) {
+      if (!target.gridStats && !target.gridStateRestoring) void select(target.collection ?? target.collections[0].name);
+      return;
+    }
+    if (listedEmpty) return;
     const request = selection;
     const same = () => current() && request === selection;
     loading = true;
     list(docId)
-      .then((result) => {
+      .then(async (result) => {
         if (!same()) return;
+        listedEmpty = result.items.length === 0;
         target.collections = result.items;
         const pos = target.pendingPosition;
         const saved = pos?.kind === 'grid' ? result.items.find(item => item.name === pos.collection) : undefined;
         if (pos?.kind === 'grid' && !saved) target.finishPosition(false);
-        if (result.items.length > 0) return select((saved ?? result.items[0]).name);
+        const preferred = await target.preferredGridCollection();
+        if (!same()) return;
+        const previous = result.items.find(item => item.name === preferred);
+        if (result.items.length > 0) return select((saved ?? previous ?? result.items[0]).name);
       })
       .catch((err) => {
         if (same()) target.error = errorMessage(err);
@@ -119,6 +131,19 @@
       .finally(() => {
         if (same()) loading = false;
       });
+  });
+
+  $effect(() => {
+    if (!current() || loading || !target.gridStats || target.gridStateReady || target.gridStateRestoring) return;
+    target.gridStateRestoring = true;
+    void target.savedGridState().then(saved => {
+      if (current()) return target.restoreGridState(saved);
+    }).then(() => { if (current()) return grid?.refresh(); }).catch(err => {
+      if (!current()) return;
+      target.order.error = errorMessage(err);
+      target.gridStateRestoring = false;
+      target.gridStateReady = true;
+    });
   });
 
   /**
@@ -130,9 +155,13 @@
    */
   async function select(name: string) {
     if (!current()) return;
+    const captured = target.rememberGridState();
     const request = ++selection;
     const same = () => current() && request === selection && target.collection === name;
     target.order.reset();
+    target.gridStateReady = false;
+    target.gridStateRestoring = true;
+    target.gridStateNotice = null;
     target.collection = name;
     target.schema = null;
     target.gridStats = null;
@@ -144,9 +173,20 @@
     target.tableSearch.reset();
     loading = true;
     try {
+      await captured;
+      if (!same()) return;
       const stats = await choose(docId, name);
       if (!same()) return;
       target.gridStats = stats;
+      const saved = await target.savedGridState();
+      if (!same()) return;
+      if (workbook && saved?.formulas !== undefined && saved.formulas !== stats.formulas) {
+        const formulaStats = await xlsxSetFormulas(docId, saved.formulas);
+        if (!same()) return;
+        target.gridStats = formulaStats;
+      }
+      await target.restoreGridState(saved);
+      if (!same()) return;
       await grid?.refresh(true);
       if (!same()) return;
       // The schema comes second: the rows are what the reader is waiting for,
@@ -161,7 +201,7 @@
     } catch (err) {
       if (same()) target.error = errorMessage(err);
     } finally {
-      if (same()) loading = false;
+      if (same()) { loading = false; target.gridStateRestoring = false; }
     }
   }
 
@@ -279,6 +319,7 @@
     </p>
   {:else}
     <GridControls {tab} {columnName} bind:this={controls} disabled={loading} />
+    {#if tab.gridStateNotice}<p class="banner" role="status">{t(tab.gridStateNotice === 'restored' ? 'gridState.restored' : 'gridState.schemaChanged')}</p>{/if}
     {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
     <GridDock {tab} {columnName} firstRowNumber={tab.gridStats?.firstRowNumber ?? 1}>
       <DataGrid

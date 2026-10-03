@@ -77,6 +77,17 @@
       post({type:'goto',id:resolved.id,request:jump.request});
     });
   });
+  $effect(() => {
+    const jump = tab.pendingBookmark;
+    if (jump?.target?.kind !== 'pdf' || !tab.frameContentLoaded || !tab.frameReady || sentBookmark === jump.request) return;
+    const page = jump.target.page;
+    untrack(() => {
+      if (page > tab.framePages) { bookmarks.complete(tab,jump,false); return; }
+      sentBookmark = jump.request;
+      // Reuse the established PDF goto bridge; startup and rendering are unchanged.
+      post({type:'goto',page});
+    });
+  });
   function find(dir: 1 | -1) {
     if (!tab.frameReady) return;
     post({type:'find',q:tab.frameSearch.query,dir,request:++tab.frameSearch.request});
@@ -110,6 +121,8 @@
         if (tab.kind !== 'pdf' || !tab.frameReady || message.n > tab.framePages) break;
         if (tab.framePage !== message.n) tab.frameHasText = null;
         tab.framePage = message.n;
+        const jump = tab.pendingBookmark;
+        if (jump?.target?.kind === 'pdf' && sentBookmark === jump.request && jump.target.page === message.n) bookmarks.complete(tab,jump,true);
         if (tab.pendingPosition) {
           const pos = tab.pendingPosition;
           const expected = pos.kind === 'pdf' ? Math.min(pos.page,tab.framePages) : 1;

@@ -4,25 +4,30 @@ use tauri::{Emitter, State};
 use crate::error::{Error, Result, Subject};
 use crate::state::{AppState, DocId};
 use crate::grid::order::{Order, OrderStats, Sort};
+use crate::grid::predicate::{self, Predicate};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Progress { doc_id: DocId, request: u32, done: u32, total: u32 }
 
 #[tauri::command]
+// Keep the existing IPC arguments compatible; predicates are an additive option.
+#[allow(clippy::too_many_arguments)]
 pub async fn grid_order(app: tauri::AppHandle, state: State<'_, AppState>, doc_id: DocId,
-    sort: Option<Sort>, filter: Option<String>, filter_column: Option<u32>, request: u32) -> Result<OrderStats> {
+    sort: Option<Sort>, filter: Option<String>, filter_column: Option<u32>, request: u32, predicates: Option<Vec<Predicate>>) -> Result<OrderStats> {
     let doc = state.get(doc_id)?;
     let grid = doc.grid().ok_or(Error::NotReady { subject: Subject::Table })?;
     if filter_column.is_some_and(|column| column >= grid.column_count()) { return Err(Error::NoSuchCell); }
+    let predicates = predicates.unwrap_or_default();
+    predicate::validate(&predicates, grid.column_count())?;
     let (generation, cancel) = doc.start_order();
     let filter = filter.unwrap_or_default();
-    if sort.is_none() && filter.is_empty() {
+    if sort.is_none() && filter.is_empty() && predicates.is_empty() {
         doc.finish_order(generation, None)?;
         return Ok(OrderStats { shown: grid.row_count(), total: grid.row_count(), index_bytes: 0, peak_bytes: 0 });
     }
     let built = tauri::async_runtime::spawn_blocking(move || {
-        Order::build(grid.as_ref(), sort, &filter, filter_column, &cancel, &mut |done, total| {
+        Order::build_with_predicates(grid.as_ref(), sort, &filter, filter_column, &predicates, &cancel, &mut |done, total| {
             let _ = app.emit("grid:progress", Progress { doc_id, request, done, total });
         })
     }).await.map_err(Error::internal)??;

@@ -596,9 +596,11 @@ export const treeAsTable = (docId: number, nodeId: number) =>
 export const treeTableStats = (docId: number) => invoke<GridStats>("tree_table_stats", { docId });
 
 export interface GridSort { column: number; descending: boolean }
+export type GridPredicateOp = 'equals' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte' | 'empty' | 'null' | 'missing';
+export interface GridPredicate { column: number; op: GridPredicateOp; value: string }
 export interface OrderStats { shown: number; total: number; indexBytes: number; peakBytes: number }
-export const gridOrder = (docId: number, sort: GridSort | null, filter: string, filterColumn: number | null, request: number) =>
-  invoke<OrderStats>("grid_order", { docId, sort, filter, filterColumn, request });
+export const gridOrder = (docId: number, sort: GridSort | null, filter: string, filterColumn: number | null, request: number, predicates: GridPredicate[] = []) =>
+  invoke<OrderStats>("grid_order", { docId, sort, filter, filterColumn, request, predicates });
 export const gridOrderCancel = (docId: number) => invoke<void>("grid_order_cancel", { docId });
 export const gridOrderStats = (docId: number) => invoke<OrderStats | null>("grid_order_stats", { docId });
 
@@ -835,3 +837,16 @@ export const frameTrace = (docId:number, diagnostic:string) => invoke<void>('smo
 export const smokeNativeReady = () => invoke<boolean>('smoke_native_ready');
 export const frameServed = (docId: number) => invoke<FrameServed>("frame_served", { docId });
 export const frameExternal = (docId: number, allow: boolean) => invoke<void>("frame_external", { docId, allow });
+
+/** Bounded TSV selection and streaming, displayed-order grid exports. */
+export interface GridRangeRequest { start: number; count: number; columns: number[]; headers: string[] | null }
+export const gridRangeText = (docId: number, request: GridRangeRequest) => invoke<string>('grid_range_text', { docId, request });
+export type GridExportFormat = 'csv' | 'jsonl';
+export const gridExport = (docId: number, requestId: number, path: string, format: GridExportFormat, columns: number[], headers: string[]) =>
+  invoke<number>('grid_export', { docId, requestId, path, format, columns, headers });
+export const gridExportCancel = (docId: number, requestId: number) => invoke<void>('grid_export_cancel', { docId, requestId });
+
+/** Samples at most 12 KiB; local fingerprints also include size and modification time. */
+export const bookmarkFingerprint = (docId: number) => invoke<string>('bookmark_fingerprint', { docId });
+
+export const smokeGridExport = (docId: number) => invoke<Record<string, unknown>>('smoke_grid_export', { docId });

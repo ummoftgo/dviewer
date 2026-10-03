@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::sync::{OnceLock, atomic::{AtomicBool, Ordering as AtomicOrdering}};
 use serde::{Deserialize, Serialize};
 use super::Grid;
+use super::predicate::{self, Predicate};
 use crate::error::{Error, Result};
 use crate::query::{Interpretation, Matcher};
 use crate::table::{TablePage, TableSearch, TableHit, MAX_SEARCH_HITS};
@@ -97,17 +98,25 @@ pub struct OrderStats { pub shown: u32, pub total: u32, pub index_bytes: usize, 
 impl Order {
     pub fn build(grid: &dyn Grid, sort: Option<Sort>, filter: &str, filter_column: Option<u32>, cancel: &AtomicBool,
         progress: &mut dyn FnMut(u32, u32)) -> Result<Self> {
+        Self::build_with_predicates(grid, sort, filter, filter_column, &[], cancel, progress)
+    }
+
+    pub fn build_with_predicates(grid: &dyn Grid, sort: Option<Sort>, filter: &str, filter_column: Option<u32>,
+        predicates: &[Predicate], cancel: &AtomicBool, progress: &mut dyn FnMut(u32, u32)) -> Result<Self> {
+        predicate::validate(predicates, grid.column_count())?;
         if sort.is_some_and(|s| s.column >= grid.column_count()) { return Err(Error::NoSuchCell); }
         if filter_column.is_some_and(|column| column >= grid.column_count()) { return Err(Error::NoSuchCell); }
         check_cancel(cancel)?;
         let filter = filter.to_lowercase();
-        let columns: Vec<u32> = if filter.is_empty() {
-            sort.map(|s| vec![s.column]).unwrap_or_else(|| (0..grid.column_count().min(1)).collect())
+        let mut columns: Vec<u32> = if filter.is_empty() {
+            sort.map(|s| vec![s.column]).unwrap_or_else(|| if predicates.is_empty() { (0..grid.column_count().min(1)).collect() } else { Vec::new() })
         } else if let Some(column) = filter_column {
             let mut columns = vec![column];
             if let Some(sort) = sort { if sort.column != column { columns.push(sort.column); } }
             columns
         } else { (0..grid.column_count()).collect() };
+        for predicate in predicates { if !columns.contains(&predicate.column) { columns.push(predicate.column); } }
+        let mut predicate_matches = vec![false; predicates.len()];
         let mut rows = Vec::new();
         let mut keys = Vec::new();
         let mut arena = Vec::new();
@@ -127,15 +136,21 @@ impl Order {
             }
             Ok(())
         };
-        grid.scan(&columns, cancel, &mut |row, column, value| {
+        let mut visit = |row, column, value: &str, scalar: Option<&super::GridScalar>| {
             if current != Some(row) {
-                if let Some(previous) = current { finish(previous, matched, key, text, &text_key)?; }
+                if let Some(previous) = current { finish(previous, matched && predicate_matches.iter().all(|&matched| matched), key, text, &text_key)?; }
                 current = Some(row);
                 matched = filter.is_empty();
+                predicate_matches.fill(false);
                 text = false;
                 key = Key::Empty;
                 text_key.clear();
                 if row % 4096 == 0 { progress(row, grid.row_count()); }
+            }
+            if let Some(scalar) = scalar {
+                for (index, predicate) in predicates.iter().enumerate() {
+                    if predicate.column == column { predicate_matches[index] = predicate.matches(scalar); }
+                }
             }
             if !matched && filter_column.is_none_or(|wanted| wanted == column) && value.to_lowercase().contains(&filter) { matched = true; }
             if sort.is_some_and(|s| s.column == column) {
@@ -143,8 +158,13 @@ impl Order {
                 else { text = true; text_key.push_str(prefix(value, KEY_BYTES)); }
             }
             Ok(())
-        })?;
-        if let Some(row) = current { finish(row, matched, key, text, &text_key)?; }
+        };
+        if predicates.is_empty() {
+            grid.scan(&columns, cancel, &mut |row, column, value| visit(row, column, value, None))?;
+        } else {
+            grid.scan_scalars(&columns, cancel, &mut |row, column, scalar| visit(row, column, &scalar.text, Some(scalar)))?;
+        }
+        if let Some(row) = current { finish(row, matched && predicate_matches.iter().all(|&matched| matched), key, text, &text_key)?; }
         check_cancel(cancel)?;
         let mut peak_bytes = rows.capacity() * 4 + keys.capacity() * size_of::<Key>() + arena.capacity();
         if let Some(sort) = sort {
@@ -182,7 +202,7 @@ impl Order {
         }
         check_cancel(cancel)?;
         progress(grid.row_count(), grid.row_count());
-        Ok(Self { rows, total: grid.row_count(), filtered: !filter.is_empty(), inverse: OnceLock::new(), peak_bytes })
+        Ok(Self { rows, total: grid.row_count(), filtered: !filter.is_empty() || !predicates.is_empty(), inverse: OnceLock::new(), peak_bytes })
     }
 
     fn inverse(&self, cancel: &AtomicBool) -> Result<&[u32]> {

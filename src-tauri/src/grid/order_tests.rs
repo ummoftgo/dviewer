@@ -159,3 +159,71 @@ fn sorting_maps_search_hits_to_display_positions() {
     assert_eq!(result.hits[0].row, 2);
     assert!(order.stats().index_bytes >= 24);
 }
+
+#[test]
+fn typed_and_conditions_compose_with_text_filter_sort_and_search() {
+    use crate::grid::predicate::{Predicate, PredicateOp};
+    let source = format!(r#"[{{"n":3,"tag":"{}keep","v":null}},{{"n":1,"tag":"keep","v":""}},{{"n":2,"tag":"{}keep","v":null}},{{"n":"bad","tag":"keep"}}]"#, "x".repeat(2000), "x".repeat(2000));
+    let grid = grid(&source);
+    let predicates = [Predicate { column: 0, op: PredicateOp::Gt, value: "1.5".into() },
+        Predicate { column: 1, op: PredicateOp::Contains, value: "keep".into() },
+        Predicate { column: 2, op: PredicateOp::Null, value: String::new() }];
+    let order = Order::build_with_predicates(&grid, Some(Sort { column: 0, descending: false }), "KEEP", Some(1),
+        &predicates, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(order.rows, [2, 0]);
+    assert!(order.filtered);
+    assert_eq!(order.search(&grid, "keep", false, Interpretation::Literal, &AtomicBool::new(false)).unwrap().hits.len(), 2);
+}
+
+#[test]
+fn csv_and_jsonl_predicates_use_source_values_and_distinct_absence() {
+    use crate::grid::predicate::{Predicate, PredicateOp};
+    use crate::table::{TableDoc, Records};
+    let csv = TableDoc::build(Arc::new(DocBytes::from(b"n,tag,v\n3,keep,\n1,keep\n2,drop,null\n".to_vec())),
+        Records::Delimited { delimiter: b',' }, |_| {}, &|| false).unwrap();
+    let jsonl_source = b"{\"n\":3,\"tag\":\"keep\",\"v\":null}\n{\"n\":1,\"tag\":\"keep\",\"v\":\"\"}\n{\"n\":2,\"tag\":\"drop\"}\n";
+    let layout = crate::jsonl::detect(jsonl_source).unwrap();
+    let jsonl = TableDoc::build(Arc::new(DocBytes::from(jsonl_source.to_vec())), Records::Jsonl(Arc::new(layout)), |_| {}, &|| false).unwrap();
+    let make = |grid: &dyn Grid, op| Order::build_with_predicates(grid, None, "", None,
+        &[Predicate { column: 2, op, value: String::new() }], &AtomicBool::new(false), &mut |_, _| {}).unwrap().rows;
+    assert_eq!(make(&csv, PredicateOp::Empty), [0]);
+    assert_eq!(make(&csv, PredicateOp::Missing), [1]);
+    assert!(make(&csv, PredicateOp::Null).is_empty());
+    assert_eq!(make(&jsonl, PredicateOp::Null), [0]);
+    assert_eq!(make(&jsonl, PredicateOp::Empty), [1]);
+    assert_eq!(make(&jsonl, PredicateOp::Missing), [2]);
+}
+
+#[test]
+fn typed_filter_cancellation_aborts_without_returning_partial_rows() {
+    use crate::grid::predicate::{Predicate, PredicateOp};
+    let grid = grid(&format!("[{}]", vec!["1"; 5000].join(",")));
+    let cancel = AtomicBool::new(false);
+    let result = Order::build_with_predicates(&grid, None, "", None,
+        &[Predicate { column: 0, op: PredicateOp::Gt, value: "0".into() }], &cancel,
+        &mut |done, _| { if done == 4096 { cancel.store(true, AtomicOrdering::Relaxed); } });
+    assert!(matches!(result, Err(Error::Cancelled)));
+}
+
+#[test]
+fn a_scoped_predicate_does_not_read_an_unrelated_oversized_cell() {
+    struct Scoped(JsonArrayGrid);
+    impl Grid for Scoped {
+        fn row_count(&self) -> u32 { self.0.row_count() }
+        fn column_count(&self) -> u32 { self.0.column_count() }
+        fn page(&self, start: u32, count: u32) -> Result<TablePage> { self.0.page(start, count) }
+        fn cell_text(&self, row: u32, column: u32) -> Result<crate::table::CellText> { self.0.cell_text(row, column) }
+        fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+            assert_eq!(column, 1, "an unrelated first column must not be decoded");
+            self.0.scalar(row, column)
+        }
+        fn row_text(&self, row: u32) -> Result<crate::table::CellText> { self.0.row_text(row) }
+        fn search(&self, query: &str, case: bool, how: Interpretation, cancel: &AtomicBool) -> Result<TableSearch> {
+            self.0.search(query, case, how, cancel)
+        }
+    }
+    let grid = Scoped(grid(r#"[{"huge":"ignored","tag":"keep"},{"huge":"ignored","tag":"drop"}]"#));
+    let conditions = [crate::grid::predicate::Predicate { column: 1, op: crate::grid::predicate::PredicateOp::Equals, value: "keep".into() }];
+    let order = Order::build_with_predicates(&grid, None, "", None, &conditions, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+    assert_eq!(order.rows, [0]);
+}

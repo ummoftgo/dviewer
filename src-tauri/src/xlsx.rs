@@ -289,6 +289,19 @@ impl Grid for XlsxGrid {
         })
     }
 
+    fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+        use crate::grid::{GridScalar, ScalarKind};
+        let cell = self.cell_text(row, column)?;
+        let kind = if self.formula_at(row as usize, column as usize).is_some() { ScalarKind::Text } else {
+            match self.value_at(row as usize, column as usize) {
+                None | Some(Data::Empty) => ScalarKind::Missing,
+                Some(Data::Int(_) | Data::Float(_)) => ScalarKind::Number,
+                Some(Data::Bool(_)) => ScalarKind::Boolean, _ => ScalarKind::Text,
+            }
+        };
+        GridScalar::checked(cell, kind)
+    }
+
     fn row_text(&self, row: u32) -> Result<CellText> {
         if row >= self.row_count() {
             return Err(Error::NoSuchRow);

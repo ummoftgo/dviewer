@@ -55,3 +55,39 @@ test('current documents sort by heading order including text fallback and top; a
   expect(JSON.stringify(entries)).toBe(original);
   expect(bookmarkDocument({type:'file',path:'C:\\Docs\\Report.md'})).toBe('Report.md');
 });
+
+test('typed source locations round-trip independently of heading anchors, rejecting unsafe coordinates', () => {
+  const locations = [
+    {kind:'tree',path:'$.orders[3].name'},
+    {kind:'grid',row:42,collection:'Orders',hasHeader:false,plain:false,expanded:true},
+    {kind:'log',line:8,plain:true,expanded:false},
+    {kind:'pdf',page:3},
+  ];
+  for (const target of locations) {
+    const saved = {...item,target,fingerprint:'v1:bounded-sample'};
+    expect(readBookmarks([{...saved,target:{...target,transientNode:99}}])).toEqual([saved]);
+  }
+  for (const target of [{kind:'pdf',page:0},{kind:'pdf',page:1.5},{kind:'tree',path:''},
+    {kind:'grid',row:-1},{kind:'grid',row:0,collection:''},{kind:'grid',row:0,plain:'true'},
+    {kind:'log',line:NaN},{kind:'unknown',row:1}]) expect(readBookmarks([{...item,target}])).toEqual([]);
+  expect(readBookmarks([{...item,fingerprint:'x'.repeat(257)}])).toEqual([]);
+});
+
+test('location coordinates participate in filtering and source ordering without mutating entries', () => {
+  const entries: Bookmark[] = [
+    {...item,id:'late',target:{kind:'grid',row:90,collection:'Orders'}},
+    {...item,id:'early',target:{kind:'grid',row:4,collection:'Invoices'}},
+    {...item,id:'tree',target:{kind:'tree',path:'$.lineItems[2]'}},
+  ] as Bookmark[];
+  expect(selectBookmarks(entries,item.source as Bookmark['source'],[],false,'').map(entry => entry.id)).toEqual(['early','late','tree']);
+  expect(selectBookmarks(entries,null,[],true,'lineItems').map(entry => entry.id)).toEqual(['tree']);
+  expect(selectBookmarks(entries,null,[],true,'Invoices').map(entry => entry.id)).toEqual(['early']);
+});
+
+test('durable tree token coordinates display exact readable keys without replacing their identity', async () => {
+  const {bookmarkLocationText} = await import('./bookmarks');
+  const path = JSON.stringify([{index:0,key:'',kind:1},{index:2,key:'"a.b"',kind:1},{index:4,key:'',kind:2},{index:0,key:'""',kind:3}]);
+  expect(bookmarkLocationText({...item,target:{kind:'tree',path}})).toBe('$["a.b"][4][""]');
+  expect(bookmarkLocationText({...item,target:{kind:'tree',path:'$.old'}})).toBe('$.old');
+  expect(bookmarkLocationText({...item,target:{kind:'tree',path:'[]'}})).toBe('[]');
+});

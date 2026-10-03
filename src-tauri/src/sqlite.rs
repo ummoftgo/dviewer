@@ -462,6 +462,43 @@ impl Grid for SqliteGrid {
         crate::grid::order::check_cancel(cancel)
     }
 
+    fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+        if column as usize >= self.columns.len() { return Err(Error::NoSuchCell); }
+        self.with_row(row, |found| scalar_value(found, column as usize))
+    }
+
+    fn scan_scalars(&self, columns: &[u32], cancel: &AtomicBool,
+        visit: &mut dyn FnMut(u32, u32, &crate::grid::GridScalar) -> Result<()>) -> Result<()> {
+        self.scan_selected_scalars(columns,None,cancel,visit)
+    }
+
+    fn scan_selected_scalars(&self, columns: &[u32], selected: Option<&[u32]>, cancel: &AtomicBool,
+        visit: &mut dyn FnMut(u32, u32, &crate::grid::GridScalar) -> Result<()>) -> Result<()> {
+        for &column in columns { if column as usize >= self.columns.len() { return Err(Error::NoSuchCell); } }
+        crate::grid::validate_selected_rows(selected,self.row_count)?;
+        crate::grid::order::check_cancel(cancel)?;
+        if selected.is_some_and(<[u32]>::is_empty) { return Ok(()); }
+        let connection = self.database.connect()?;
+        let mut statement = connection.prepare(&format!("SELECT * FROM {} {}", self.quoted, self.order())).map_err(query_failed)?;
+        let mut answered = statement.query([]).map_err(query_failed)?;
+        let mut index = 0;
+        let mut wanted = 0;
+        while let Some(row) = answered.next().map_err(query_failed)? {
+            if index >= self.row_count { break; }
+            if index % 4096 == 0 { crate::grid::order::check_cancel(cancel)?; }
+            if selected.is_none_or(|rows| rows.get(wanted) == Some(&index)) {
+                for (at, &column) in columns.iter().enumerate() {
+                    if (index as usize * columns.len() + at).is_multiple_of(4096) { crate::grid::order::check_cancel(cancel)?; }
+                    visit(index,column,&scalar_value(row,column as usize)?)?;
+                }
+                wanted += 1;
+                if selected.is_some_and(|rows| wanted == rows.len()) { break; }
+            }
+            index += 1;
+        }
+        crate::grid::order::check_cancel(cancel)
+    }
+
     fn row_count(&self) -> u32 {
         self.row_count
     }
@@ -641,6 +678,16 @@ fn cell_of(row: &rusqlite::Row<'_>, column: usize, max_chars: usize) -> Result<T
 /// Not `cell_of` with no limit: that draws a newline as `␊` so a cell stays one
 /// line high, and a copied value came out with the symbol instead of the break.
 /// Text is capped at `MAX_CELL_TEXT_BYTES` like every other grid's.
+fn scalar_value(row: &rusqlite::Row<'_>, column: usize) -> Result<crate::grid::GridScalar> {
+    use rusqlite::types::ValueRef;
+    use crate::grid::{GridScalar, ScalarKind};
+    let kind = match row.get_ref(column).map_err(query_failed)? {
+        ValueRef::Null => ScalarKind::Null, ValueRef::Text(_) => ScalarKind::Text,
+        ValueRef::Integer(_) | ValueRef::Real(_) => ScalarKind::Number, ValueRef::Blob(_) => ScalarKind::Binary,
+    };
+    GridScalar::checked(full_value(row, column)?, kind)
+}
+
 fn full_value(row: &rusqlite::Row<'_>, column: usize) -> Result<CellText> {
     use rusqlite::types::ValueRef;
     Ok(match row.get_ref(column).map_err(query_failed)? {
@@ -1165,6 +1212,22 @@ lines', 'tab\there', -7, 0.5, x'');",
         assert!(cut.truncated);
         assert_eq!(cut.text.len(), crate::table::MAX_CELL_TEXT_BYTES / 3 * 3);
         assert!(cut.text.chars().all(|c| c == '가'), "no partial character decoded");
+        assert!(matches!(grid.scalar(0, 3), Err(Error::TooLarge { subject: crate::error::Subject::Table, .. })));
+    }
+
+    #[test]
+    fn typed_conditions_on_sqlite_views_preserve_full_text_null_and_numbers() {
+        use crate::grid::{ScalarKind, predicate::{Predicate, PredicateOp}, order::Order};
+        let dir = temp_dir("typed-order-view-cursor");
+        let long = format!("{}two\nlines", "x".repeat(2000));
+        let grid = grid_over(&dir, &format!("CREATE TABLE t (a, b, c); INSERT INTO t VALUES (3,'{long}',NULL),(1,'two lines',''),(2,'two\nlines',NULL); CREATE VIEW v AS SELECT * FROM t;"), "v");
+        assert_eq!(grid.scalar(0, 0).unwrap().kind, ScalarKind::Number);
+        assert_eq!(grid.scalar(0, 2).unwrap().kind, ScalarKind::Null);
+        let conditions = [Predicate { column: 0, op: PredicateOp::Gt, value: "1.5".into() },
+            Predicate { column: 1, op: PredicateOp::Contains, value: "two\nlines".into() },
+            Predicate { column: 2, op: PredicateOp::Null, value: String::new() }];
+        let order = Order::build_with_predicates(&grid, None, "", None, &conditions, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+        assert_eq!(order.rows, [0, 2]);
     }
 
     /// A table whose name needs quoting is still one name.

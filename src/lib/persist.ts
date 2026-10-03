@@ -43,3 +43,9 @@ export async function setValue(key: string, value: unknown): Promise<void> {
   }
   localStorage.setItem(key, JSON.stringify(value));
 }
+
+/** Commit pending store writes before the reader closes the window. */
+export async function flushValues(): Promise<void> {
+  const store = await openStore();
+  await store?.save();
+}

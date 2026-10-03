@@ -4,8 +4,9 @@ import { Bookmarks, bookmarkTarget, canBookmark } from './bookmarks.svelte';
 import { proseAnchor } from '../bookmarks';
 import { DocTab, workspace } from './docs.svelte';
 import { toasts } from './toast.svelte';
-import type { DocMeta } from '../ipc';
-import { i18n } from '../i18n';
+import type { DocMeta, TableStats } from '../ipc';
+import * as ipc from '../ipc';
+import { i18n, t } from '../i18n';
 
 vi.mock('../persist', () => ({getValue:vi.fn(),setValue:vi.fn(async () => {})}));
 const source = {type:'file' as const,path:'/bookmarks.md'}, anchor = {id:'part',text:'Section'};
@@ -125,4 +126,105 @@ test('rename and reassignment preserve identity, source and creation time, and d
   state.clear(); await state.flush();
   expect(setValue).toHaveBeenLastCalledWith('bookmarks',[]);
   expect(state.entries).toEqual([]);
+});
+
+
+test('JSON paths, original table rows, log lines and PDF pages supply typed targets', () => {
+  const tab = page();
+  tab.meta.kind = 'json'; tab.meta.view = 'tree';
+  tab.position = {kind:'tree',path:'$.items[4]'};
+  expect(bookmarkTarget(tab)?.target).toEqual({kind:'tree',path:'$.items[4]'});
+  tab.meta.kind = 'csv'; tab.meta.view = 'table';
+  tab.tableStats = {hasHeader:true,plain:false,expanded:false} as TableStats;
+  tab.position = {kind:'grid',row:70};
+  tab.selectedCell = {row:2,column:3,sourceRow:91};
+  expect(bookmarkTarget(tab)?.target).toEqual({kind:'grid',row:91,hasHeader:true,plain:false,expanded:false});
+  tab.collection = 'Sales';
+  expect(bookmarkTarget(tab)?.target).toMatchObject({row:91,collection:'Sales'});
+  tab.meta.kind = 'text';
+  expect(bookmarkTarget(tab)?.target).toEqual({kind:'log',line:91,plain:false,expanded:false});
+  tab.meta.kind = 'pdf'; tab.meta.view = 'frame'; tab.framePage = 4;
+  expect(bookmarkTarget(tab)).toBeNull();
+  tab.frameContentLoaded = true;
+  expect(bookmarkTarget(tab)?.target).toEqual({kind:'pdf',page:4});
+});
+
+test('fingerprint mismatch stops navigation and reassignment preserves identity with a new verified location', async () => {
+  const state = new Bookmarks(); await state.load();
+  const tab = page(); tab.meta.kind = 'json'; tab.meta.view = 'tree';
+  tab.position = {kind:'tree',path:'$.new'};
+  vi.spyOn(ipc,'bookmarkFingerprint').mockResolvedValue('v1:new');
+  vi.spyOn(workspace,'openPath').mockResolvedValue(tab);
+  const item = state.add(source,{id:'',text:''},'place',{kind:'tree',path:'$.old'},'v1:old')!;
+  await state.open(item);
+  expect(state.results[item.id]).toBe(false); expect(tab.pendingBookmark).toBeNull();
+  expect(await state.reassignCurrent(item.id,tab)).toBe(true);
+  expect(state.entries[0]).toMatchObject({id:item.id,created:item.created,target:{kind:'tree',path:'$.new'},fingerprint:'v1:new'});
+  await state.open(state.entries[0]);
+  expect(tab.pendingBookmark?.target).toEqual({kind:'tree',path:'$.new'});
+  state.complete(tab,tab.pendingBookmark!,true);
+  expect(state.results[item.id]).toBe(true);
+});
+
+test('an asynchronous fingerprint captured before a document refresh cannot save a stale location', async () => {
+  const state = new Bookmarks(); await state.load();
+  const tab = page(); tab.readBookmarkAnchor = () => anchor;
+  let finish!: (value:string) => void;
+  vi.spyOn(ipc,'bookmarkFingerprint').mockReturnValue(new Promise(resolve => {finish = resolve;}));
+  const saving = state.addCurrent(tab,bookmarkTarget(tab)!,'stale');
+  tab.meta.generation = 1;
+  finish('v1:old');
+  expect(await saving).toBeNull(); expect(state.entries).toEqual([]);
+  expect(setValue).not.toHaveBeenCalled();
+});
+
+test('typed grid navigation clears sorted order and retains source row and collection identity', async () => {
+  const state = new Bookmarks(); await state.load();
+  const tab = page(); tab.meta.kind = 'sqlite'; tab.meta.view = 'collection'; tab.collection = 'Other';
+  vi.spyOn(ipc,'gridOrderCancel').mockResolvedValue();
+  vi.spyOn(workspace,'openPath').mockResolvedValue(tab);
+  const item = state.add(source,{id:'',text:''},'row',{kind:'grid',row:81,collection:'Orders'})!;
+  await state.open(item);
+  expect(ipc.gridOrderCancel).toHaveBeenCalledWith(tab.id);
+  expect(tab.pendingBookmark?.target).toEqual({kind:'grid',row:81,collection:'Orders'});
+  expect(tab.pendingPosition).toEqual({kind:'grid',row:81,collection:'Orders'});
+  expect(tab.collection).toBeNull(); expect(tab.pendingCell).toEqual({row:81,column:0});
+  const old = tab.pendingBookmark!;
+  state.reassign(item.id,{source,anchor:{id:'',text:''},target:{kind:'grid',row:82,collection:'Orders'}});
+  state.complete(tab,old,false);
+  expect(state.results[item.id]).toBe(true);
+});
+
+
+test('bookmark table shape restoration clears hidden and reordered columns when the schema shrinks', async () => {
+  const state = new Bookmarks(); await state.load();
+  const tab = page(); tab.meta.kind = 'text'; tab.meta.view = 'table';
+  tab.tableStats = {columnCount:4,plain:false,expanded:false} as TableStats;
+  tab.header = ['time','level','message','source'];
+  tab.hiddenColumns = [0,1]; tab.columnOrder = [3,2,1,0]; tab.frozenCount = 2; tab.columnWidths = [100,100,100,100];
+  vi.spyOn(ipc,'gridOrderCancel').mockResolvedValue();
+  vi.spyOn(ipc,'tableSetPlain').mockResolvedValue({stats:{columnCount:1,plain:true,expanded:false} as TableStats,header:['line']});
+  vi.spyOn(workspace,'openPath').mockResolvedValue(tab);
+  await state.open(state.add(source,{id:'',text:''},'line',{kind:'log',line:2,plain:true,expanded:false})!);
+  expect(tab.tableStats?.columnCount).toBe(1);
+  expect(tab.hiddenColumns).toEqual([]); expect(tab.columnOrder).toEqual([]); expect(tab.frozenCount).toBe(0);
+  expect(tab.columnWidths).toEqual([]); expect(tab.gridRestoreOrderAllowed).toBe(false);
+});
+
+
+test('canceling a pending fingerprint capture cannot create a bookmark after the editor closes', async () => {
+  const state = new Bookmarks(); await state.load();
+  const tab = page(); tab.readBookmarkAnchor = () => anchor;
+  let valid = true, finish!: (value:string) => void;
+  vi.spyOn(ipc,'bookmarkFingerprint').mockReturnValue(new Promise(resolve => {finish = resolve;}));
+  const saving = state.addCurrent(tab,bookmarkTarget(tab)!,'cancelled',() => valid);
+  valid = false; finish('v1:verified');
+  expect(await saving).toBeNull(); expect(state.entries).toEqual([]);
+  expect(setValue).not.toHaveBeenCalled();
+});
+
+
+test('bookmark sample verification wording explicitly declines a whole-file equality guarantee', () => {
+  expect(t('bookmarkLocation.sampled')).toBe('원본 표본 확인 · 전체 파일 일치 보장 아님');
+  expect(t('bookmarkLocation.sampledDetail')).toBe('최대 12 KiB 원본 표본을 확인하며 로컬 파일은 크기·수정 시각도 확인합니다. 전체 파일의 내용이 같은지는 보장하지 않습니다.');
 });

@@ -71,6 +71,10 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
       tab.columnOrder = Array.from({ length: tab.gridStats!.columnCount }, (_, i) => i).reverse();
       tab.hiddenColumns = [0]; tab.frozenCount = 1;
       await select(item.name);
+      // A previously visited collection now restores its own configuration.
+      // Width-menu geometry below deliberately tests the complete projection.
+      tab.resetColumnView();
+      await tick();
       const host = grid()!;
       const head = host.querySelector<HTMLElement>('.head')!;
       if (host.dataset.widthMode !== 'fill' || Math.abs(head.getBoundingClientRect().width - host.clientWidth) > 1) {

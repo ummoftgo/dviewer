@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import { watchGridState } from '../../state/grid-watch.svelte';
+  import { bookmarks } from '../../state/bookmarks.svelte';
   /**
    * CSV, TSV and logs as a grid.
    *
@@ -37,7 +39,10 @@
 
   let { tab, focusSearch = $bindable(null) }: Props = $props();
   const generation = untrack(() => tab.meta.generation ?? 0);
-  const current = () => (tab.meta.generation ?? 0) === generation;
+  let live = true;
+  onDestroy(() => { live = false; });
+  const current = () => live && (tab.meta.generation ?? 0) === generation;
+  watchGridState(() => tab);
 
   let searchBar = $state<ReturnType<typeof SearchBar>>();
   let grid = $state<ReturnType<typeof DataGrid>>();
@@ -81,6 +86,49 @@
     });
   });
 
+  let bookmarkPreparing = -1;
+  $effect(() => {
+    const jump = tab.pendingBookmark;
+    if (!jump || jump.ready !== false || !tab.tableStats || bookmarkPreparing === jump.request) return;
+    bookmarkPreparing = jump.request;
+    untrack(() => { void bookmarks.prepareTableJump(tab, jump); });
+  });
+
+  // Metadata and column labels precede this. Inactive tabs never mount this
+  // component, so restoring an order does not scan every session document.
+  $effect(() => {
+    const target = tab;
+    if (!current() || !target.tableStats || target.gridStateReady || target.gridStateRestoring || target.pendingBookmark?.ready === false) return;
+    target.gridStateRestoring = true;
+    void (async () => {
+      const saved = await target.savedGridState();
+      if (!current()) return;
+      if (target.pendingBookmark?.ready === false) { target.gridStateRestoring = false; return; }
+      if (saved && target.gridRestoreOrderAllowed) {
+        const take = (shape: TableShape) => { target.tableStats = shape.stats; target.header = shape.header; };
+        if (target.tableStats?.headerPossible && saved.hasHeader !== undefined && saved.hasHeader !== target.tableStats.hasHeader) {
+          const shape = await tableSetHasHeader(target.id, saved.hasHeader);
+          if (!current()) return; take(shape);
+        }
+        if ((target.tableStats?.logLayout || target.tableStats?.delimiter === 'jsonl') && saved.plain !== undefined && saved.plain !== target.tableStats.plain) {
+          const shape = await tableSetPlain(target.id, saved.plain);
+          if (!current()) return; take(shape);
+        }
+        if (target.tableStats?.expandable && saved.expanded !== undefined && saved.expanded !== target.tableStats.expanded) {
+          const shape = await tableSetExpand(target.id, saved.expanded);
+          if (!current()) return; take(shape);
+        }
+      }
+      await target.restoreGridState(saved);
+      if (current()) await grid?.refresh();
+    })().catch(err => {
+      if (!current()) return;
+      target.order.error = errorMessage(err);
+      target.gridStateRestoring = false;
+      target.gridStateReady = true;
+    });
+  });
+
   // --- header row ---------------------------------------------------------
 
   /**
@@ -104,6 +152,7 @@
     tab.pendingCell = null;
     resetColumns(tab);
     tab.resetColumnView();
+    tab.gridStateNotice = null;
     tab.tableSearch.reset();
     await grid?.refresh(toTop);
   }
@@ -211,6 +260,7 @@
         <button
           class="btn toggle"
           class:on={tab.tableStats.plain}
+          disabled={tab.gridStateRestoring}
           aria-pressed={tab.tableStats.plain}
           onclick={togglePlain}
           title={t("table.plain.title")}
@@ -228,6 +278,7 @@
         <button
           class="btn toggle"
           class:on={tab.tableStats.expanded}
+          disabled={tab.gridStateRestoring}
           aria-pressed={tab.tableStats.expanded}
           onclick={toggleExpand}
           title={t("table.expand.title")}
@@ -244,6 +295,7 @@
         <button
           class="btn toggle"
           class:on={tab.tableStats.hasHeader}
+          disabled={tab.gridStateRestoring}
           aria-pressed={tab.tableStats.hasHeader}
           onclick={toggleHeader}
           title={t("table.header.title")}
@@ -288,7 +340,9 @@
       </button>
     </div>
 
-    <GridControls {tab} {columnName} bind:this={controls} />
+    <GridControls {tab} {columnName} bind:this={controls} disabled={tab.gridStateRestoring} />
+    {#if tab.gridStateRestoring}<p class="banner" role="status">{t('gridState.restoring')}</p>{/if}
+    {#if tab.gridStateNotice}<p class="banner" role="status">{t(tab.gridStateNotice === 'restored' ? 'gridState.restored' : 'gridState.schemaChanged')}</p>{/if}
     {#if tab.order.stats?.shown === 0}<p class="empty">{t("grid.filterEmpty")}</p>{/if}
     <GridDock {tab} {columnName}>
       <DataGrid

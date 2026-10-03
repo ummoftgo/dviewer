@@ -14,7 +14,7 @@
  */
 import * as ipc from "./ipc";
 import {checkSessionPosition} from './sessionSmoke';
-import {checkBookmarks} from './bookmarksSmoke';
+import {checkBookmarks, checkLocationBookmarks} from './bookmarksSmoke';
 import { checkHtmlFrame } from "./components/frame/smoke";
 import {checkPdfFrame} from './components/frame/pdfSmoke';
 import { frameDiagnostic } from './frame/diagnostics';
@@ -27,6 +27,11 @@ import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
 import { checkMarkdownCopy, checkTableFit, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
 import { checkDiagramCopy, checkMathCopy } from './components/markdown/imageSmoke';
+import { checkImageZoom, checkImageZoomThemeCleanup } from './components/markdown/imageZoomSmoke';
+import { checkCompare } from './components/compare/smoke';
+import { checkGridRange } from './components/grid/rangeSmoke';
+import { checkGridState } from './gridStateSmoke';
+import { checkGridPredicates, checkGridPredicateCancel } from './components/grid/filterSmoke';
 import { checkStyledCopy } from './components/markdown/styledSmoke';
 import { checkStickyTables } from './components/markdown/stickySmoke';
 import { checkRenderedSearch, checkRawSearch, checkSearchIndex, checkSearchWorker, checkReadingSearch, measureSearch, measureLargeSearch, measureTocScroll } from './components/markdown/searchSmoke';
@@ -133,7 +138,16 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
   if (what === 'tabArrows') return { ok: true, stage: what, metrics: await checkTabArrows() };
   if (what === 'notices') return { ok: true, stage: what, metrics: await checkNotices() };
   if (what === 'treeSearchEnter') return { ok: true, stage: what, metrics: await checkTreeSearchEnter(tab) };
-  if (what === 'cellDetail') return { ok: true, stage: what, metrics: await checkCellDetail(tab) };
+  if (what === 'cellDetail') {
+    const detail = await checkCellDetail(tab);
+    const range = await checkGridRange(tab);
+    return { ok: true, stage: what, metrics: { detail, range } };
+  }
+  if (what === 'documentCompare') return { ok: true, stage: what, metrics: await checkCompare(tab) };
+  if (what === 'locationBookmarks') return { ok: true, stage: what, metrics: await checkLocationBookmarks(tab) };
+  if (what === 'gridState') return { ok: true, stage: what, metrics: await checkGridState(tab) };
+  if (what === 'gridPredicates') return { ok: true, stage: what, metrics: await checkGridPredicates(tab) };
+  if (what === 'gridPredicateCancel') return { ok: true, stage: what, metrics: await checkGridPredicateCancel(tab) };
   if (what === "textReading") {
     await checkTextReading(tab);
     return { ok: true, stage: what };
@@ -254,6 +268,8 @@ export async function runSmoke(): Promise<void> {
           await checkMarkdownTables(tab);
           await checkMarkdownCopy(tab);
           await checkDiagramCopy();
+          await checkImageZoom();
+          await checkImageZoomThemeCleanup();
           await checkMathCopy(tab);
           await checkStyledCopy(tab);
           await checkFocusMode(tab);

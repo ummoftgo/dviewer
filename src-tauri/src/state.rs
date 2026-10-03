@@ -327,6 +327,8 @@ impl Document {
     }
 
     pub fn generation(&self) -> u32 { self.inner.read().generation }
+    /// Table interpretation and order jobs can change without reloading bytes.
+    pub fn grid_revision(&self) -> u32 { self.inner.read().order_generation }
 
     pub fn snapshot(&self) -> DocumentSnapshot {
         let inner = self.inner.read();

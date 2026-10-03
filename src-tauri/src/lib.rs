@@ -23,6 +23,7 @@ pub mod xml;
 pub mod update;
 
 mod commands;
+mod bookmark;
 mod filewatch;
 mod docserve;
 #[cfg(test)]
@@ -183,6 +184,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            bookmark::bookmark_fingerprint,
             docserve::frame_url,
             docserve::frame_served,
             docserve::frame_external,
@@ -238,6 +240,10 @@ pub fn run() {
             commands::grid_order,
             commands::grid_order_cancel,
             commands::grid_order_stats,
+            commands::grid_export,
+            commands::grid_export_cancel,
+            commands::grid_range_text,
+            commands::smoke_grid_export,
             commands::table_set_has_header,
             commands::table_set_plain,
             commands::table_set_expand,
