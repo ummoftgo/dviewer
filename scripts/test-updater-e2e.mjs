@@ -80,6 +80,30 @@ export async function waitFor(label, check, timeout = 60_000, interval = 250, he
   throw new Error(`Timed out: ${label}${last ? ` (${last.message})` : ''}`);
 }
 
+export function evaluationError(details) {
+  // CDP's top-level text is usually only "Uncaught". Keep the bounded first
+  // error line, never the evaluated source, stack, object properties or URLs.
+  const first = String(details.exception?.description ?? details.text ?? 'Unknown exception').split('\n')[0];
+  const description = sanitize(first, [out, root, process.env.USERPROFILE, process.env.APPDATA, process.env.LOCALAPPDATA])
+    .replace(/(?:https?|ws):\/\/[^\s"'<>]+/gi, '<url>').slice(0, 300);
+  return { description, line: Number.isInteger(details.lineNumber) ? details.lineNumber : null,
+    column: Number.isInteger(details.columnNumber) ? details.columnNumber : null };
+}
+export function assertActionable(control, label) {
+  assert.equal(control.exists, true, `${label}: UI control missing`);
+  assert.equal(control.disabled, false, `${label}: UI control disabled`);
+  assert.equal(control.visible, true, `${label}: UI control hidden`);
+  assert.equal(control.hitTarget, true, `${label}: UI control covered (${control.hitKind})`);
+}
+export function assertUpdateDialog(ui) {
+  assert.equal(ui.present, true, 'update dialog is absent');
+  assert.equal(ui.open, true, 'update dialog is closed');
+  assert.equal(ui.modal, true, 'update dialog is not modal');
+  assert.equal(ui.versionMatches, true, 'update dialog has the wrong version');
+  assert.equal(ui.installEnabled, true, 'Update now is absent or disabled');
+  assert.equal(ui.error, false, 'update dialog reports an error');
+}
+
 export class Cdp {
   constructor(socket) {
     this.socket = socket; this.next = 0; this.pending = new Map(); this.events = [];
@@ -111,14 +135,37 @@ export class Cdp {
   }
   async evaluate(expression) {
     const result = await this.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-    if (result.exceptionDetails) throw new Error(`Page evaluation failed: ${result.exceptionDetails.text}`);
+    if (result.exceptionDetails) {
+      this.lastException = evaluationError(result.exceptionDetails);
+      throw new Error(`Page evaluation failed: ${this.lastException.description}`);
+    }
     return result.result.value;
   }
-  async click(expression, exiting = false) {
-    const point = await this.evaluate(`(() => { const el = ${expression}; if (!el || el.disabled) throw new Error('UI control missing or disabled'); el.scrollIntoView({block:'center'}); const r=el.getBoundingClientRect(); if (!r.width || !r.height) throw new Error('UI control hidden'); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
+  async click(expression, exiting = false, label = 'control') {
+    const point = await waitFor(`${label} actionable`, async () => {
+      const control = await this.evaluate(`(() => {
+        const el=${expression};
+        if (!el) return {exists:false};
+        el.scrollIntoView({block:'nearest',inline:'nearest'});
+        const r=el.getBoundingClientRect(), style=getComputedStyle(el), x=r.x+r.width/2, y=r.y+r.height/2;
+        const hit=document.elementFromPoint(x,y), hitTarget=!!hit && (hit===el || el.contains(hit));
+        const hitKind=hitTarget ? 'target' : !hit ? 'none' : hit.closest('dialog[open]') ? 'dialog'
+          : hit.closest('aside.panel') ? 'settings' : hit.closest('.scrim') ? 'scrim' : 'other';
+        return {exists:true,disabled:!!el.disabled,visible:r.width>0 && r.height>0 && style.visibility==='visible'
+          && style.display!=='none' && Number(style.opacity)>0 && style.pointerEvents!=='none',hitTarget,hitKind,x,y};
+      })()`);
+      this.lastAction = { label, phase: 'locate', ...control };
+      assertActionable(control, label);
+      return { x: control.x, y: control.y };
+    });
+    this.lastAction.phase = 'mouse-move';
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    this.lastAction.phase = 'mouse-press';
     await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...point });
+    this.lastAction.phase = 'mouse-release';
     try { await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...point }); }
     catch (error) { if (!exiting || !/CDP closed during/.test(error.message)) throw error; }
+    this.lastAction.phase = 'dispatched';
   }
   close() { this.socket.close(); }
 }
@@ -316,6 +363,31 @@ async function connect(port, { health = () => {}, evidence = {} } = {}) {
 const button = text => `Array.from(document.querySelectorAll('button')).find(el => (el.getAttribute('aria-label') || el.textContent.trim()) === ${JSON.stringify(text)})`;
 const restore = `Array.from(document.querySelectorAll('aside.panel label')).find(el => el.textContent.includes('Restore previous documents and reading positions at startup'))?.querySelector('input')`;
 const invoke = command => `window.__TAURI_INTERNALS__.invoke(${JSON.stringify(command)})`;
+export async function reopenUpdateDialog(cdp, stage = () => {}, wait = waitFor) {
+  stage('dismiss-update-dialog');
+  await cdp.click(button('Later'), false, 'Later');
+  // HTMLDialogElement.close queues its close event. Wait for Svelte to remove
+  // the component, so its old onclose cannot race the badge's next open.
+  await wait('dismissed update dialog removed', () => cdp.evaluate(`!document.querySelector('dialog[aria-labelledby="update-title"]')`));
+  stage('close-settings');
+  await cdp.click(button('Close settings'), false, 'Close settings');
+  await wait('settings and scrim removed', () => cdp.evaluate(`!document.querySelector('aside.panel, .scrim')`));
+  stage('open-update-badge');
+  await cdp.click(`document.querySelector('button.badge')`, false, 'update badge');
+  await wait('badge reopened a ready update dialog', async () => {
+    const ui = await cdp.evaluate(`(() => {
+      const dialog=document.querySelector('dialog[aria-labelledby="update-title"]');
+      const install=Array.from(dialog?.querySelectorAll('button') ?? []).find(el => el.textContent.trim()==='Update now');
+      return {present:!!dialog,open:!!dialog?.open,modal:!!dialog?.matches(':modal'),
+        versionMatches:dialog?.querySelector('#update-title')?.textContent.trim()===${JSON.stringify(`Update available: v${to}`)},
+        installEnabled:!!install && !install.disabled,error:!!dialog?.querySelector('[role="alert"]')};
+    })()`);
+    cdp.lastUpdateUi = ui;
+    assertUpdateDialog(ui);
+    return true;
+  });
+}
+
 async function settings(cdp) {
   if (!await cdp.evaluate(`!!document.querySelector('aside.panel')`)) await cdp.click(button('Display settings'));
   await waitFor('settings panel', () => cdp.evaluate(`!!(${restore})`));
@@ -525,14 +597,13 @@ async function main() {
         return status.phase === 'idle' && status.available?.version === to && status.available.canInstall && await cdp.evaluate(`!!document.querySelector('dialog[open] #update-title')`);
       });
       // Exercise the badge's actual UI path too, rather than installing by IPC.
-      await cdp.click(button('Later'));
-      await cdp.click(button('Close settings'));
-      await cdp.click(`document.querySelector('button.badge')`);
+      await reopenUpdateDialog(cdp, phase => { report.stage = `${flavor}:${phase}`; });
       await capture(`${flavor}-before`, true);
       const beforeRows = await processes(executable);
       assert.equal(beforeRows.length, 1); assert.equal(beforeRows[0].pid, original.pid);
+      report.stage = `${flavor}:click-update-now`;
+      await cdp.click(button('Update now'), true, 'Update now');
       report.stage = `${flavor}:self-relaunch`;
-      await cdp.click(button('Update now'), true);
       const afterProcess = await waitFor('updater-owned replacement PID', async () => {
         const rows = await processes(executable);
         return rows.length === 1 && rows[0].pid !== original.pid && original.exitCode !== null && rows[0];
@@ -581,6 +652,7 @@ async function main() {
     report.ok = true; report.stage = 'complete';
   } catch (error) {
     report.error = scrub(error.message);
+    if (cdp) report.uiFailure = { lastAction: cdp.lastAction ?? null, lastUpdateDialog: cdp.lastUpdateUi ?? null, lastException: cdp.lastException ?? null };
     await currentStartup?.();
     await capture('failure');
   } finally {

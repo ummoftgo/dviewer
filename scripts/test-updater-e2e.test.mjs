@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Cdp, assertTestBrowserOverlay, assertAppRunning, discoveryFailure, targetSummary, peMetadata, assertDocument, assertRestart, matchesTrackedProcess, killAndProveGone, sanitize, waitFor, windowsArgs } from './test-updater-e2e.mjs';
+import { Cdp, assertActionable, assertUpdateDialog, evaluationError, reopenUpdateDialog, assertTestBrowserOverlay, assertAppRunning, discoveryFailure, targetSummary, peMetadata, assertDocument, assertRestart, matchesTrackedProcess, killAndProveGone, sanitize, waitFor, windowsArgs } from './test-updater-e2e.mjs';
 import { testBrowserArguments } from './test-updater-windows.mjs';
 
 const file = String.raw`C:\isolated test\원본 문서.txt`;
@@ -178,4 +178,70 @@ test('builder has an opt-in API overlay and app launch removes the ignored env f
   assert.match(harness, /DVIEWER_TEST_CDP_PORT: String\(port\)/);
   assert.match(harness, /for \(const version of \[from, to\]\)/);
   assert.match(harness, /key.toUpperCase\(\) === 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'\) delete env\[key\]/);
+});
+
+const readyDialog = { present: true, open: true, modal: true, versionMatches: true, installEnabled: true, error: false };
+test('UI clicks reject missing, disabled, hidden and covered targets', () => {
+  const ready = { exists: true, disabled: false, visible: true, hitTarget: true, hitKind: 'target' };
+  assertActionable(ready, 'update badge');
+  for (const [change, message] of [[{ exists: false }, /missing/], [{ disabled: true }, /disabled/],
+    [{ visible: false }, /hidden/], [{ hitTarget: false, hitKind: 'scrim' }, /covered \(scrim\)/]]) {
+    assert.throws(() => assertActionable({ ...ready, ...change }, 'update badge'), message);
+  }
+});
+test('ordinary main view cannot stand in for the ready update dialog', () => {
+  assertUpdateDialog(readyDialog);
+  for (const key of ['present', 'open', 'modal', 'versionMatches', 'installEnabled']) {
+    assert.throws(() => assertUpdateDialog({ ...readyDialog, [key]: false }));
+  }
+  assert.throws(() => assertUpdateDialog({ ...readyDialog, error: true }), /reports an error/);
+});
+test('badge path waits for old close event, settings teardown and new modal readiness', async () => {
+  const trace = [];
+  let oldDialog = true, settings = true, closedPolls = 0, settingsPolls = 0, readyPolls = 0;
+  const cdp = {
+    async click(_expression, _exiting, label) {
+      trace.push(`click:${label}`);
+      if (label === 'Close settings') assert.equal(oldDialog, false, 'old dialog onclose must finish first');
+      if (label === 'update badge') assert.equal(settings, false, 'settings scrim must be gone first');
+    },
+    async evaluate(expression) {
+      if (expression.startsWith('!document') && expression.includes('update-title')) {
+        oldDialog = ++closedPolls < 2; return !oldDialog;
+      }
+      if (expression.startsWith('!document') && expression.includes('aside.panel')) {
+        settings = ++settingsPolls < 2; return !settings;
+      }
+      return { ...readyDialog, open: ++readyPolls >= 2 };
+    },
+  };
+  const wait = async (label, check) => {
+    trace.push(`wait:${label}`);
+    for (let i = 0; i < 3; i++) { try { if (await check()) return; } catch (error) { if (i === 2) throw error; } }
+    assert.fail(`condition never ready: ${label}`);
+  };
+  await reopenUpdateDialog(cdp, () => {}, wait);
+  assert.deepEqual(trace, ['click:Later', 'wait:dismissed update dialog removed', 'click:Close settings',
+    'wait:settings and scrim removed', 'click:update badge', 'wait:badge reopened a ready update dialog']);
+  assert.equal(readyPolls, 2); assert.deepEqual(cdp.lastUpdateUi, readyDialog);
+});
+test('badge click without a new modal fails before installation is attempted', async () => {
+  const cdp = { click: async () => {}, evaluate: async expression => expression.startsWith('!document') ? true : { ...readyDialog, present: false } };
+  await assert.rejects(reopenUpdateDialog(cdp, () => {}, async (_label, check) => {
+    assert.equal(await check(), true);
+  }), /update dialog is absent/);
+});
+test('CDP evaluation errors retain the actual bounded reason instead of only Uncaught', async () => {
+  const socket = new Socket(), cdp = new Cdp(socket);
+  const result = cdp.evaluate('unused test expression');
+  socket.reply({ id: 1, result: { result: {}, exceptionDetails: { text: 'Uncaught', lineNumber: 2, columnNumber: 7,
+    exception: { description: 'Error: UI control missing or disabled\n    at private-evaluated-source' } } } });
+  await assert.rejects(result, /Page evaluation failed: Error: UI control missing or disabled/);
+  assert.deepEqual(cdp.lastException, { description: 'Error: UI control missing or disabled', line: 2, column: 7 });
+  const redacted = evaluationError({ text: 'Uncaught', exception: { description: 'Error: https://host.invalid/private?token=secret\nprivate stack' } });
+  assert.ok(!JSON.stringify(redacted).includes('secret')); assert.ok(!JSON.stringify(redacted).includes('stack'));
+});
+test('relaunch phase is recorded only after the actual Update now input dispatch', () => {
+  const source = readFileSync(new URL('./test-updater-e2e.mjs', import.meta.url), 'utf8');
+  assert.match(source, /report.stage = `\$\{flavor\}:click-update-now`;\s+await cdp.click\(button\('Update now'\), true, 'Update now'\);\s+report.stage = `\$\{flavor\}:self-relaunch`;/);
 });
