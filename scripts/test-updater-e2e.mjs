@@ -9,6 +9,7 @@ import { createServer } from 'node:net';
 import { basename, dirname, join, resolve, win32 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { testBrowserArguments } from './test-updater-windows.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const out = join(root, '.agent-works', 'm22-e2e');
@@ -213,12 +214,17 @@ async function hash(file) {
   for await (const chunk of createReadStream(file)) digest.update(chunk);
   return digest.digest('hex');
 }
-async function freePort() {
-  const server = createServer();
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  const { port } = server.address();
-  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-  return port;
+async function reservePort(requested = 0) {
+  const server = createServer(socket => socket.destroy());
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(requested, '127.0.0.1', resolve); });
+  return { port: server.address().port, release: async () => {
+    if (server.listening) await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  } };
+}
+export function assertTestBrowserOverlay(config, port) {
+  assert.equal(config.identifier, 'com.xenia.dviewer.m22test', 'CDP overlay must use the isolated test identifier');
+  assert.equal(config.app?.windows?.length, 1, 'CDP test must have one configured window');
+  assert.equal(config.app.windows[0].additionalBrowserArgs, testBrowserArguments(String(port)), 'test overlay CDP arguments mismatch');
 }
 export function assertAppRunning(app) {
   if (app.failure) throw new Error(`App failed to spawn (${app.failure.code ?? app.failure.name ?? 'unknown'})`);
@@ -274,7 +280,8 @@ async function startupNative(pid, executable, profile, port) {
     });
     $listeners=@(Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | ForEach-Object { @{pid=[int]$_.OwningProcess;loopback=($_.LocalAddress -in @('127.0.0.1','::1'))} });
     $app=Get-Process -Id ${pid} -ErrorAction SilentlyContinue;
-    @{appPresent=($null -ne $app);hasMainWindow=($null -ne $app -and $app.MainWindowHandle -ne 0);profileExists=(Test-Path -LiteralPath $env:DVIEWER_TEST_PROFILE);processes=$rows;listeners=$listeners} | ConvertTo-Json -Depth 5 -Compress
+    $observerElevated=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);
+    @{observerElevated=$observerElevated;appPresent=($null -ne $app);hasMainWindow=($null -ne $app -and $app.MainWindowHandle -ne 0);profileExists=(Test-Path -LiteralPath $env:DVIEWER_TEST_PROFILE);processes=$rows;listeners=$listeners} | ConvertTo-Json -Depth 5 -Compress
   `, { DVIEWER_TEST_EXE: executable, DVIEWER_TEST_PROFILE: profile });
   return JSON.parse(raw);
 }
@@ -401,7 +408,7 @@ async function main() {
   const report = { schema: 1, sourceSha: process.env.GITHUB_SHA ?? null, runId: process.env.GITHUB_RUN_ID ?? null, from, to, source: 'same candidate tree, debug version overlays', ok: false, cases: [], startups: [], stage: 'build', cleanup: false };
   const consoles = [];
   const scrub = value => sanitize(value, [out, root, process.env.USERPROFILE, process.env.APPDATA, process.env.LOCALAPPDATA, tmpdir()]);
-  let server, cdp, currentStartup, cleanupStarted = false;
+  let server, cdp, currentStartup, reservation, cleanupStarted = false;
   function recordNative(stream, label) {
     if (!stream) return; // A failed spawn is reported by the process health check.
     let buffer = '', discard = false;
@@ -430,10 +437,16 @@ async function main() {
     }
   }
   try {
+    // Reserve one loopback port while both test binaries are built with it.
+    reservation = await reservePort();
+    const port = reservation.port;
     const buildArgs = [join(root, 'scripts', 'test-updater-windows.mjs'), from, to];
-    await run(process.execPath, buildArgs, {}, 50 * 60_000, childProcess => own('builder', childProcess, buildArgs));
+    await run(process.execPath, buildArgs, { env: { ...process.env, DVIEWER_TEST_CDP_PORT: String(port) } }, 50 * 60_000, childProcess => own('builder', childProcess, buildArgs));
     const context = JSON.parse(readFileSync(join(out, 'context.json'), 'utf8'));
-    assert.equal(context.from, from); assert.equal(context.to, to);
+    assert.equal(context.from, from); assert.equal(context.to, to); assert.equal(context.cdpPort, port);
+    for (const version of [from, to]) {
+      assertTestBrowserOverlay(JSON.parse(readFileSync(join(out, `config-${version}.json`), 'utf8')), port);
+    }
     const serverArgs = [join(root, 'scripts', 'serve-updater-test.mjs')];
     server = child(process.execPath, serverArgs); own('server', server, serverArgs);
     const origin = await waitFor('isolated update server', () => {
@@ -456,16 +469,20 @@ async function main() {
       if (flavor === 'portableExe') copyFileSync(join(out, `portable-${from}.exe`), executable);
       else await run(join(out, `setup-${from}.exe`), ['/S', `/D=${directory}`], { windowsVerbatimArguments: true }, 120_000);
       assert.ok(existsSync(executable), 'isolated executable not installed at expected path');
-      const port = await freePort(), temp = join(out, `${flavor}-temp`);
+      const temp = join(out, `${flavor}-temp`);
       mkdirSync(temp);
       const env = { ...process.env, DVIEWER_UPDATE_MANIFEST: `${origin}/latest.json`, TEMP: temp, TMP: temp,
-        WEBVIEW2_USER_DATA_FOLDER: join(out, `${flavor}-webview`),
-        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-address=127.0.0.1 --remote-debugging-port=${port}` };
+        WEBVIEW2_USER_DATA_FOLDER: join(out, `${flavor}-webview`) };
       delete env.DVIEWER_INSTANCE;
+      // The baked test overlay is the only debug-argument source, including restart.
+      for (const key of Object.keys(env)) if (key.toUpperCase() === 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS') delete env[key];
+      await reservation.release();
+      reservation = await reservePort(port); // Fail if an unrelated listener took the port.
+      await reservation.release();
       // The ONLY app launch in this flavor. After Update now, only observe.
       report.stage = `${flavor}:launch`;
       const startup = { flavor, phase: 'original', binary: executableInfo(executable), windowsHide: false,
-        environment: { loopbackDebugging: true, isolatedProfile: true, isolatedTemp: true,
+        environment: { debugArgumentSource: 'test-config-api', loopbackDebugging: true, isolatedProfile: true, isolatedTemp: true,
           nodeEnvProxy: env.NODE_USE_ENV_PROXY === '1', proxyPresent: Object.keys(env).some(key => /^(http|https|all)_proxy$/i.test(key) && !!env[key]),
           browserOverridePresent: !!env.WEBVIEW2_BROWSER_EXECUTABLE_FOLDER,
           debugArgumentVariableCount: Object.keys(env).filter(key => key.toUpperCase() === 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS').length }, discovery: {} };
@@ -568,6 +585,8 @@ async function main() {
     await capture('failure');
   } finally {
     cleanupStarted = true; // Do not misreport our cleanup termination as an app startup crash.
+    try { await reservation?.release(); }
+    catch (error) { report.ok = false; report.portCleanupError = scrub(error.message); }
     cdp?.close();
     try { await cleanup(); report.cleanup = true; }
     catch (error) { report.ok = false; report.cleanupError = scrub(error.message); }

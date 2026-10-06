@@ -4,6 +4,21 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+
+// Tauri passes this test-only setting directly through Wry to WebView2's API.
+// Elevated WebView2 150+ intentionally ignores environment-supplied flags.
+// Keep the pinned Wry 0.55.1 defaults (including autoplay) unchanged.
+export function testBrowserArguments(port) {
+  if (port === undefined) return undefined;
+  assert.ok(typeof port === 'string' && /^\d{1,5}$/.test(port), 'test CDP port must be numeric');
+  const value = Number(port);
+  assert.ok(Number.isInteger(value) && value >= 1024 && value <= 65535, 'test CDP port must be 1024..65535');
+  return '--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required'
+    + ` --remote-debugging-address=127.0.0.1 --remote-debugging-port=${value}`;
+}
+
+function main() {
 const root = resolve(import.meta.dirname, '..');
 const out = join(root, '.agent-works/m22-e2e');
 mkdirSync(out, {recursive:true});
@@ -17,6 +32,7 @@ if (process.argv[2] === '--cleanup-keys') {
   process.exit(0);
 }
 assert.equal(process.platform,'win32','Windows test bundles only');
+const additionalBrowserArgs = testBrowserArguments(process.env.DVIEWER_TEST_CDP_PORT);
 const payload = process.argv[2] === '--payload-mib';
 const [from='0.13.0',to='0.14.0'] = payload ? [] : process.argv.slice(2);
 for (const version of [from,to]) assert.match(version,/^\d+\.\d+\.\d+$/,'stable test versions required');
@@ -40,7 +56,7 @@ if (payload) {
   process.exit(0);
 }
 // Persist ownership before key generation, so even a failed signer is cleanable.
-writeFileSync(join(out, 'context.json'), JSON.stringify({directory, key, out, from, to}));
+writeFileSync(join(out, 'context.json'), JSON.stringify({directory, key, out, from, to, ...(additionalBrowserArgs ? {cdpPort:Number(process.env.DVIEWER_TEST_CDP_PORT)} : {})}));
 if (!existsSync(key)) signer(['generate','--ci','-w',key,'-p','']);
 writeFileSync(join(out,'scenario.json'),'{}');
 writeFileSync(join(out,'원본 문서.txt'),'M22 original document\n');
@@ -48,7 +64,7 @@ for (const version of [from,to]) {
   const config = {
     productName:'dviewer M22 test', version, identifier:'com.xenia.dviewer.m22test',
     plugins:{updater:{pubkey:readFileSync(`${key}.pub`,'utf8').trim()}},
-    app:{windows:[{title:`dviewer M22 test ${version}`, width:1180,height:800,minWidth:640,minHeight:420,dragDropEnabled:true}]},
+    app:{windows:[{additionalBrowserArgs,title:`dviewer M22 test ${version}`, width:1180,height:800,minWidth:640,minHeight:420,dragDropEnabled:true}]},
     bundle:{fileAssociations:[],createUpdaterArtifacts:version===to, windows:{nsis:{installMode:'currentUser'},webviewInstallMode:{type:'skip'}}},
   };
   const configFile = join(out, `config-${version}.json`);
@@ -69,3 +85,6 @@ for (const version of [from,to]) {
   }
   console.log(`Isolated ${version} portable and NSIS built.`);
 }
+
+}
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) main();

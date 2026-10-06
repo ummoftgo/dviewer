@@ -1768,3 +1768,15 @@ JSONL 개행 정규화를 제거하면 새 회귀가 예상2줄 대신18줄이�
 기본 sandbox와 승인된 실행 경로 모두에서 Xvfb는 local/unix listener를 만들지 못했고 DBus는 `Failed to open socket: Operation not permitted`로 종료했다. 후자는 작업 폴더의 별도 XDG_RUNTIME_DIR을 사용해 읽기 전용 home 문제를 분리한 뒤에도 같았다. 따라서 실제 앱 스모크를 시작할 수 있는 display/session 준비에서 막혔으며 생성기69개 중 실행 완료는0개다. 이는69개 기능 테스트 실패가 아니고 앱의 renderer 정체 관찰도 아니다. 보안 설정을 낮추거나 사용자 컴퓨터로 옮겨 우회하지 않았다. 실제 클립보드·저장 대화상자·PDF 책갈피·반복 클릭/확대/닫기와 세 OS 전체 녹색 조건은 계속 미확인이다.
 
 로그·mutation 원복 증거·native binary SHA는 `.agent-works/cloud-*`에 남겼다. 원격 push·PR·버전·태그·릴리스는 이 후속 검증에서 하지 않았다.
+
+### 세 OS CI에서 확인한 후속 경계
+
+`b74a4cf`의 [첫 PR 검사](https://github.com/ummoftgo/dviewer/actions/runs/37420415565)와 [세 OS 번들 검사](https://github.com/ummoftgo/dviewer/actions/runs/37420638562)는 같은 세 실패를 보였다. 생성기가 sample.md의 icon.png를 만들지 않은 문제, raw JSON 비교가 Text/HTML 전용 doc_lines를 호출한 문제, 숨김 열을 복원한 sheet에서 전체 schema 열 수를 기다리던 smoke 전제였다. PNG를 실제 생성·독립 decode하고 reader를 분리했으며, collection smoke는 정확한 표시 projection과 시트별 왕복 구성을 검사하도록 고쳤다. 원문 비교의 새3개 회귀는 수정 전에 실패했다. PNG 제거 변형1개, 기존 collection readiness 변형4개와 header-order 변형3개도 실패 확인 후 원복했다.
+
+다음 `be97d61`은68/69를 통과하고 테마 복원 직후의 이전 ready 표시 때문에 MathML 검사가 너무 일찍 실행되는 경합을 드러냈다. 새 render generation과 기존 Mermaid/KaTeX 완료를 함께 기다리며 MathML 단언과 시간 제한은 유지했다. 해당 guard 제거는2개 테스트를 실패시켰다. 그 뒤 `e04ee4f`의 [세 OS 번들 검사](https://github.com/ummoftgo/dviewer/actions/runs/37425698052)는 Linux·macOS·Windows 모두69개 픽스처와 단일 인스턴스/새 창 왕복을 통과했다. 이는 실제 GUI 결과이며 전체 workflow 성공은 아니다.
+
+같은 `e04ee4f`의 Windows Rust 검사에서는 atomic replacement 회귀가 실패했다(631통과·1실패). Windows만 len/mtime으로 같은 파일을 판단했고, 예전 통과는 두 파일의 timestamp가 달랐을 때였다. 후속 수정은 FileIdInfo의 volume serial과128비트 identity를 두 live handle 사이에서 대조한다. 회귀는 같은 len/mtime을 강제하며 hard-link 성공 대조군을 포함한다. guard 제거1개 실패 후 원복, Linux 필수 fixture633개 통과와 정확한 Windows helper의 GNU target compile-check를 확인했다. 실제 Windows 재검증은 다음 후보 CI에서 확인해야 한다.
+
+Windows updater E2E 첫 실행은 앱/CDP 연결 이전에 실패했다. 보강한 `e04ee4f` 관찰은 앱·WebView2가 살아 있고 창·격리 profile도 있지만 debug 인자와 listener가 없으며 ECONNREFUSED임을 보였다. [Microsoft elevated-host 계약](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security#for-an-elevated-host-app-use-appropriate-override-flags)에 따라 후속 시험 overlay는 환경변수 대신 앱의 AdditionalBrowserArguments API를 사용한다. production 설정, registry, policy, signing은 바꾸지 않고 pinned Wry 기본값과 loopback 범위를 유지한다. 실제 portable/NSIS 갱신 성공은 아직 확인하지 않았으며 실패를 skip으로 처리하지 않는다.
+
+후속 로컬 집계는 Rust633, Vitest610, Node69, check 오류·경고0(4×580키), 필수 notices build 성공이다. clippy는 lib22/lib test26(22중복)으로 이전 cloud 수와 같다. Windows identity와 test-only browser-argument 변경은 독립 코드 검토를 받았으며 새로운 native 후보로 재확인한다. 이 시점에는 판올림·main 병합·태그·배포를 하지 않았다.

@@ -22,7 +22,7 @@ fn offsets(len: u64) -> [u64; 3] {
         len.saturating_sub(SAMPLE as u64),
     ]
 }
-fn file_fingerprint(mut file: File) -> Result<(String, u64, bool, u64)> {
+fn file_fingerprint(file: &mut File) -> Result<(String, u64, bool, u64)> {
     let before = file.metadata()?;
     let len = before.len();
     let modified = before
@@ -66,15 +66,47 @@ fn same_file_metadata(before: &std::fs::Metadata, current: &std::fs::Metadata) -
     }
     true
 }
+
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> std::io::Result<(u64, [u8; 16])> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
+    };
+
+    let mut info = FILE_ID_INFO::default();
+    // SAFETY: the borrowed File keeps the handle open, and info is a valid,
+    // correctly sized FILE_ID_INFO buffer for the requested information class.
+    let success = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileIdInfo,
+            (&mut info as *mut FILE_ID_INFO).cast(),
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+    };
+    if success == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // Use the full 128-bit ID: the older 64-bit file index is not unique on ReFS.
+    Ok((info.VolumeSerialNumber, info.FileId.Identifier))
+}
+
 fn checked_file_fingerprint(
-    file: File,
+    mut file: File,
     path: &std::path::Path,
 ) -> Result<(String, u64, bool, u64)> {
     let before = file.metadata()?;
-    let sampled = file_fingerprint(file)?;
+    let sampled = file_fingerprint(&mut file)?;
     // An atomic editor save can replace the pathname while this handle still
     // points at the previous file. Validate the path as well as the open handle.
-    if !same_file_metadata(&before, &std::fs::metadata(path)?) {
+    // Keep both handles open through the comparison so file IDs cannot be reused.
+    let current = File::open(path)?;
+    if !same_file_metadata(&before, &current.metadata()?) {
+        return Err(Error::internal("source replaced while fingerprinting"));
+    }
+    #[cfg(windows)]
+    if windows_file_identity(&file)? != windows_file_identity(&current)? {
         return Err(Error::internal("source replaced while fingerprinting"));
     }
     Ok(sampled)
@@ -229,23 +261,44 @@ mod tests {
 
     #[test]
     fn atomic_path_replacement_cannot_verify_samples_from_the_previous_handle() {
-        let dir = std::env::temp_dir().join(format!(
-            "dviewer-bookmark-replace-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&dir).unwrap();
-        let path = dir.join("source");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source");
+        let replacement = dir.path().join("replacement");
         std::fs::write(&path, b"first").unwrap();
         let opened = File::open(&path).unwrap();
-        std::fs::rename(&path, dir.join("previous")).unwrap();
-        std::fs::write(&path, b"other").unwrap();
+        let before = opened.metadata().unwrap();
+        std::fs::write(&replacement, b"other").unwrap();
+        // Match both metadata fields deliberately: rejection must depend on file
+        // identity, not the filesystem's timestamp precision or test timing.
+        File::options()
+            .write(true)
+            .open(&replacement)
+            .unwrap()
+            .set_modified(before.modified().unwrap())
+            .unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        let current = std::fs::metadata(&path).unwrap();
+        assert_eq!(before.len(), current.len());
+        assert_eq!(before.modified().unwrap(), current.modified().unwrap());
         assert!(checked_file_fingerprint(opened, &path).is_err());
         assert!(checked_file_fingerprint(File::open(&path).unwrap(), &path).is_ok());
-        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn checked_sampling_accepts_the_same_file_and_its_hard_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source");
+        let alias = dir.path().join("alias");
+        std::fs::write(&path, b"same source").unwrap();
+        std::fs::hard_link(&path, &alias).unwrap();
+        let expected = file_fingerprint(&mut File::open(&path).unwrap()).unwrap();
+        assert_eq!(
+            expected,
+            checked_file_fingerprint(File::open(&path).unwrap(), &path).unwrap()
+        );
+        assert_eq!(
+            expected,
+            checked_file_fingerprint(File::open(&path).unwrap(), &alias).unwrap()
+        );
     }
     #[test]
     fn file_sampling_matches_repeated_reads_and_equal_length_rewrite() {
@@ -260,10 +313,16 @@ mod tests {
         std::fs::create_dir(&dir).unwrap();
         let path = dir.join("source");
         std::fs::write(&path, b"first").unwrap();
-        let first = file_fingerprint(File::open(&path).unwrap()).unwrap();
-        assert_eq!(first, file_fingerprint(File::open(&path).unwrap()).unwrap());
+        let first = file_fingerprint(&mut File::open(&path).unwrap()).unwrap();
+        assert_eq!(
+            first,
+            file_fingerprint(&mut File::open(&path).unwrap()).unwrap()
+        );
         std::fs::write(&path, b"other").unwrap();
-        assert_ne!(first, file_fingerprint(File::open(&path).unwrap()).unwrap());
+        assert_ne!(
+            first,
+            file_fingerprint(&mut File::open(&path).unwrap()).unwrap()
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

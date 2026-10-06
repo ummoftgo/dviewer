@@ -921,3 +921,7 @@ PDF는 세 OS 모두에서 연다. 한때 Windows로 제한했지만, WebKit의 
 책갈피는 클릭 시 tree 선택을 직접 capture하며 close·refresh·collection 변경·재지정 중인 늦은 응답을 차단한다. 삭제된 collection/없는 PDF page는 다른 위치로 clamp하지 않고 mismatch로 처리한다. file fingerprint는 열린 descriptor뿐 아니라 경로 metadata와 Unix inode/dev를 전후 대조해 atomic replacement도 거절한다. 비교 load는 reader를 분리해 page별 실제 UTF-8 크기·total 일관성·generation을 검사한다. 취소는 진행 중 IPC 결과를 폐기하고 후속 요청을 막으며 상한 내 동기 JSON/LCS 계산 중간을 선점하지 않는다.
 
 JSONL의 structured 값은 strict JSON도 JSONC와 같은 bounded/cancellable 정규화 경로를 지난다. 문자열 내부 escape와 숫자 토큰은 원본 그대로 보존하고 문자열 밖 LF/CR은 공백으로 바꾼다. 공백을 없애지 않으므로 잘못된 `1\n2`가 `12`로 합쳐지지 않으며 각 레코드는 물리적으로 한 줄이다. 표의 `GridActions`는 generation 검사에 컴포넌트 생명주기를 더한다. range IPC와 저장 대화상자 응답을 적용하기 직전에 같은 continuation에서 유효성을 확인하고, 파괴 때 먼저 무효화한 뒤 이미 시작한 export를 취소한다.
+
+원문 비교의 reader 선택은 backend 계약을 따른다. `doc_lines`는 Text/HTML용이므로 비교의 plain text만 페이지로 읽는다. JSON 원문 전환과 Markdown 원문은 기존 `doc_source_text`를 사용한 뒤 실제 UTF-8 2MiB·1만 줄 상한과 취소를 다시 확인한다. 서로 다른 읽기 방식을 비교해도 각 문서는 자신의 reader를 사용한다. CRLF와 끝 빈 줄은 공통 sourceLines 규칙으로 유지한다.
+
+Windows 책갈피 fingerprint는 두 핸들을 열린 상태로 유지하고 FileIdInfo의 volume serial과 전체128비트 file ID를 대조한다. 같은 크기·mtime의 원자적 경로 교체도 거절하며 hard link는 같은 파일로 인정한다. ReFS에서 불충분한64비트 index나 timestamp-only fallback을 쓰지 않고 정보 조회 오류는 호출자에게 돌려준다. 기존 windows-sys의 Win32_Storage_FileSystem 기능만 켜며 새 크레이트는 추가하지 않는다.

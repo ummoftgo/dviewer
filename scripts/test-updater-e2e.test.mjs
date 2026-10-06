@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Cdp, assertAppRunning, discoveryFailure, targetSummary, peMetadata, assertDocument, assertRestart, matchesTrackedProcess, killAndProveGone, sanitize, waitFor, windowsArgs } from './test-updater-e2e.mjs';
+import { Cdp, assertTestBrowserOverlay, assertAppRunning, discoveryFailure, targetSummary, peMetadata, assertDocument, assertRestart, matchesTrackedProcess, killAndProveGone, sanitize, waitFor, windowsArgs } from './test-updater-e2e.mjs';
+import { testBrowserArguments } from './test-updater-windows.mjs';
 
 const file = String.raw`C:\isolated test\원본 문서.txt`;
 const url = 'http://127.0.0.1:12345/%EC%9B%90%EB%B3%B8%20%EB%AC%B8%EC%84%9C.txt';
@@ -146,4 +147,35 @@ test('the actual UI launch stays visible and retains early-process health checki
   assert.match(source, /const original = child\(executable,[^\n]*windowsHide: false/);
   assert.match(source, /connect\(port, \{ health: \(\) => assertAppRunning\(original\), evidence: startup.discovery \}\)/);
   assert.match(source, /cleanupStarted = true; \/\/ Do not misreport/);
+});
+
+test('test API browser arguments retain pinned Wry defaults and bind only loopback', () => {
+  assert.equal(testBrowserArguments(undefined), undefined);
+  assert.equal(testBrowserArguments('9231'), '--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --remote-debugging-address=127.0.0.1 --remote-debugging-port=9231');
+  const lock = readFileSync(new URL('../src-tauri/Cargo.lock', import.meta.url), 'utf8');
+  assert.match(lock, /name = "wry"\nversion = "0\.55\.1"/);
+});
+test('test CDP port rejects invalid values and flag injection', () => {
+  for (const port of ['', '0', '80', '-1', '65536', '1.5', '9231 --no-sandbox', null, 9231]) {
+    assert.throws(() => testBrowserArguments(port), /test CDP port/);
+  }
+  assert.match(testBrowserArguments('65535'), /--remote-debugging-port=65535$/);
+});
+test('both built overlays must carry the exact test-only API arguments', () => {
+  const overlay = { identifier: 'com.xenia.dviewer.m22test', app: { windows: [{ additionalBrowserArgs: testBrowserArguments('9231') }] } };
+  assertTestBrowserOverlay(overlay, 9231);
+  assert.throws(() => assertTestBrowserOverlay({ ...overlay, identifier: 'com.xenia.dviewer' }, 9231), /isolated test identifier/);
+  assert.throws(() => assertTestBrowserOverlay(overlay, 9232), /arguments mismatch/);
+  assert.throws(() => assertTestBrowserOverlay({ ...overlay, app: { windows: [{}] } }, 9231), /arguments mismatch/);
+  const production = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+  assert.ok(production.app.windows.every(window => !window.additionalBrowserArgs?.includes('remote-debugging')));
+});
+test('builder has an opt-in API overlay and app launch removes the ignored env flag', () => {
+  const builder = readFileSync(new URL('./test-updater-windows.mjs', import.meta.url), 'utf8');
+  const harness = readFileSync(new URL('./test-updater-e2e.mjs', import.meta.url), 'utf8');
+  assert.match(builder, /testBrowserArguments\(process.env.DVIEWER_TEST_CDP_PORT\)/);
+  assert.match(builder, /app:\{windows:\[\{additionalBrowserArgs,/);
+  assert.match(harness, /DVIEWER_TEST_CDP_PORT: String\(port\)/);
+  assert.match(harness, /for \(const version of \[from, to\]\)/);
+  assert.match(harness, /key.toUpperCase\(\) === 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'\) delete env\[key\]/);
 });
