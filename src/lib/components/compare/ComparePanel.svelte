@@ -51,7 +51,7 @@
     if (!a || !b || a.id === b.id) { busy = false; return () => requests.cancel(); }
     busy = true;
     const current = requests.guard(ticket, () => a.meta.generation, () => b.meta.generation);
-    void loadComparison({id: a.id, byteLen: a.meta.byteLen}, {id: b.id, byteLen: b.meta.byteLen}, asJson, current, {lines: docLines, sourceText: docSourceText}).then(value => {
+    void loadComparison({id: a.id, byteLen: a.meta.byteLen, pagedLines: a.meta.kind === 'text'}, {id: b.id, byteLen: b.meta.byteLen, pagedLines: b.meta.kind === 'text'}, asJson, current, {lines: docLines, sourceText: docSourceText}).then(value => {
       if (current()) { result = value; busy = false; }
     }).catch(cause => {
       if (!current()) return;

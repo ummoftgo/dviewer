@@ -1,6 +1,6 @@
 /** Reader-injected comparison preparation, kept independent of Svelte and IPC for lifecycle tests. */
-import { checkCompareSize, compareJson, compareLines, CompareError, COMPARE_MAX_LINES, type Comparison } from './compare';
-export interface CompareDocument { id: number; byteLen: number }
+import { checkCompareSize, compareJson, compareLines, CompareError, COMPARE_MAX_LINES, sourceLines, type Comparison } from './compare';
+export interface CompareDocument { id: number; byteLen: number; pagedLines: boolean }
 export interface CompareReader {
   lines(docId: number, start: number, count: number): Promise<{total: number; lines: string[]}>;
   sourceText(docId: number): Promise<string>;
@@ -16,6 +16,13 @@ export async function loadComparison(a: CompareDocument, b: CompareDocument, asJ
   }
   const lines = async (tab: CompareDocument) => {
     checkCurrent();
+    // doc_lines accepts plain text, not Markdown or JSON. Their existing
+    // source-text IPC is bounded again by sourceLines before diff allocation.
+    if (!tab.pagedLines) {
+      const source = await reader.sourceText(tab.id);
+      checkCurrent();
+      return sourceLines(source);
+    }
     const first = await reader.lines(tab.id, 0, 1000);
     checkCurrent();
     if (!Number.isInteger(first.total) || first.total < 0 || first.total > COMPARE_MAX_LINES || first.lines.length > first.total) throw new CompareError('limit');

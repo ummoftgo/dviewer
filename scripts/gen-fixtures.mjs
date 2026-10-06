@@ -373,6 +373,14 @@ ${"가로로 아주 긴 줄 ".repeat(30)}
 `;
 
 await writeFile(path.join(OUT, "sample.md"), markdown);
+// sample.md must have a decodable local raster on a clean checkout, not just
+// whichever icon a previous manual run left in fixtures/. A 96×64 RGB checker
+// makes actual-size/fit visible while keeping this fixture dependency-free.
+await writeFile(path.join(OUT, 'icon.png'), Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAAAq0lEQVR4nO3QuwmAQBBFUSsxtgQDcxuzKTuxE1MLED8rio/lwIsvM6dpu8FO1vx+QfgAAXoRqJ+Wy63zWLQ7zbQ+IECAAAEK7gMCBAgQoOA+oKdAtT5c2gcECBAgQMF9QIAAAQIU3AcECBAgQMH9Q6BaHy7tAwIECBCg4D4gQIAAAQruAwIECBCg4P4hUK0Pl/YBAQIECFBwHxAgQIAABfcBPQWy/QABAvTpNo3ZhX34AHkEAAAAAElFTkSuQmCC',
+  'base64',
+));
+console.log('  icon.png (sample.md local image)');
 
 await mkdir(path.join(OUT, 'relative links'), { recursive: true });
 await writeFile(path.join(OUT, 'markdown-links.md'), [

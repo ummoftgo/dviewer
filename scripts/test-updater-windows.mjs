@@ -39,8 +39,9 @@ if (payload) {
   writeFileSync(join(out,'scenario.json'),JSON.stringify({large:true,sizeMiB:size}));
   process.exit(0);
 }
-if (!existsSync(key)) signer(['generate','--ci','-w',key,'-p','']);
+// Persist ownership before key generation, so even a failed signer is cleanable.
 writeFileSync(join(out, 'context.json'), JSON.stringify({directory, key, out, from, to}));
+if (!existsSync(key)) signer(['generate','--ci','-w',key,'-p','']);
 writeFileSync(join(out,'scenario.json'),'{}');
 writeFileSync(join(out,'원본 문서.txt'),'M22 original document\n');
 for (const version of [from,to]) {
@@ -48,7 +49,7 @@ for (const version of [from,to]) {
     productName:'dviewer M22 test', version, identifier:'com.xenia.dviewer.m22test',
     plugins:{updater:{pubkey:readFileSync(`${key}.pub`,'utf8').trim()}},
     app:{windows:[{title:`dviewer M22 test ${version}`, width:1180,height:800,minWidth:640,minHeight:420,dragDropEnabled:true}]},
-    bundle:{createUpdaterArtifacts:version===to, windows:{nsis:{installMode:'currentUser'},webviewInstallMode:{type:'skip'}}},
+    bundle:{fileAssociations:[],createUpdaterArtifacts:version===to, windows:{nsis:{installMode:'currentUser'},webviewInstallMode:{type:'skip'}}},
   };
   const configFile = join(out, `config-${version}.json`);
   writeFileSync(configFile, JSON.stringify(config));

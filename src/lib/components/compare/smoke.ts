@@ -5,7 +5,11 @@ const require = (condition: unknown, message: string) => { if (!condition) throw
 async function waitFor(condition: () => boolean, message: string) {
   const deadline = Date.now() + 15000;
   while (!condition()) {
-    if (Date.now() > deadline) throw new Error(message);
+    if (Date.now() > deadline) {
+      const panel = document.querySelector<HTMLElement>('.compare-panel');
+      throw new Error(`${message}; ${JSON.stringify({ready:panel?.dataset.ready,busy:panel?.dataset.busy,
+        changes:panel?.dataset.changes,error:panel?.querySelector('[role="alert"]')?.textContent?.slice(0,300)})}`);
+    }
     await new Promise(resolve => setTimeout(resolve, 16));
   }
 }

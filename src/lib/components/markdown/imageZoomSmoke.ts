@@ -6,17 +6,46 @@ const require = (value: unknown, message: string) => { if (!value) throw new Err
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 const opened = () => document.querySelector<HTMLDialogElement>('dialog[data-image-zoom][open]');
 
+function sourceDiagnostics(root: HTMLElement): string {
+  return JSON.stringify({
+    connected: root.isConnected,
+    diagrams: root.querySelectorAll('.mermaid-block svg').length,
+    images: [...root.querySelectorAll('img')].map(image => ({
+      original: image.dataset.dviewerSrc,
+      src: image.getAttribute('src'),
+      missing: image.classList.contains('img-missing'),
+      complete: image.complete,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+    })),
+  });
+}
+
 /** Runs in the actual webview. No copied raster, extra Mermaid render, or component test DOM. */
 export async function checkImageZoom(): Promise<void> {
   const root = document.querySelector<HTMLElement>('article.markdown-body')!;
   const scroller = root.closest<HTMLElement>('.scroller')!;
   const startingScroll = scroller.scrollTop;
   try {
-    const sources = [root.querySelector<SVGSVGElement>('.mermaid-block svg')!, root.querySelector<HTMLImageElement>('img:not(.img-missing)')!];
-    for (const source of sources) {
-      require(source, 'image zoom source is missing');
+    // Identify the intended fixture even if loading failed, so the report can
+    // distinguish an absent DOM source from a broken file/asset-protocol load.
+    const sources = [
+      { name: 'Mermaid SVG', source: root.querySelector<SVGSVGElement>('.mermaid-block svg') },
+      { name: 'local image ./icon.png', source: root.querySelector<HTMLImageElement>('img[data-dviewer-src="./icon.png"]') },
+    ];
+    for (const { name, source } of sources) {
+      if (!source) throw new Error(`image zoom ${name} source is missing: ${sourceDiagnostics(root)}`);
       source.scrollIntoView({block:'center'});
-      if (source instanceof HTMLImageElement) await waitSearch(() => source.complete && source.naturalWidth > 0, 'local image did not load');
+      if (source instanceof HTMLImageElement) {
+        try {
+          await waitSearch(() => source.classList.contains('img-missing') || (source.complete && source.naturalWidth > 0),
+            `image zoom ${name} did not finish loading`);
+        } catch (error) {
+          throw new Error(`${error instanceof Error ? error.message : error}: ${sourceDiagnostics(root)}`);
+        }
+        require(!source.classList.contains('img-missing') && source.naturalWidth > 0 && source.naturalHeight > 0,
+          `image zoom ${name} failed to load: ${sourceDiagnostics(root)}`);
+      }
       await frame();
       for (let repeat = 0; repeat < 3; repeat++) {
         source.focus({preventScroll:true});

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { COMPARE_MAX_BYTES, COMPARE_MAX_LINES, CompareRequests } from './compare';
 import { loadComparison, type CompareReader } from './compareLoad';
-const a = {id:1,byteLen:10}, b = {id:2,byteLen:10};
+const a = {id:1,byteLen:10,pagedLines:true}, b = {id:2,byteLen:10,pagedLines:true};
 const emptyReader = (): CompareReader => ({lines:vi.fn(async () => ({total:0,lines:[]})),sourceText:vi.fn(async () => 'null')});
 function deferred<T>() { let resolve!: (value:T) => void; const promise = new Promise<T>(done => { resolve = done; }); return {promise,resolve}; }
 
@@ -43,6 +43,39 @@ describe('comparison source lifecycle without GUI', () => {
     expect(result.changes).toEqual([1000]); expect(result.rows[1000].left).toBe(long); expect(result.rows[1000].right).toBe(long+'!');
     expect(vi.mocked(reader.lines).mock.calls).toEqual([[1,0,1000],[2,0,1000],[1,1000,1000],[2,1000,1000]]);
     expect(reader.sourceText).not.toHaveBeenCalled();
+  });
+  it('uses bounded source text for raw JSON and Markdown instead of the text-only lines IPC', async () => {
+    const reader = emptyReader();
+    reader.lines = vi.fn(async () => { throw {code:'wrongView'}; });
+    reader.sourceText = vi.fn(async id => id === 1 ? '{"2":9007199254740992,"1":null}' : '{"1":null,"2":9007199254740993}');
+    const result = await loadComparison({...a,pagedLines:false},{...b,pagedLines:false},false,() => true,reader);
+    expect(result.changes).toEqual([0]);
+    expect(result.rows[0].left).toContain('9007199254740992');
+    expect(result.rows[0].right).toContain('9007199254740993');
+    expect(reader.lines).not.toHaveBeenCalled();
+    reader.sourceText = vi.fn(async id => id === 1 ? '# Heading\r\nold\r\n' : '# Heading\r\nnew\r\n');
+    const markdown = await loadComparison({...a,pagedLines:false},{...b,pagedLines:false},false,() => true,reader);
+    expect(markdown.changes).toEqual([1]);
+    expect(markdown.rows.at(-1)).toMatchObject({left:'',right:''});
+  });
+  it('can compare a paged text document with a bounded Markdown source', async () => {
+    const reader = emptyReader();
+    reader.lines = vi.fn(async id => { expect(id).toBe(1); return {total:2,lines:['same','old']}; });
+    reader.sourceText = vi.fn(async id => { expect(id).toBe(2); return 'same\nnew'; });
+    const result = await loadComparison(a,{...b,pagedLines:false},false,() => true,reader);
+    expect(result.changes).toEqual([1]);
+    expect(reader.lines).toHaveBeenCalledTimes(1); expect(reader.sourceText).toHaveBeenCalledTimes(1);
+  });
+  it('checks cancellation and actual bounds for late raw structured-source responses', async () => {
+    const pending = deferred<string>(), reader = emptyReader(); let current = true;
+    reader.sourceText = vi.fn(() => pending.promise);
+    const work = loadComparison({...a,pagedLines:false},{...b,pagedLines:false},false,() => current,reader);
+    current = false; pending.resolve('source');
+    await expect(work).rejects.toThrow('cancelled');
+    for(const source of ['x'.repeat(COMPARE_MAX_BYTES+1), '\n'.repeat(COMPARE_MAX_LINES)]) {
+      reader.sourceText = vi.fn(async () => source);
+      await expect(loadComparison({...a,pagedLines:false},{...b,pagedLines:false},false,() => true,reader)).rejects.toThrow('limit');
+    }
   });
   it('stops paging when either document generation changes during the first batch', async () => {
     const pending = deferred<{total:number;lines:string[]}>(), requests = new CompareRequests(); let generation = 1;
