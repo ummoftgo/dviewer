@@ -1742,3 +1742,29 @@ tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므�
 생성 suffix 재등장도 확인했다. 최종 frontend rebuild 직후0개였으나 release rustc가GBK-EUC-V 3.bcmap 읽기에서 다시 대기했다.1초 스택은 EmbeddedAssets/std::fs::read를 가리켰고 빌드는3분37초에 스스로 완료됐다(중단 시도 시 두 PID는 이미 종료). canonical 생성 자료471개를/tmp/dviewer-workflows-dist-20261004에 SHA와 함께 복사하고 suffix283개를 제외했다. TAURI_CONFIG의 build.frontendDist만 이 입력으로 지정하여 debug/release를 직렬 재빌드했다(10.55/33.81초). 저장소 설정·사용자 앱·보안 설정을 변경하지 않았으며 입력 hash는 .agent-works/isolated-build-input.json에 있다.
 
 격리 입력의 최종 debug도60초 관찰에서 같은 단계·hidden·프레임0·2초 타이머 이후 중단을 보였다. 기본 입력의 결과와 함께 .agent-works/native-progress-default-input 및 native-progress에 SHA·trace·부모 프로세스 관측을 보존했다. 따라서 이 renderer 정체가 suffix 자료 포함 여부로 해소된다고 주장하지 않는다. 최종 제한된 native 왕복은 .agent-works/native-window-check의 SHA와 결과를 따른다. 전체69개 UI·release 전수·Windows/Linux 검증과 실제 클릭은 계속 미확인이다.
+
+### 2026-10-06 Linux 클라우드 후속 검증
+
+GitHub `feature/document-workflows`와 새 clone의 HEAD가 `1081e3aac656353ca1a2a92a41839a82834816f1`이며 이력311개와 clean 작업 트리를 확인하고 시작했다. Debian13 x86_64, Node24.19.0, Rust1.99.0에서 실행했다. 시스템 설치 권한이 없어 공식 Rust와 Debian 서명으로 검증된 개발 라이브러리를 작업 폴더에만 준비했다(GTK3.24.49, WebKitGTK2.52.6). 따라서 CI의 Ubuntu22.04 기준선을 대체하지 않는다.
+
+코드 검토로 두 결함을 고쳤다. pretty-printed JSON/JSONC 구조 셀의 LF/CR이 JSONL 레코드를 여러 줄로 나누던 문제는 문자열 밖 개행만 공백으로 바꿔 해결했다. 숫자 토큰과 문자열 escape는 그대로다. 표가 파괴된 뒤 도착한 범위 텍스트·저장 대화상자 응답은 generation만으로 걸러지지 않았으므로 별도 생명주기 guard를 추가했다. 이미 시작한 export는 파괴 시 계속 취소한다. DOM 대체 테스트 환경은 추가하지 않았다.
+
+| 검사 | 결과 |
+| --- | --- |
+| `DVIEWER_FIXTURES=required cargo test --locked --offline` | 632 통과, 실패·무시0 |
+| `npm test` | 48파일·593테스트 통과 |
+| `npm run check` | 오류0·경고0, 4로케일×580키, 사전 밖 문자열130파일 통과 |
+| Node smoke/diagnostic/repro 및 updater manifest | 35 통과 |
+| `DVIEWER_NOTICES=required npm run build` | 성공, pinned cargo-about0.9.2로 Rust notices 포함 |
+| `cargo clippy --all-targets --locked --offline` | 성공, lib22·lib test26경고(22중복). OS/도구 버전이 달라 Mac 수와 증감 비교하지 않음 |
+| custom-protocol debug 빌드 | 성공, 동적 라이브러리 unresolved 항목 없음 |
+| custom-protocol release 빌드 | 성공(2분43초), 배포·패키징은 하지 않음 |
+| 전체 rustfmt | 기존 포맷 차이로 실패. 수정하지 않은 HEAD의 examples/archive.rs도 동일 도구에서 실패 |
+| 변경 Rust 두 파일 rustfmt·git diff whitespace | 통과 |
+| native GUI debug/release 전수 | 미실행. 아래 실행 환경 제한 참조 |
+
+JSONL 개행 정규화를 제거하면 새 회귀가 예상2줄 대신18줄이라는 assertion으로1개 실패했다. 저장한 원본 SHA와 일치하도록 복구한 뒤 해당 회귀가 통과했다. 표 destroyed 검사를 제거하면 새 lifecycle9개 중4개가 실패하고, teardown의 active-export 취소를 제거하면1개가 실패했다. 정확히 원복 후 집중20개와 위 최종 전체593개가 통과했다. 컴파일 실패를 mutation 검증으로 세지 않았다.
+
+기본 sandbox와 승인된 실행 경로 모두에서 Xvfb는 local/unix listener를 만들지 못했고 DBus는 `Failed to open socket: Operation not permitted`로 종료했다. 후자는 작업 폴더의 별도 XDG_RUNTIME_DIR을 사용해 읽기 전용 home 문제를 분리한 뒤에도 같았다. 따라서 실제 앱 스모크를 시작할 수 있는 display/session 준비에서 막혔으며 생성기69개 중 실행 완료는0개다. 이는69개 기능 테스트 실패가 아니고 앱의 renderer 정체 관찰도 아니다. 보안 설정을 낮추거나 사용자 컴퓨터로 옮겨 우회하지 않았다. 실제 클립보드·저장 대화상자·PDF 책갈피·반복 클릭/확대/닫기와 세 OS 전체 녹색 조건은 계속 미확인이다.
+
+로그·mutation 원복 증거·native binary SHA는 `.agent-works/cloud-*`에 남겼다. 원격 push·PR·버전·태그·릴리스는 이 후속 검증에서 하지 않았다.

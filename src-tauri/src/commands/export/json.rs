@@ -1,4 +1,5 @@
-//! Strip JSONC notation without rebuilding values or rounding numeric tokens.
+//! Strip JSONC notation and physical line breaks without rebuilding values or
+//! rounding numeric tokens. A structured JSONL field must stay on one line.
 use crate::error::{Error, Result, Subject};
 use crate::table::MAX_CELL_TEXT_BYTES;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,7 +87,14 @@ pub(super) fn strict_with_cancel(text: &str, cancel: Option<&AtomicBool>) -> Res
             let trailing = bytes[at] == b','
                 && matches!(bytes.get(trivia(bytes, at + 1, cancel)?), Some(b'}' | b']'));
             if !trailing {
-                output.push(bytes[at]);
+                // Preserve token boundaries while keeping each exported record on
+                // one physical line. Strings were copied unchanged above, so
+                // escaped newlines and every numeric token remain exact.
+                output.push(if matches!(bytes[at], b'\r' | b'\n') {
+                    b' '
+                } else {
+                    bytes[at]
+                });
             }
             check(cancel, at)?;
             at += 1;
@@ -119,6 +127,8 @@ mod tests {
     #[test]
     fn comments_cannot_merge_invalid_tokens_or_hide_an_incomplete_string() {
         assert!(strict("[1/*comment*/2]").is_err());
+        assert!(strict("[1\n2]").is_err());
+        assert!(strict("[1\r\n2]").is_err());
         assert!(strict("[1,/*unterminated]").is_err());
         assert!(strict("[\"unterminated]").is_err());
     }

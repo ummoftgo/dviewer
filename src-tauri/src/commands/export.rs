@@ -606,14 +606,10 @@ impl RowWriter<'_> {
                         self.output.write_all(cell.text.as_bytes())?;
                     }
                     ScalarKind::Structured => {
-                        if serde_json::from_str::<serde::de::IgnoredAny>(&cell.text).is_ok() {
-                            self.output.write_all(cell.text.as_bytes())?;
-                        } else {
-                            self.output.write_all(
-                                json::strict_with_cancel(&cell.text, self.cancel.as_deref())?
-                                    .as_bytes(),
-                            )?;
-                        }
+                        self.output.write_all(
+                            json::strict_with_cancel(&cell.text, self.cancel.as_deref())?
+                                .as_bytes(),
+                        )?;
                     }
                     ScalarKind::Text | ScalarKind::Binary => {
                         serde_json::to_writer(&mut *self.output, &cell.text)
@@ -1064,6 +1060,63 @@ mod tests {
         );
         assert!(matches!(result, Err(Error::ParseFailed { .. })));
         assert!(!path.exists());
+    }
+    #[test]
+    fn multiline_structured_json_and_jsonc_export_one_physical_line_per_row() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, source) in [
+            (
+                "json-lf",
+                "{\n\"n\":18446744073709551617,\n\"d\":0.12345678901234567890123456789,\n\"s\":\"line\\n\\r\\t\\\"// literal /* note */\",\n\"a\":[\ntrue,\nfalse\n]\n}",
+            ),
+            (
+                "json-crlf",
+                "{\r\n\"n\":18446744073709551617,\r\n\"d\":0.12345678901234567890123456789,\r\n\"s\":\"line\\n\\r\\t\\\"// literal /* note */\",\r\n\"a\":[\r\ntrue,\r\nfalse\r\n]\r\n}",
+            ),
+            (
+                "jsonc-crlf",
+                "{\r\n// heading\r\n\"n\":18446744073709551617,\r\n\"d\":0.12345678901234567890123456789,/* block\r\ncomment */\r\n\"s\":\"line\\n\\r\\t\\\"// literal /* note */\",\r\n\"a\":[\r\ntrue,\r\nfalse,\r\n],\r\n}",
+            ),
+        ] {
+            let path = dir.path().join(format!("{name}.jsonl"));
+            let scalar = GridScalar {
+                text: source.into(),
+                kind: ScalarKind::Structured,
+            };
+            assert_eq!(
+                write_export(
+                    &path,
+                    ExportFormat::Jsonl,
+                    vec!["value".into()],
+                    || Ok(()),
+                    |writer| {
+                        for _ in 0..2 {
+                            writer.begin_row()?;
+                            writer.cell(0, &scalar)?;
+                            writer.end_row()?;
+                        }
+                        Ok(2)
+                    },
+                )
+                .unwrap(),
+                2,
+            );
+            let output = std::fs::read_to_string(path).unwrap();
+            let lines: Vec<_> = output.lines().collect();
+            assert_eq!(lines.len(), 2, "{name}");
+            assert!(!output.contains('\r'), "{name}");
+            for line in lines {
+                assert!(line.contains("18446744073709551617"), "{name}");
+                assert!(line.contains("0.12345678901234567890123456789"), "{name}");
+                assert!(
+                    line.contains(r#""s":"line\n\r\t\"// literal /* note */""#),
+                    "{name}"
+                );
+                let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
+                assert_eq!(parsed["value"]["s"], "line\n\r\t\"// literal /* note */");
+                assert_eq!(parsed["value"]["a"], serde_json::json!([true, false]));
+            }
+        }
     }
     #[test]
     fn streamed_field_escaping_keeps_types_and_original_breaks() {

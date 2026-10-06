@@ -66,6 +66,7 @@
   import { settings } from "../../state/settings.svelte";
   import { anchorRow, rowTop, scrollTopForRow, spacerHeight } from "../../virtual";
   import { originalRow } from '../../position';
+  import { GridActions } from '../../grid-actions';
 
   interface Props {
     tab: DocTab;
@@ -89,7 +90,8 @@
 
   let { tab, rowCount, columnCount, columnName, cellTone, label, firstRowNumber = 1, onsort, onsortTo, onfilterColumn, onfilterClear, sortAvailable = true, widthMode }: Props = $props();
   const generation = untrack(() => tab.meta.generation ?? 0);
-  const current = () => (tab.meta.generation ?? 0) === generation;
+  const actions = new GridActions(() => (tab.meta.generation ?? 0) === generation, cancelExport);
+  const current = actions.current;
 
   /** Extra rows fetched above and below the viewport to hide scroll latency. */
   const OVERSCAN = 24;
@@ -394,36 +396,42 @@
   }
 
   async function copyRange(headers = false) {
-    if (!range || copying) return;
+    if (!current() || !range || copying) return;
     const bounds = rangeBounds(range);
     const projected = rangeColumns(range, columns);
     const revision = tab.order.revision, collection = tab.collection;
     copying = true;
     try {
-      const text = await gridRangeText(tab.id, { start: bounds.firstRow, count: bounds.lastRow - bounds.firstRow + 1,
-        columns: projected, headers: headers ? projected.map(columnName) : null });
-      if (!current() || tab.order.revision !== revision || tab.collection !== collection) throw { code: 'cancelled' };
-      await copyText(text);
-      toasts.show(t('gridRange.copied'));
+      await actions.run(
+        () => gridRangeText(tab.id, { start: bounds.firstRow, count: bounds.lastRow - bounds.firstRow + 1,
+          columns: projected, headers: headers ? projected.map(columnName) : null }),
+        copyText,
+        () => tab.order.revision === revision && tab.collection === collection,
+      );
+      if (current()) toasts.show(t('gridRange.copied'));
     } catch (err) {
-      toasts.show((err as {code?: string})?.code === 'tooLarge' ? t('gridRange.copyLimit') : errorMessage(err), 'error');
+      if (current()) toasts.show((err as {code?: string})?.code === 'tooLarge' ? t('gridRange.copyLimit') : errorMessage(err), 'error');
     } finally { copying = false; }
   }
 
   async function exportResults(format: GridExportFormat) {
-    if (exporting !== null || choosingExport || tab.order.running) return;
+    if (!current() || exporting !== null || choosingExport || tab.order.running) return;
     choosingExport = true;
     const projected = [...columns], headers = projected.map(columnName);
     const revision = tab.order.revision, collection = tab.collection;
     const requestId = Date.now() + (++exportSequence);
     try {
-      const path = await save({ title: t('gridRange.exportTitle'), defaultPath: `${tab.meta.title}.${format}`,
-        filters: [{ name: format.toUpperCase(), extensions: [format] }] });
-      if (!path) return;
-      if (!current() || tab.order.revision !== revision || tab.collection !== collection) throw { code: 'cancelled' };
-      exporting = requestId;
-      const count = await gridExport(tab.id, requestId, path, format, projected, headers);
-      if (current()) toasts.show(t('gridRange.exported', { n: count }));
+      await actions.run(
+        () => save({ title: t('gridRange.exportTitle'), defaultPath: `${tab.meta.title}.${format}`,
+          filters: [{ name: format.toUpperCase(), extensions: [format] }] }),
+        async path => {
+          if (!path) return;
+          exporting = requestId;
+          const count = await gridExport(tab.id, requestId, path, format, projected, headers);
+          if (current()) toasts.show(t('gridRange.exported', { n: count }));
+        },
+        () => tab.order.revision === revision && tab.collection === collection,
+      );
     } catch (err) {
       if (current()) toasts.show(errorMessage(err), 'error');
     } finally { choosingExport = false; if (exporting === requestId) exporting = null; }
@@ -432,7 +440,7 @@
   function cancelExport() {
     if (exporting !== null) void gridExportCancel(tab.id, exporting);
   }
-  $effect(() => () => { if (exporting !== null) void gridExportCancel(tab.id, exporting); });
+  $effect(() => () => actions.destroy());
 
   async function copyColumnName(column: number) {
     try {
