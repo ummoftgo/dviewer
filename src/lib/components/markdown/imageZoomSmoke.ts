@@ -1,4 +1,5 @@
-import { settings } from '../../state/settings.svelte';
+import { tick } from 'svelte';
+import { settings, type ThemeMode } from '../../state/settings.svelte';
 import { waitSearch } from './searchSmoke';
 import { enhanceImageZoom } from './imageZoomControls';
 
@@ -98,16 +99,33 @@ export async function checkImageZoom(): Promise<void> {
   }
 }
 
+/** A ready node from the previous theme is not evidence of the next render. */
+export function imageThemeRenderReady<T>(previous: T | null, current: T | null, changed: boolean, zoomOpen: boolean): boolean {
+  return !zoomOpen && current !== null && (!changed || current !== previous);
+}
+
+async function changeThemeAndWait(theme: ThemeMode, message: string): Promise<void> {
+  const previous = document.querySelector<SVGSVGElement>('article.markdown-body .mermaid-block svg')
+    ?? opened()?.querySelector<SVGSVGElement>('svg') ?? null;
+  const resolved = settings.resolvedTheme;
+  settings.theme = theme;
+  const changed = settings.resolvedTheme !== resolved;
+  // Effects replace the article HTML, then asynchronously render both Mermaid
+  // and KaTeX. Before this flush the old theme still advertises itself as ready.
+  await tick();
+  await waitSearch(() => imageThemeRenderReady(previous,
+    document.querySelector<SVGSVGElement>('main [data-position-ready="true"] article.markdown-body .mermaid-block svg'),
+    changed, !!opened()), message);
+}
+
 export async function checkImageZoomThemeCleanup(): Promise<void> {
   const theme = settings.theme;
   try {
     const source = document.querySelector<SVGSVGElement>('article.markdown-body .mermaid-block svg')!;
     source.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
     await waitSearch(() => !!opened(), 'theme cleanup zoom did not open');
-    settings.theme = settings.resolvedTheme === 'dark' ? 'light' : 'dark';
-    await waitSearch(() => !opened() && !!document.querySelector('main [data-position-ready="true"] .mermaid-block svg'), 'theme update kept a stale image zoom');
+    await changeThemeAndWait(settings.resolvedTheme === 'dark' ? 'light' : 'dark', 'theme update kept a stale image zoom');
   } finally {
-    settings.theme = theme;
-    await waitSearch(() => !!document.querySelector('main [data-position-ready="true"] .mermaid-block svg'), 'restored theme did not render');
+    await changeThemeAndWait(theme, 'restored theme did not render');
   }
 }

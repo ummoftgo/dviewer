@@ -2,7 +2,7 @@
 // with test version/key overlays: this is NOT a published-old-binary upgrade test.
 // No smoke mode, production keys, replacement-app launch, or optional pass paths.
 import assert from 'node:assert/strict';
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, openSync, readSync, closeSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -66,10 +66,12 @@ export function sanitize(value, replacements = []) {
     .replace(/[A-Za-z0-9+/=]{60,}/g, '<encoded-data>').slice(0, 2000);
 }
 
-export async function waitFor(label, check, timeout = 60_000, interval = 250) {
+export async function waitFor(label, check, timeout = 60_000, interval = 250, health = () => {}) {
   const deadline = Date.now() + timeout;
   let last;
   while (Date.now() < deadline) {
+    // A dead app is terminal, not a transient CDP connection failure.
+    await health();
     try { const result = await check(); if (result) return result; }
     catch (error) { last = error; }
     await pause(interval);
@@ -218,15 +220,80 @@ async function freePort() {
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   return port;
 }
-async function connect(port) {
+export function assertAppRunning(app) {
+  if (app.failure) throw new Error(`App failed to spawn (${app.failure.code ?? app.failure.name ?? 'unknown'})`);
+  if (app.exitCode !== null || app.signalCode !== null) {
+    const code = Number.isInteger(app.exitCode) ? `0x${(app.exitCode >>> 0).toString(16).padStart(8, '0')}` : null;
+    throw new Error(`App exited before CDP readiness (exit=${app.exitCode}, code=${code}, signal=${app.signalCode})`);
+  }
+}
+export function discoveryFailure(error) {
+  const safeCode = value => typeof value === 'string' && /^[A-Za-z0-9_ -]{1,80}$/.test(value) ? value : null;
+  return { name: safeCode(error.name), code: safeCode(error.code), causeCode: safeCode(error.cause?.code),
+    syscall: safeCode(error.cause?.syscall), causeName: safeCode(error.cause?.name) };
+}
+export function targetSummary(targets) {
+  assert.ok(Array.isArray(targets), 'CDP target list is not an array');
+  return targets.slice(0, 20).map(target => {
+    let origin = 'invalid';
+    try {
+      const url = new URL(target.url);
+      origin = (['http:', 'https:'].includes(url.protocol) && url.hostname === 'tauri.localhost') || (url.protocol === 'tauri:' && url.hostname === 'localhost') ? 'tauri-app'
+        : ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ? 'loopback' : 'other';
+    } catch { /* Record only a category, never a raw URL or page title. */ }
+    return { type: ['page', 'iframe', 'worker', 'service_worker'].includes(target.type) ? target.type : 'other', origin,
+      debugger: typeof target.webSocketDebuggerUrl === 'string' };
+  });
+}
+export function peMetadata(dos, nt) {
+  assert.ok(dos.length >= 64 && dos.subarray(0, 2).toString() === 'MZ', 'test binary is not a PE executable');
+  assert.ok(nt.length >= 96 && nt.subarray(0, 4).equals(Buffer.from('PE\0\0')), 'test PE header missing');
+  const machine = nt.readUInt16LE(4), subsystem = nt.readUInt16LE(92);
+  return { machine: `0x${machine.toString(16)}`, subsystem, kind: subsystem === 2 ? 'windows-gui' : subsystem === 3 ? 'windows-console' : 'other' };
+}
+function executableInfo(executable) {
+  const fd = openSync(executable, 'r');
+  try {
+    const dos = Buffer.alloc(64); assert.equal(readSync(fd, dos, 0, 64, 0), 64);
+    const offset = dos.readUInt32LE(60); assert.ok(offset < 1024 * 1024, 'unexpected PE header offset');
+    const nt = Buffer.alloc(96); assert.equal(readSync(fd, nt, 0, 96, offset), 96);
+    return { bytes: statSync(executable).size, ...peMetadata(dos, nt) };
+  } finally { closeSync(fd); }
+}
+async function startupNative(pid, executable, profile, port) {
+  const raw = await powershell(`
+    $all=@(Get-CimInstance Win32_Process);
+    $ids=[Collections.Generic.HashSet[int]]::new(); [void]$ids.Add(${pid});
+    for ($i=0; $i -lt 8; $i++) { foreach ($p in $all) { if ($ids.Contains([int]$p.ParentProcessId)) { [void]$ids.Add([int]$p.ProcessId) } } }
+    $selected=@($all | Where-Object { $ids.Contains([int]$_.ProcessId) -or ($_.Name -eq 'msedgewebview2.exe' -and $_.CommandLine -and $_.CommandLine.Contains($env:DVIEWER_TEST_PROFILE)) } | Select-Object -First 40);
+    $rows=@($selected | ForEach-Object {
+      $cmd=[string]$_.CommandLine; $version=$null;
+      if ($_.Name -eq 'msedgewebview2.exe' -and $_.ExecutablePath) { $version=(Get-Item -LiteralPath $_.ExecutablePath -ErrorAction SilentlyContinue).VersionInfo.ProductVersion }
+      @{pid=[int]$_.ProcessId;parentPid=[int]$_.ParentProcessId;kind=$(if ($_.ExecutablePath -ieq $env:DVIEWER_TEST_EXE) {'test-app'} elseif ($_.Name -eq 'msedgewebview2.exe') {'webview2'} else {'other-child'});
+        version=$version;debugPortMatches=$cmd.Contains('--remote-debugging-port=${port}');profileMatches=$cmd.Contains($env:DVIEWER_TEST_PROFILE)}
+    });
+    $listeners=@(Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | ForEach-Object { @{pid=[int]$_.OwningProcess;loopback=($_.LocalAddress -in @('127.0.0.1','::1'))} });
+    $app=Get-Process -Id ${pid} -ErrorAction SilentlyContinue;
+    @{appPresent=($null -ne $app);hasMainWindow=($null -ne $app -and $app.MainWindowHandle -ne 0);profileExists=(Test-Path -LiteralPath $env:DVIEWER_TEST_PROFILE);processes=$rows;listeners=$listeners} | ConvertTo-Json -Depth 5 -Compress
+  `, { DVIEWER_TEST_EXE: executable, DVIEWER_TEST_PROFILE: profile });
+  return JSON.parse(raw);
+}
+async function connect(port, { health = () => {}, evidence = {} } = {}) {
+  evidence.startedAt = new Date().toISOString(); evidence.attempts = 0;
   return waitFor('WebView2 app CDP target', async () => {
-    const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1500) });
+    evidence.attempts++; evidence.phase = 'http-discovery';
+    let response;
+    try { response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1500) }); }
+    catch (error) { evidence.failure = discoveryFailure(error); throw error; }
+    evidence.httpStatus = response.status;
     assert.ok(response.ok, 'CDP discovery failed');
-    const targets = await response.json();
+    evidence.phase = 'target-selection';
+    const targets = await response.json(); evidence.targets = targetSummary(targets);
     const app = targets.find(target => target.type === 'page' && /^https?:\/\/tauri\.localhost(?:\/|$)|^tauri:\/\/localhost(?:\/|$)/.test(target.url));
     if (!app) return false;
     const address = new URL(app.webSocketDebuggerUrl);
     assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(address.hostname) && Number(address.port) === port && address.protocol === 'ws:', 'CDP target must be local');
+    evidence.phase = 'websocket-connect';
     const socket = new WebSocket(address);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => { socket.close(); reject(new Error('CDP connect timed out')); }, 5000);
@@ -234,9 +301,10 @@ async function connect(port) {
       socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('CDP socket failed')); }, { once: true });
     });
     const cdp = new Cdp(socket);
-    try { await cdp.send('Runtime.enable'); await cdp.send('Page.enable'); await cdp.send('Log.enable'); return cdp; }
+    evidence.phase = 'enable-protocol';
+    try { await cdp.send('Runtime.enable'); await cdp.send('Page.enable'); await cdp.send('Log.enable'); evidence.phase = 'ready'; return cdp; }
     catch (error) { cdp.close(); throw error; }
-  });
+  }, 60_000, 250, health);
 }
 const button = text => `Array.from(document.querySelectorAll('button')).find(el => (el.getAttribute('aria-label') || el.textContent.trim()) === ${JSON.stringify(text)})`;
 const restore = `Array.from(document.querySelectorAll('aside.panel label')).find(el => el.textContent.includes('Restore previous documents and reading positions at startup'))?.querySelector('input')`;
@@ -330,11 +398,12 @@ async function main() {
     writeFileSync(marker, JSON.stringify(ownership));
   };
   writeFileSync(marker, JSON.stringify(ownership));
-  const report = { schema: 1, sourceSha: process.env.GITHUB_SHA ?? null, runId: process.env.GITHUB_RUN_ID ?? null, from, to, source: 'same candidate tree, debug version overlays', ok: false, cases: [], stage: 'build', cleanup: false };
+  const report = { schema: 1, sourceSha: process.env.GITHUB_SHA ?? null, runId: process.env.GITHUB_RUN_ID ?? null, from, to, source: 'same candidate tree, debug version overlays', ok: false, cases: [], startups: [], stage: 'build', cleanup: false };
   const consoles = [];
   const scrub = value => sanitize(value, [out, root, process.env.USERPROFILE, process.env.APPDATA, process.env.LOCALAPPDATA, tmpdir()]);
-  let server, cdp;
+  let server, cdp, currentStartup, cleanupStarted = false;
   function recordNative(stream, label) {
+    if (!stream) return; // A failed spawn is reported by the process health check.
     let buffer = '', discard = false;
     stream.setEncoding('utf8');
     stream.on('data', text => {
@@ -377,6 +446,7 @@ async function main() {
     writeFileSync(file, 'M22 local original document\n');
     writeFileSync(join(out, '원본 문서.txt'), 'M22 URL original document\n');
     for (const flavor of ['portableExe', 'nsis']) {
+      currentStartup = null;
       report.stage = `${flavor}:prepare`;
       mkdirSync(data[0], { recursive: true });
       writeFileSync(join(data[0], 'dviewer.json'), JSON.stringify({ settings: { locale: 'en', restoreSession: true }, updates: { check: false } }));
@@ -393,9 +463,32 @@ async function main() {
         WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-address=127.0.0.1 --remote-debugging-port=${port}` };
       delete env.DVIEWER_INSTANCE;
       // The ONLY app launch in this flavor. After Update now, only observe.
-      const original = child(executable, [`--open=${file}`, `--open-url=${url}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      report.stage = `${flavor}:launch`;
+      const startup = { flavor, phase: 'original', binary: executableInfo(executable), windowsHide: false,
+        environment: { loopbackDebugging: true, isolatedProfile: true, isolatedTemp: true,
+          nodeEnvProxy: env.NODE_USE_ENV_PROXY === '1', proxyPresent: Object.keys(env).some(key => /^(http|https|all)_proxy$/i.test(key) && !!env[key]),
+          browserOverridePresent: !!env.WEBVIEW2_BROWSER_EXECUTABLE_FOLDER,
+          debugArgumentVariableCount: Object.keys(env).filter(key => key.toUpperCase() === 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS').length }, discovery: {} };
+      report.startups.push(startup);
+      const original = child(executable, [`--open=${file}`, `--open-url=${url}`], { env, windowsHide: false, stdio: ['ignore', 'pipe', 'pipe'] });
+      startup.pid = original.pid; startup.startedAt = new Date().toISOString();
+      const updateProcess = () => { if (cleanupStarted) return; startup.exitCode = original.exitCode; startup.signal = original.signalCode;
+        if (original.failure) startup.spawnFailure = discoveryFailure(original.failure); };
+      original.on('exit', updateProcess); original.on('error', updateProcess); updateProcess();
       recordNative(original.stdout, `${flavor}-stdout`); recordNative(original.stderr, `${flavor}-stderr`);
-      cdp = await connect(port);
+      currentStartup = async () => {
+        updateProcess();
+        try {
+          const snapshot = await startupNative(original.pid, executable, env.WEBVIEW2_USER_DATA_FOLDER, port);
+          (startup.observations ??= []).push({ observedAt: new Date().toISOString(), ...snapshot });
+        }
+        catch (error) { startup.nativeObservationError = scrub(error.message); }
+      };
+      await currentStartup();
+      report.stage = `${flavor}:cdp-discovery`;
+      cdp = await connect(port, { health: () => assertAppRunning(original), evidence: startup.discovery });
+      await currentStartup();
+      report.stage = `${flavor}:old-ui`;
       const listeners = JSON.parse(await powershell(`@(Get-NetTCPConnection -State Listen -LocalPort ${port} | Select-Object -ExpandProperty LocalAddress) | ConvertTo-Json -Compress`));
       assert.ok([listeners].flat().length && [listeners].flat().every(address => ['127.0.0.1', '::1'].includes(address)), 'CDP listener is not loopback-only');
       await waitFor('old app version', async () => await cdp.evaluate(invoke('plugin:app|version')) === from);
@@ -428,7 +521,25 @@ async function main() {
         return rows.length === 1 && rows[0].pid !== original.pid && original.exitCode !== null && rows[0];
       }, 120_000, 1000);
       await capture(`${flavor}-old-console`); cdp.close(); cdp = null;
-      cdp = await connect(port);
+      const restarted = { flavor, phase: 'replacement', pid: afterProcess.pid, discovery: {} };
+      report.startups.push(restarted);
+      currentStartup = async () => {
+        try {
+          const snapshot = await startupNative(afterProcess.pid, executable, env.WEBVIEW2_USER_DATA_FOLDER, port);
+          (restarted.observations ??= []).push({ observedAt: new Date().toISOString(), ...snapshot });
+        }
+        catch (error) { restarted.nativeObservationError = scrub(error.message); }
+      };
+      await currentStartup();
+      let checkedAt = 0;
+      const replacementHealth = async () => {
+        if (Date.now() - checkedAt < 2000) return;
+        checkedAt = Date.now();
+        assert.ok((await processes(executable)).some(app => app.pid === afterProcess.pid), 'Replacement app exited before CDP readiness');
+      };
+      report.stage = `${flavor}:replacement-cdp`;
+      cdp = await connect(port, { health: replacementHealth, evidence: restarted.discovery });
+      await currentStartup();
       await waitFor('replacement app version', async () => await cdp.evaluate(invoke('plugin:app|version')) === to);
       const newStatus = await cdp.evaluate(invoke('update_status'));
       await checkDocuments(cdp, file, url);
@@ -453,8 +564,10 @@ async function main() {
     report.ok = true; report.stage = 'complete';
   } catch (error) {
     report.error = scrub(error.message);
+    await currentStartup?.();
     await capture('failure');
   } finally {
+    cleanupStarted = true; // Do not misreport our cleanup termination as an app startup crash.
     cdp?.close();
     try { await cleanup(); report.cleanup = true; }
     catch (error) { report.ok = false; report.cleanupError = scrub(error.message); }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Cdp, assertDocument, assertRestart, matchesTrackedProcess, killAndProveGone, sanitize, waitFor, windowsArgs } from './test-updater-e2e.mjs';
+import { Cdp, assertAppRunning, discoveryFailure, targetSummary, peMetadata, assertDocument, assertRestart, matchesTrackedProcess, killAndProveGone, sanitize, waitFor, windowsArgs } from './test-updater-e2e.mjs';
 
 const file = String.raw`C:\isolated test\원본 문서.txt`;
 const url = 'http://127.0.0.1:12345/%EC%9B%90%EB%B3%B8%20%EB%AC%B8%EC%84%9C.txt';
@@ -102,4 +102,48 @@ test('taskkill failure is accepted only when the owned process has really gone',
   const kill = async () => { throw new Error('taskkill failed'); };
   await killAndProveGone(234, async () => false, kill, 5);
   await assert.rejects(killAndProveGone(234, async () => true, kill, 5), /taskkill failed/);
+});
+
+test('CDP startup distinguishes a live app from clean early exit and native loader failure', () => {
+  assertAppRunning({ exitCode: null, signalCode: null });
+  assert.throws(() => assertAppRunning({ exitCode: 0, signalCode: null }), /App exited.*0x00000000/);
+  assert.throws(() => assertAppRunning({ exitCode: -1073741515, signalCode: null }), /0xc0000135/);
+  assert.throws(() => assertAppRunning({ failure: { code: 'ENOENT' }, exitCode: null, signalCode: null }), /failed to spawn.*ENOENT/);
+});
+test('an app exit is terminal even while CDP fetch is being retried', async () => {
+  const app = { exitCode: null, signalCode: null }; let checks = 0;
+  await assert.rejects(waitFor('CDP', () => {
+    checks++; app.exitCode = 0; throw new Error('fetch failed');
+  }, 100, 1, () => assertAppRunning(app)), /App exited before CDP readiness/);
+  assert.equal(checks, 1);
+});
+test('startup evidence retains network failure codes but never error URLs or headers', () => {
+  const result = discoveryFailure({ name: 'TypeError', message: 'secret-token http://host/private',
+    cause: { name: 'Error', code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', message: 'secret-token' } });
+  assert.equal(result.causeCode, 'ECONNREFUSED'); assert.equal(result.syscall, 'connect');
+  assert.ok(!JSON.stringify(result).includes('secret-token'));
+});
+test('CDP target diagnostics are bounded categories without URLs, titles or debugger addresses', () => {
+  const targets = targetSummary([
+    { type: 'page', url: 'http://tauri.localhost/', title: 'secret-title', webSocketDebuggerUrl: 'ws://secret-token' },
+    { type: 'iframe', url: 'http://127.0.0.1:123/private?token=secret-token' },
+    { type: 'page', url: 'https://secret-token@example.com/private' },
+  ]);
+  assert.deepEqual(targets.map(target => target.origin), ['tauri-app', 'loopback', 'other']);
+  assert.ok(!JSON.stringify(targets).includes('secret'));
+  assert.equal(targetSummary(Array(50).fill({ type: 'page', url: 'tauri://localhost/' })).length, 20);
+  assert.throws(() => targetSummary({}), /not an array/);
+});
+test('PE diagnostics distinguish x64 console and GUI test executables', () => {
+  const dos = Buffer.alloc(64), nt = Buffer.alloc(96);
+  dos.write('MZ'); nt.write('PE\0\0'); nt.writeUInt16LE(0x8664, 4); nt.writeUInt16LE(3, 92);
+  assert.deepEqual(peMetadata(dos, nt), { machine: '0x8664', subsystem: 3, kind: 'windows-console' });
+  nt.writeUInt16LE(2, 92); assert.equal(peMetadata(dos, nt).kind, 'windows-gui');
+  assert.throws(() => peMetadata(Buffer.alloc(64), nt), /not a PE/);
+});
+test('the actual UI launch stays visible and retains early-process health checking', () => {
+  const source = readFileSync(new URL('./test-updater-e2e.mjs', import.meta.url), 'utf8');
+  assert.match(source, /const original = child\(executable,[^\n]*windowsHide: false/);
+  assert.match(source, /connect\(port, \{ health: \(\) => assertAppRunning\(original\), evidence: startup.discovery \}\)/);
+  assert.match(source, /cleanupStarted = true; \/\/ Do not misreport/);
 });
