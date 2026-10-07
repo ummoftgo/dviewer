@@ -69,11 +69,20 @@ jobs:
               // the signing step excludes older, unsigned rehearsals of the same commit.
               if (!required.every(name => jobs.some(job => job.name === name && job.conclusion === 'success'))
                 || !jobs.some(job => job.name === 'bundle (windows-x64)' && job.steps.some(step =>
-                  step.name === 'Sign portable executable' && step.conclusion === 'success'))) continue;
-              const artifacts = api(`actions/runs/${run.id}/artifacts?per_page=100`, 'artifacts')
-                .filter(artifact => artifact.name.startsWith('dviewer-'));
+                  step.name === 'Sign portable executable' && step.conclusion === 'success'))
+                || !bundles.every(slug => jobs.some(job => job.name === `bundle (${slug})` && job.steps.some(step =>
+                  step.name === 'Verify collected updater signatures' && step.conclusion === 'success')))) continue;
+              const allArtifacts = api(`actions/runs/${run.id}/artifacts?per_page=100`, 'artifacts');
+              const artifacts = allArtifacts.filter(artifact => artifact.name.startsWith('dviewer-'));
               if (artifacts.length !== bundles.length || !bundles.every(slug => artifacts.some(artifact =>
                 artifact.name === `dviewer-${slug}` && !artifact.expired && artifact.size_in_bytes > 0
+                && Date.parse(artifact.expires_at) > Date.now() && artifact.workflow_run?.id === run.id
+                && artifact.workflow_run?.head_sha === sha))) continue;
+              // Keep exactly the original three dviewer-* artifacts. Small
+              // verification reports use a separate namespace and are required too.
+              const reports = allArtifacts.filter(artifact => artifact.name.startsWith('artifact-verification-bundle-'));
+              if (reports.length !== bundles.length || !bundles.every(slug => reports.some(artifact =>
+                artifact.name === `artifact-verification-bundle-${slug}` && !artifact.expired && artifact.size_in_bytes > 0
                 && Date.parse(artifact.expires_at) > Date.now() && artifact.workflow_run?.id === run.id
                 && artifact.workflow_run?.head_sha === sha))) continue;
               selected = String(run.id);
@@ -195,6 +204,7 @@ jobs:
         run: |
           node --test scripts/updater-manifest.test.mjs
           node scripts/test-updater-signature.mjs
+          DVIEWER_APP_VERIFIER=src-tauri/target/debug/examples/update node --test scripts/verify-updater-artifacts.test.mjs
       - name: Check portable replacement
         if: runner.os == 'Windows'
         run: node scripts/test-updater-replace.mjs
@@ -524,6 +534,23 @@ jobs:
           $version = node -p "require('./src-tauri/tauri.conf.json').version"
           npm run tauri signer sign -- "artifacts/dviewer_${version}_windows-x64_portable.exe"
 
+      - name: Verify collected updater signatures
+        if: env.SIGNED_BUNDLE == 'true'
+        shell: bash
+        run: |
+          cargo build --locked --release --features custom-protocol --manifest-path src-tauri/Cargo.toml --example update
+          verifier=src-tauri/target/release/examples/update
+          if [[ "$RUNNER_OS" == Windows ]]; then verifier="$verifier.exe"; fi
+          node scripts/verify-updater-artifacts.mjs bundle "${{ matrix.slug }}" artifacts "$verifier" "artifact-verification/bundle-${{ matrix.slug }}.json"
+
+      - name: Retain bundle signature verification
+        if: env.SIGNED_BUNDLE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-verification-bundle-${{ matrix.slug }}
+          path: artifact-verification/bundle-${{ matrix.slug }}.json
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         with:
           name: dviewer-${{ matrix.slug }}
@@ -561,6 +588,15 @@ jobs:
           run-id: ${{ needs.reuse.outputs.run-id || github.run_id }}
           github-token: ${{ github.token }}
 
+      - name: Download original bundle verification reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-verification-bundle-*
+          path: source-verification
+          merge-multiple: true
+          run-id: ${{ needs.reuse.outputs.run-id || github.run_id }}
+          github-token: ${{ github.token }}
+
       - name: Generate and sign update manifest
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -569,6 +605,25 @@ jobs:
           node scripts/updater-manifest.mjs artifacts "$GITHUB_REF_NAME"
           npm run tauri signer sign -- artifacts/latest.json
           test -s artifacts/latest.json.sig
+
+      # This package is supplied by the runner's authenticated Ubuntu archive.
+      # Verification needs only public data, with no signing secret environment.
+      - name: Install release signature verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+
+      - name: Verify signed release bytes and original build provenance
+        env:
+          SOURCE_RUN_ID: ${{ needs.reuse.outputs.run-id || github.run_id }}
+        run: node scripts/verify-updater-artifacts.mjs release artifacts /usr/bin/minisign source-verification "$SOURCE_RUN_ID" artifact-verification/release.json
+
+      - name: Retain release signature verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-verification-release
+          path: artifact-verification/release.json
+          if-no-files-found: error
 
       - run: ls -lh artifacts
 
