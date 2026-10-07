@@ -7,6 +7,7 @@
 //! which file anything lives in.
 
 mod archive;
+mod export;
 mod document;
 mod file;
 mod markdown;
@@ -18,6 +19,7 @@ mod table;
 mod tree;
 
 pub use archive::*;
+pub use export::*;
 pub use document::*;
 pub use file::*;
 pub use markdown::*;

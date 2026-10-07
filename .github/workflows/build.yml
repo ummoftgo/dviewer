@@ -11,6 +11,10 @@ on:
         description: "설치본·포터블까지 만들어 아티팩트로 남깁니다 (릴리스는 만들지 않음)"
         type: boolean
         default: false
+      updater_e2e:
+        description: "Windows 포터블·NSIS 실제 자동 갱신과 원본 문서 재열기 검증 (격리 시험키만 사용)"
+        type: boolean
+        default: false
       pdf_startup_repro:
         description: "Linux PDF startup CSS/module 응답 순서의 제한된 진단 실험 (릴리스 관문을 대체하지 않음)"
         type: boolean
@@ -129,7 +133,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: npm test
       - name: Check smoke result framing
-        run: node --test scripts/smoke-results.test.mjs scripts/smoke-diagnostics.test.mjs scripts/pdf-startup-repro.test.mjs
+        run: node --test scripts/smoke-results.test.mjs scripts/smoke-diagnostics.test.mjs scripts/pdf-startup-repro.test.mjs scripts/test-updater-e2e.test.mjs scripts/gen-fixtures.test.mjs
       # The Linux test job now smokes a real binary too; its notices must be
       # prepared with the same pinned generator as warm and bundle builds.
       - uses: taiki-e/install-action@v2
@@ -194,6 +198,53 @@ jobs:
       - name: Check portable replacement
         if: runner.os == 'Windows'
         run: node scripts/test-updater-replace.mjs
+
+  # Explicit native gate. Both versions are this candidate source with debug
+  # overlays and ephemeral test keys. It never uses release secrets or artifacts.
+  updater-e2e:
+    name: Windows updater end-to-end
+    if: github.event_name == 'workflow_dispatch' && inputs.updater_e2e
+    runs-on: windows-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: updater-e2e-windows
+          cache-on-failure: true
+      - run: npm ci
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+      - name: Check end-to-end harness assertions
+        run: node --test scripts/test-updater-e2e.test.mjs
+      - name: Update portable and NSIS through the real UI
+        run: node scripts/test-updater-e2e.mjs
+        env:
+          DVIEWER_NOTICES: required
+      - name: Always remove isolated processes, install and ephemeral keys
+        if: always()
+        run: node scripts/test-updater-e2e.mjs --cleanup
+      # Never upload m22-e2e, context/config files, builds, keys or raw logs.
+      - name: Retain sanitized updater evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-e2e-windows
+          path: |
+            updater-e2e-diagnostics/result.json
+            updater-e2e-diagnostics/console.json
+            updater-e2e-diagnostics/*.png
+          if-no-files-found: error
+          retention-days: 7
 
   # Tags can restore main's cache. Workflow concurrency cancels older main
   # runs, including this warm-up; no bundles or signing are needed here.

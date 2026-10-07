@@ -402,6 +402,31 @@ impl TableDoc {
         }
     }
 
+    /// Physical line coordinates use the existing byte-offset indices only.
+    /// The captured mode is explicit so a concurrent mode toggle cannot change
+    /// the meaning of a row while its bookmark is being saved.
+    pub fn source_line(&self, row: u32, plain: bool) -> Option<u32> {
+        let index = match (&self.records_at, plain) {
+            (Some(records), false) => records,
+            _ => &self.starts,
+        };
+        let offset = *index.get(row as usize)?;
+        self.starts.binary_search(&offset).ok().map(|line| line as u32)
+    }
+
+    /// Continuation lines belong to their containing record in grouped mode.
+    pub fn row_for_source_line(&self, line: u32, plain: bool) -> Option<u32> {
+        let offset = *self.starts.get(line as usize)?;
+        let index = match (&self.records_at, plain) {
+            (Some(records), false) => records,
+            _ => &self.starts,
+        };
+        match index.binary_search(&offset) {
+            Ok(row) => Some(row as u32),
+            Err(after) => after.checked_sub(1).map(|row| row as u32),
+        }
+    }
+
     fn record_count(&self) -> u32 {
         self.index().len() as u32
     }
@@ -994,6 +1019,17 @@ impl crate::grid::Grid for TableDoc {
         TableDoc::cell_text(self, row, column).ok_or(Error::NoSuchCell)
     }
 
+    fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+        if let Records::Jsonl(layout) = self.reading() {
+            let record = row.checked_add(self.header_offset()).ok_or(Error::NoSuchRow)?;
+            let (start, end) = self.record_span(record).ok_or(Error::NoSuchRow)?;
+            return crate::jsonl::value_scalar(&self.bytes, start, end, &layout, column as usize);
+        }
+        let cell = TableDoc::cell_text(self, row, column).ok_or(Error::NoSuchCell)?;
+        let kind = if cell.missing { crate::grid::ScalarKind::Missing } else { crate::grid::ScalarKind::Text };
+        crate::grid::GridScalar::checked(cell, kind)
+    }
+
     fn row_text(&self, row: u32) -> Result<CellText> {
         Ok(CellText {
             text: TableDoc::row_text(self, row).ok_or(Error::NoSuchRow)?,
@@ -1175,9 +1211,22 @@ mod tests {
         // Copying gives the record as it is written, trace and all.
         assert!(doc.row_text(2).expect("row").contains("at Pool.acquire"));
 
+        // The last record starts on physical line six, not record four.
+        assert_eq!(doc.source_line(3, false), Some(5));
+        assert_eq!(doc.row_for_source_line(5, false), Some(3));
+        assert_eq!(doc.row_for_source_line(3, false), Some(2));
+        assert_eq!(doc.row_for_source_line(4, false), Some(2));
+        assert_eq!(doc.source_line(4, false), None);
+        assert_eq!(doc.row_for_source_line(6, false), None);
+
         // Folded back to lines, every line is its own row again — the line
         // index never went away, which is what makes the switch free.
         doc.set_plain(true);
+        assert_eq!(doc.source_line(3, true), Some(3));
+        assert_eq!(doc.row_for_source_line(3, true), Some(3));
+        // Explicit captured mode is stable even while the UI reads as lines.
+        assert_eq!(doc.source_line(3, false), Some(5));
+        assert_eq!(doc.row_for_source_line(5, false), Some(3));
         assert_eq!(doc.stats().row_count, 6);
         assert_eq!(doc.stats().column_count, 1);
         assert_eq!(
@@ -1186,6 +1235,21 @@ mod tests {
         );
         doc.set_plain(false);
         assert_eq!(doc.stats().row_count, 4);
+    }
+
+    #[test]
+    fn log_source_lines_preserve_crlf_and_internal_blank_lines() {
+        let src = "2026-08-30T01:00:00Z ERROR [a] failed\r\n\tat frame\r\n\r\n2026-08-30T01:00:01Z INFO [a] resumed\r\n\r\n";
+        let doc = built(src, Records::for_kind(DocKind::Text, src.as_bytes()));
+        assert_eq!(doc.source_line(1, false), Some(3));
+        assert_eq!(doc.row_for_source_line(2, false), Some(0));
+        assert_eq!(doc.source_line(2, true), Some(2));
+        assert_eq!(doc.row_for_source_line(3, true), Some(3));
+        assert_eq!(doc.source_line(4, true), None, "trailing blank lines are outside the table");
+        assert_eq!(doc.row_for_source_line(u32::MAX, false), None);
+        let empty = built("", Records::Lines);
+        assert_eq!(empty.source_line(0, true), None);
+        assert_eq!(empty.row_for_source_line(0, false), None);
     }
 
     /// A log where nothing continues anything keeps one index, not two.

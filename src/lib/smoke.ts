@@ -13,8 +13,9 @@
  * harness targets are the event loop failing to turn.
  */
 import * as ipc from "./ipc";
+import { traceSmokeProgress, watchSmokeProgress, stopSmokeProgress } from './smokeProgress';
 import {checkSessionPosition} from './sessionSmoke';
-import {checkBookmarks} from './bookmarksSmoke';
+import {checkBookmarks, checkLocationBookmarks} from './bookmarksSmoke';
 import { checkHtmlFrame } from "./components/frame/smoke";
 import {checkPdfFrame} from './components/frame/pdfSmoke';
 import { frameDiagnostic } from './frame/diagnostics';
@@ -27,6 +28,11 @@ import type { LaunchRequest, SmokeStep as Step } from "./ipc";
 import { workspace, type DocTab } from "./state/docs.svelte";
 import { checkMarkdownCopy, checkTableFit, checkTableRecommendation, checkToc, measureMarkdown } from "./components/markdown/smoke";
 import { checkDiagramCopy, checkMathCopy } from './components/markdown/imageSmoke';
+import { checkImageZoom, checkImageZoomThemeCleanup } from './components/markdown/imageZoomSmoke';
+import { checkCompare } from './components/compare/smoke';
+import { checkGridRange } from './components/grid/rangeSmoke';
+import { checkGridState } from './gridStateSmoke';
+import { checkGridPredicates, checkGridPredicateCancel } from './components/grid/filterSmoke';
 import { checkStyledCopy } from './components/markdown/styledSmoke';
 import { checkStickyTables } from './components/markdown/stickySmoke';
 import { checkRenderedSearch, checkRawSearch, checkSearchIndex, checkSearchWorker, checkReadingSearch, measureSearch, measureLargeSearch, measureTocScroll } from './components/markdown/searchSmoke';
@@ -133,7 +139,16 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
   if (what === 'tabArrows') return { ok: true, stage: what, metrics: await checkTabArrows() };
   if (what === 'notices') return { ok: true, stage: what, metrics: await checkNotices() };
   if (what === 'treeSearchEnter') return { ok: true, stage: what, metrics: await checkTreeSearchEnter(tab) };
-  if (what === 'cellDetail') return { ok: true, stage: what, metrics: await checkCellDetail(tab) };
+  if (what === 'cellDetail') {
+    const detail = await checkCellDetail(tab);
+    const range = await checkGridRange(tab);
+    return { ok: true, stage: what, metrics: { detail, range } };
+  }
+  if (what === 'documentCompare') return { ok: true, stage: what, metrics: await checkCompare(tab) };
+  if (what === 'locationBookmarks') return { ok: true, stage: what, metrics: await checkLocationBookmarks(tab) };
+  if (what === 'gridState') return { ok: true, stage: what, metrics: await checkGridState(tab) };
+  if (what === 'gridPredicates') return { ok: true, stage: what, metrics: await checkGridPredicates(tab) };
+  if (what === 'gridPredicateCancel') return { ok: true, stage: what, metrics: await checkGridPredicateCancel(tab) };
   if (what === "textReading") {
     await checkTextReading(tab);
     return { ok: true, stage: what };
@@ -212,16 +227,20 @@ async function follow(tab: DocTab, what: string): Promise<Outcome> {
  * rather than one document written at the end.
  */
 export async function runSmoke(): Promise<void> {
+  watchSmokeProgress();
+  traceSmokeProgress('sweep:native-ready');
   // Native hooks must be attached before the first fixture, not merely queued.
   const hookDeadline = Date.now() + 5000;
   while (!await ipc.smokeNativeReady()) {
     if (Date.now() >= hookDeadline) {
       await ipc.smokeReport({step:'native-hook',error:'native observer was not ready before fixtures'},false);
+      stopSmokeProgress();
       await ipc.smokeDone(); return;
     }
     await sleep(POLL_MS);
   }
   const plan: Step[] = await ipc.smokePlan();
+  traceSmokeProgress('sweep:plan-ready');
 
   // Nothing to open means this process is the listening half of the
   // single-instance round trip: another `dviewer` is about to hand it a
@@ -230,14 +249,16 @@ export async function runSmoke(): Promise<void> {
   // summary line is what says so.
   if (plan.length === 0) {
     await ipc.smokeReport({ step: "listening" }, true);
+    stopSmokeProgress();
     return;
   }
 
-  for (const step of plan) {
+  for (const [index, step] of plan.entries()) {
     const started = Date.now();
     let outcome: Outcome;
     let metrics: unknown;
 
+    traceSmokeProgress(`step:${index}:open`);
     const tab = await workspace.openPath(step.path);
     if (!tab) {
       // It did not open at all — which for some documents is the answer.
@@ -249,13 +270,24 @@ export async function runSmoke(): Promise<void> {
       workspace.notice = null;
     } else {
       outcome = await settle(tab, step.expect);
+      traceSmokeProgress(`step:${index}:settled`);
       if (outcome.ok && step.file === "sample.md") {
         try {
+          traceSmokeProgress('markdown:tables');
           await checkMarkdownTables(tab);
+          traceSmokeProgress('markdown:copy');
           await checkMarkdownCopy(tab);
+          traceSmokeProgress('markdown:diagram-copy');
           await checkDiagramCopy();
+          traceSmokeProgress('markdown:image-zoom');
+          await checkImageZoom();
+          traceSmokeProgress('markdown:image-theme');
+          await checkImageZoomThemeCleanup();
+          traceSmokeProgress('markdown:math-copy');
           await checkMathCopy(tab);
+          traceSmokeProgress('markdown:styled-copy');
           await checkStyledCopy(tab);
+          traceSmokeProgress('markdown:focus');
           await checkFocusMode(tab);
         } catch (error) {
           outcome = { ok: false, stage: "markdownTables", error: ipc.errorMessage(error) };
@@ -281,6 +313,7 @@ export async function runSmoke(): Promise<void> {
         catch (error) { outcome = { ok: false, stage: 'markdownSearchLarge', error: ipc.errorMessage(error) }; }
       }
       if (outcome.ok && step.then) {
+        traceSmokeProgress(`step:${index}:follow`);
         try { outcome = await follow(tab, step.then); }
         catch (error) { outcome = { ok: false, stage: step.then, error: ipc.errorMessage(error) }; }
       }
@@ -304,6 +337,8 @@ export async function runSmoke(): Promise<void> {
     );
   }
 
+  traceSmokeProgress('sweep:done');
+  stopSmokeProgress();
   await ipc.smokeDone();
 }
 
@@ -409,7 +444,9 @@ async function checkRelativeLinks(from: DocTab): Promise<Outcome> {
 
 /** This uses the rendered fixture, including hidden and unsupported HTML tables. */
 async function checkMarkdownTables(tab: DocTab) {
+  traceSmokeProgress('markdown:recommendation');
   await checkTableRecommendation();
+  traceSmokeProgress('markdown:table-layout');
   const require = (condition: unknown, message: string) => {
     if (!condition) throw new Error(message);
   };

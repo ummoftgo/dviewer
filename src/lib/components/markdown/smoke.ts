@@ -10,6 +10,7 @@ import { measureColumns } from './measureTable';
 import { enhanceTables } from './enhance';
 import { recommendWidths, type TableState } from './tables';
 import { waitSearch } from './searchSmoke';
+import { traceSmokeProgress } from '../../smokeProgress';
 
 const require = (value: unknown, message: string) => { if (!value) throw new Error(message); };
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -186,7 +187,9 @@ export async function checkTableRecommendation(): Promise<void> {
   lastCell.style.whiteSpace = 'nowrap';
   root.append(table);
   document.body.append(root);
+  traceSmokeProgress('markdown:recommendation-fonts');
   await document.fonts.ready;
+  traceSmokeProgress('markdown:recommendation-fonts-ready');
   const word = document.createRange();
   word.selectNodeContents(lastCell);
   const wordWidth = word.getBoundingClientRect().width;
@@ -212,6 +215,7 @@ export async function checkTableRecommendation(): Promise<void> {
       const viewport = table.parentElement!;
       // The product's observer was registered first. Its queued layout must run
       // before this observer's frame; returning a handle does not mean it settled.
+      traceSmokeProgress('markdown:recommendation-initial-resize');
       await new Promise<void>((resolve, reject) => {
         let frameId = 0;
         const timer = setTimeout(() => {
@@ -225,6 +229,7 @@ export async function checkTableRecommendation(): Promise<void> {
         });
         watcher.observe(viewport);
       });
+      traceSmokeProgress('markdown:recommendation-initial-layout');
       const widths = [...table.rows[0].cells].map((cell) => cell.getBoundingClientRect().width);
       const border = table.getBoundingClientRect().width - widths.reduce((sum, width) => sum + width, 0);
       const minimum = 3 * parseFloat(getComputedStyle(document.documentElement).fontSize);

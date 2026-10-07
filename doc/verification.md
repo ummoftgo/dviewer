@@ -1694,3 +1694,99 @@ tiny_http의 같은 연결 pipelining이 후속 응답을 묶을 수 있으므�
 | 전체 Rust·native 여섯 조건·세 OS 서명 관문 | 이 수정의 로컬 미실행; GTK 부재, CI 필요 |
 
 두 agent 변형은 원본 바이트로 복구했다. 로그는 `.agent-works/pdf-style-startup/fix-*.log`와 `mutation-css-*.log`, 원본과 구분한 재분석은 같은 디렉터리의 `experiment-36823383493-exit-reanalysis.json`이다. 이번 메커니즘은 재현됐지만 수정 뒤 native 통과 전에는 해결·릴리스 준비 완료로 간주하지 않는다.
+## 문서 작업 흐름 여섯 기능 — 2026-10-04 로컬 검증
+
+공식 main `d5b54a865c7bd2f8a68bfb466b9e966a7c693b98`에서 분리한 `feature/document-workflows`의 검사다. 설계·수용 기준은 [document-workflows-plan.md](document-workflows-plan.md), 동작과 자원 경계는 README와 architecture에 기록했다. 버전과 원격 저장소는 바꾸지 않았다.
+
+| 검사 | 최종 결과 |
+| --- | --- |
+| `DVIEWER_FIXTURES=required cargo test --locked --offline` | 631 통과, 실패·무시 0 |
+| `npm test` | 47 파일·584 테스트 통과 |
+| `npm run check` | 오류 0·경고 0, 4 로케일 × 580 키, 사전 밖 문자열 129 파일 통과 |
+| `npm run build` | 성공; 기존 chunk 경고와 cargo-about 부재로 Rust notices 생략 안내 유지 |
+| `cargo clippy --all-targets --locked --offline` | 성공; lib 25·lib test 27 경고(23 중복). 기존 코드 경고이며 전체 기준선 수는 별도 측정하지 않음 |
+| custom-protocol debug/release 빌드 | 둘 다 성공 |
+| 전체 rustfmt 검사 | 실패. 수정 전 `HEAD:src-tauri/src/cli.rs`도 실패하는 기존 포맷 차이 확인. 새 Rust 모듈 5개는 rustfmt 적용 |
+| macOS native/UI, Windows/Linux | 아래 실행 기록 참조; 단위 검사 결과로 대체하지 않음 |
+
+필수 픽스처의 파일 감시·loopback 테스트는 sandbox 안에서 EPERM·시간 초과가 있었으므로 허용된 native 환경에서 최종 전체 Rust 검사를 실행했다. 1차603개, 추가 검토 뒤 위의631개다. 생성기 기준 smoke 매니페스트는 기존61개에서69개로 늘었다. 새 시나리오는 tree/grid/log/PDF 위치 책갈피, 표 상태 다시 열기·재읽기, 문서 비교, 복합 조건과10만 행 조건 취소다. 기존 Markdown 시나리오에 이미지/Mermaid 확대 반복·테마 정리, 전체 값 셀 시나리오에 범위 선택·production 내보내기 IPC를 연결했다.
+
+### 고의 변형 검사
+
+세 변형을 각각 실행한 뒤 원본 바이트와 SHA 일치를 확인해 복구했다. 컴파일 실패를 판정으로 사용하지 않았다.
+
+| 변형 | 잡은 테스트 | 관측 |
+| --- | --- | --- |
+| 저장 schema 일치 guard 제거 | schema mismatch restores neither layout nor expensive order | Vitest 1 실패 |
+| JSON 객체 키 순서를 값 변경으로 분류 | classifies key order separately from value changes | Vitest 1 실패 |
+| NULL 조건을 빈 문자열 조건으로 변경 | empty_null_missing_are_distinct_and_text_is_typed | Rust assertion 1 실패 |
+
+### native 실행과 미확인 범위
+
+첫 debug 전체 스모크는 600초 기한을 넘겼고 완료한 문서는 0개, 미완료는 69개였다. 단일 인스턴스 전달은 통과했다. 새 창은 Markdown을 ready까지 열었지만 destruction/reclaim 기록이 없어 실패했다. 이 검사로 close-request API가 내부적으로 호출하는 `destroy` 권한 누락을 발견해 창 범위 capability에 추가했다. 이후 최종 바이너리의 제한된 전달·새 창 닫기 재검사는 별도 기록하며, 전체 스모크의 통과로 대체하지 않는다.
+
+수정 뒤 최종 debug/release 각각 단일 인스턴스 전달과 새 창 열기·닫기·문서1개 회수 검사가 통과했다(총4개). 각 실행은 격리된 identifier를 사용하고 실제 native webview/IPC로 Markdown ready 및 reclaim 기록을 확인했다. `.agent-works/native-window-check/{summary.json,*-new.jsonl}`에 바이너리 SHA와 결과가 있다. UI 기능의 69개 전수 검사가 통과한 것은 아니다.
+
+연결된 Mac의 잠금 때문에 CUA가 화면 접근을 거부했다. 잠금 해제를 요청했지만 실제 클릭·클립보드 readback·저장 대화상자·재시작 복원·PDF 책갈피는 확인하지 못했다. 화면 접근 거부만으로 전체 스모크 정체의 원인을 확정하지 않는다. 전체 release 스모크와 Windows/Linux native 검사는 실행하지 않았다. 세 OS 초록이라는 저장소 마일스톤 완료 조건은 충족했다고 주장하지 않는다. 기존 PDF 간헐 초기 정체는 별도 미해결 사항으로 유지한다.
+
+최종 재빌드 도중 rustc가 생성된 `dist/pdfjs/web/cmaps/GBKp-EUC-H 3.bcmap` 읽기에서 멈췄다. 1초 스택 표본과 열린 파일로 확인했으며 공식 ZIP에서 추출한 cache에는 이 중복 이름이 없었다. 새 clone의 dist에 생긴 숫자 suffix 생성 파일 284개를 격리하고 빌드를 재시도했다. 사용자 원본이나 소스 변경 없이 처리한 환경 문제이며, 파일 생성의 원인은 확정하지 않았다.
+
+### 추가 경계 검토와 최종 재검증
+
+위 표는 추가 검토 뒤 최종631 Rust·584 Vitest 결과로 갱신했다(1차603·524). Node smoke/diagnostic/repro34개도 통과했다. 저장/실행 조건의1MiB·8MiB 불일치, f64 비교 정밀도, 늦은 책갈피 navigation, 물리 로그 줄과 레코드 좌표 혼동을 수정했다. 저장은 직렬화64MiB·200항목, 숫자는 정확한 십진 mantissa/지수, 로그는 기존 offset 이진 검색이다. Parquet source 구조는 bounded JSON으로 직렬화하며 map 쌍·decimal 예상4096자리 상한을 적용했다. JSONC 내보내기는 숫자 토큰을 유지하며 주석/끝 쉼표만 제거한다. CSV/JSON 문자열은 writer로 직접 흘리고 각 셀과 flush 후 취소/snapshot을 검사한다. compare paging은 실제 UTF-8 bytes·total·generation 검증을 공유한다.
+
+새 Parquet test import가 private factory를 참조한 최초 compile 실패는 public Row와 실제 slice writer로 수정했다. 추가 clippy needless_borrow도 제거했으며 최종25/27 경고는1차와 같다. 새 책갈피 open의 이전 pending 취소 guard를 제거한 변형은 신규 회귀1개가 assertion 실패했고 원복 뒤 통과했다. 초기 세 변형과 합쳐 네 guard 변형을 확인했다.
+
+관찰 코드는 테스트 대기를 진행시키지 않고 단계·실제 requestAnimationFrame 횟수·타이머 전달만 기록한다. 기본 dist의 최종 debug60초 관찰에서 초기화/IPC와 첫 sample.md 준비는 약0.8초에 도달했다. 기존 main에도 있는 Markdown recommendation의 fonts.ready는 완료됐고 이후 ResizeObserver/rAF 초기 배치 대기에서 멈췄다. document.visibilityState=hidden, focused=false, 프레임0회,2초 타이머만 도착했고10/30/45초 타이머 기록은 없었다. 외부60초 deadline이 종료했으며 sweep은0bytes였다. 부모 native CPU는10초0.74초→55초0.75초였으나 별도 WebContent를 측정하지 않았으므로 전체 JS CPU loop의 부재를 증명하지 않는다. 새 이미지 확대 단계에는 도달하지 않았다. hidden renderer의 실행 정지와 일치하지만 잠금 해제 대조군 전에는 OS 잠금만을 유일한 원인으로 확정하지 않는다.0/69는69개 새 기능 실패라는 뜻이 아니다.
+
+생성 suffix 재등장도 확인했다. 최종 frontend rebuild 직후0개였으나 release rustc가GBK-EUC-V 3.bcmap 읽기에서 다시 대기했다.1초 스택은 EmbeddedAssets/std::fs::read를 가리켰고 빌드는3분37초에 스스로 완료됐다(중단 시도 시 두 PID는 이미 종료). canonical 생성 자료471개를/tmp/dviewer-workflows-dist-20261004에 SHA와 함께 복사하고 suffix283개를 제외했다. TAURI_CONFIG의 build.frontendDist만 이 입력으로 지정하여 debug/release를 직렬 재빌드했다(10.55/33.81초). 저장소 설정·사용자 앱·보안 설정을 변경하지 않았으며 입력 hash는 .agent-works/isolated-build-input.json에 있다.
+
+격리 입력의 최종 debug도60초 관찰에서 같은 단계·hidden·프레임0·2초 타이머 이후 중단을 보였다. 기본 입력의 결과와 함께 .agent-works/native-progress-default-input 및 native-progress에 SHA·trace·부모 프로세스 관측을 보존했다. 따라서 이 renderer 정체가 suffix 자료 포함 여부로 해소된다고 주장하지 않는다. 최종 제한된 native 왕복은 .agent-works/native-window-check의 SHA와 결과를 따른다. 전체69개 UI·release 전수·Windows/Linux 검증과 실제 클릭은 계속 미확인이다.
+
+### 2026-10-06 Linux 클라우드 후속 검증
+
+GitHub `feature/document-workflows`와 새 clone의 HEAD가 `1081e3aac656353ca1a2a92a41839a82834816f1`이며 이력311개와 clean 작업 트리를 확인하고 시작했다. Debian13 x86_64, Node24.19.0, Rust1.99.0에서 실행했다. 시스템 설치 권한이 없어 공식 Rust와 Debian 서명으로 검증된 개발 라이브러리를 작업 폴더에만 준비했다(GTK3.24.49, WebKitGTK2.52.6). 따라서 CI의 Ubuntu22.04 기준선을 대체하지 않는다.
+
+코드 검토로 두 결함을 고쳤다. pretty-printed JSON/JSONC 구조 셀의 LF/CR이 JSONL 레코드를 여러 줄로 나누던 문제는 문자열 밖 개행만 공백으로 바꿔 해결했다. 숫자 토큰과 문자열 escape는 그대로다. 표가 파괴된 뒤 도착한 범위 텍스트·저장 대화상자 응답은 generation만으로 걸러지지 않았으므로 별도 생명주기 guard를 추가했다. 이미 시작한 export는 파괴 시 계속 취소한다. DOM 대체 테스트 환경은 추가하지 않았다.
+
+| 검사 | 결과 |
+| --- | --- |
+| `DVIEWER_FIXTURES=required cargo test --locked --offline` | 632 통과, 실패·무시0 |
+| `npm test` | 48파일·593테스트 통과 |
+| `npm run check` | 오류0·경고0, 4로케일×580키, 사전 밖 문자열130파일 통과 |
+| Node smoke/diagnostic/repro 및 updater manifest | 35 통과 |
+| `DVIEWER_NOTICES=required npm run build` | 성공, pinned cargo-about0.9.2로 Rust notices 포함 |
+| `cargo clippy --all-targets --locked --offline` | 성공, lib22·lib test26경고(22중복). OS/도구 버전이 달라 Mac 수와 증감 비교하지 않음 |
+| custom-protocol debug 빌드 | 성공, 동적 라이브러리 unresolved 항목 없음 |
+| custom-protocol release 빌드 | 성공(2분43초), 배포·패키징은 하지 않음 |
+| 전체 rustfmt | 기존 포맷 차이로 실패. 수정하지 않은 HEAD의 examples/archive.rs도 동일 도구에서 실패 |
+| 변경 Rust 두 파일 rustfmt·git diff whitespace | 통과 |
+| native GUI debug/release 전수 | 미실행. 아래 실행 환경 제한 참조 |
+
+JSONL 개행 정규화를 제거하면 새 회귀가 예상2줄 대신18줄이라는 assertion으로1개 실패했다. 저장한 원본 SHA와 일치하도록 복구한 뒤 해당 회귀가 통과했다. 표 destroyed 검사를 제거하면 새 lifecycle9개 중4개가 실패하고, teardown의 active-export 취소를 제거하면1개가 실패했다. 정확히 원복 후 집중20개와 위 최종 전체593개가 통과했다. 컴파일 실패를 mutation 검증으로 세지 않았다.
+
+기본 sandbox와 승인된 실행 경로 모두에서 Xvfb는 local/unix listener를 만들지 못했고 DBus는 `Failed to open socket: Operation not permitted`로 종료했다. 후자는 작업 폴더의 별도 XDG_RUNTIME_DIR을 사용해 읽기 전용 home 문제를 분리한 뒤에도 같았다. 따라서 실제 앱 스모크를 시작할 수 있는 display/session 준비에서 막혔으며 생성기69개 중 실행 완료는0개다. 이는69개 기능 테스트 실패가 아니고 앱의 renderer 정체 관찰도 아니다. 보안 설정을 낮추거나 사용자 컴퓨터로 옮겨 우회하지 않았다. 실제 클립보드·저장 대화상자·PDF 책갈피·반복 클릭/확대/닫기와 세 OS 전체 녹색 조건은 계속 미확인이다.
+
+로그·mutation 원복 증거·native binary SHA는 `.agent-works/cloud-*`에 남겼다. 원격 push·PR·버전·태그·릴리스는 이 후속 검증에서 하지 않았다.
+
+### 세 OS CI에서 확인한 후속 경계
+
+`b74a4cf`의 [첫 PR 검사](https://github.com/ummoftgo/dviewer/actions/runs/37420415565)와 [세 OS 번들 검사](https://github.com/ummoftgo/dviewer/actions/runs/37420638562)는 같은 세 실패를 보였다. 생성기가 sample.md의 icon.png를 만들지 않은 문제, raw JSON 비교가 Text/HTML 전용 doc_lines를 호출한 문제, 숨김 열을 복원한 sheet에서 전체 schema 열 수를 기다리던 smoke 전제였다. PNG를 실제 생성·독립 decode하고 reader를 분리했으며, collection smoke는 정확한 표시 projection과 시트별 왕복 구성을 검사하도록 고쳤다. 원문 비교의 새3개 회귀는 수정 전에 실패했다. PNG 제거 변형1개, 기존 collection readiness 변형4개와 header-order 변형3개도 실패 확인 후 원복했다.
+
+다음 `be97d61`은68/69를 통과하고 테마 복원 직후의 이전 ready 표시 때문에 MathML 검사가 너무 일찍 실행되는 경합을 드러냈다. 새 render generation과 기존 Mermaid/KaTeX 완료를 함께 기다리며 MathML 단언과 시간 제한은 유지했다. 해당 guard 제거는2개 테스트를 실패시켰다. 그 뒤 `e04ee4f`의 [세 OS 번들 검사](https://github.com/ummoftgo/dviewer/actions/runs/37425698052)는 Linux·macOS·Windows 모두69개 픽스처와 단일 인스턴스/새 창 왕복을 통과했다. 이는 실제 GUI 결과이며 전체 workflow 성공은 아니다.
+
+같은 `e04ee4f`의 Windows Rust 검사에서는 atomic replacement 회귀가 실패했다(631통과·1실패). Windows만 len/mtime으로 같은 파일을 판단했고, 예전 통과는 두 파일의 timestamp가 달랐을 때였다. 후속 수정은 FileIdInfo의 volume serial과128비트 identity를 두 live handle 사이에서 대조한다. 회귀는 같은 len/mtime을 강제하며 hard-link 성공 대조군을 포함한다. guard 제거1개 실패 후 원복, Linux 필수 fixture633개 통과와 정확한 Windows helper의 GNU target compile-check를 확인했다. 실제 Windows 재검증은 다음 후보 CI에서 확인해야 한다.
+
+Windows updater E2E 첫 실행은 앱/CDP 연결 이전에 실패했다. 보강한 `e04ee4f` 관찰은 앱·WebView2가 살아 있고 창·격리 profile도 있지만 debug 인자와 listener가 없으며 ECONNREFUSED임을 보였다. [Microsoft elevated-host 계약](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security#for-an-elevated-host-app-use-appropriate-override-flags)에 따라 후속 시험 overlay는 환경변수 대신 앱의 AdditionalBrowserArguments API를 사용한다. production 설정, registry, policy, signing은 바꾸지 않고 pinned Wry 기본값과 loopback 범위를 유지한다. 실제 portable/NSIS 갱신 성공은 아직 확인하지 않았으며 실패를 skip으로 처리하지 않는다.
+
+후속 로컬 집계는 Rust633, Vitest610, Node69, check 오류·경고0(4×580키), 필수 notices build 성공이다. clippy는 lib22/lib test26(22중복)으로 이전 cloud 수와 같다. Windows identity와 test-only browser-argument 변경은 독립 코드 검토를 받았으며 새로운 native 후보로 재확인한다. 이 시점에는 판올림·main 병합·태그·배포를 하지 않았다.
+
+`336b352`의 [PR 검사](https://github.com/ummoftgo/dviewer/actions/runs/37430894901)는 세 OS 모두 성공했다. Windows Rust633개에는 같은 크기·수정 시각의 atomic replacement 거절과 hard-link 성공 대조군이 포함된다. Linux native sweep도 성공했다. 별도 [Windows updater 검사](https://github.com/ummoftgo/dviewer/actions/runs/37431546908)는 API overlay로 첫 CDP 연결에 성공했으며 elevated runner·loopback listener·격리 profile을 관찰했다. 다만 설치 직전 두 캡처 모두 갱신 dialog가 없었고, Update now 버튼을 찾는 page evaluation에서 중단했다. 따라서 self-relaunch라는 당시 stage 이름과 달리 실제 설치나 재실행이 실패했다는 증거는 없으며, 완료한 갱신 사례는0개이고 NSIS는 미실행이다. 원래 앱은 살아 있었고 종료 정리는 성공했다. 후속 시험은 dialog·settings teardown과 badge 재열기 완료를 실제 DOM으로 기다리고 클릭 지점의 가림 여부를 확인한다. 구체적으로 어느 close-event/overlay 경합이 발생했는지는 이 관찰만으로 확정하지 않는다.
+
+이 dialog-readiness 보강은 하네스39개·전체 Node75개·Vitest610개와 check 오류·경고0(4×580키)을 통과했다. teardown 대기 제거는1개, 새 modal 준비 검증 제거는2개, hit-target 검증 제거는1개 테스트를 실패시킨 뒤 원복했다. 독립 검토도 통과했지만 실제 portable·NSIS 갱신 성공은 다음 native 실행에서 확인해야 한다.
+
+`71af436`의 [PR 검사](https://github.com/ummoftgo/dviewer/actions/runs/37436974767)와 [Windows updater 검사](https://github.com/ummoftgo/dviewer/actions/runs/37437242750)가 성공했다. 후자의 sourceSha/runId와 아티팩트 SHA-256을 대조하고 portableExe·NSIS 두 사례의 새 PID, 0.25.0 버전, 원본 로컬/URL 인자와 문서, 꺼진 일반 세션 복원, 종료 정리를 확인했다. 포터블 교체 파일은 예상 SHA와 같았다. 실제 과거 배포본이 아니라 같은 후보 소스의 격리 버전 overlay 검사라는 한계는 그대로다.
+
+이 성공 아티팩트의 화면 검토에서 별도 배치 결함을 발견했다. 새 범위 툴바와 실제 격자가 GridDock의 직접 자식 둘이 되어, 툴바가 큰 빈 높이를 차지하고 표가 바닥으로 밀렸다. 이전 native 검사는 데이터와 기능을 확인했지만 이 컨테이너 배치를 단언하지 않았다. 후속 보강은 DataGrid를 단일 세로 컨테이너로 만들고 native smoke가 툴바·격자 상단과 남은 viewport 높이, 상세 패널 열림/닫힘, 필터 결과 있음/없음의 배치를 검사한다. 이 수정 후보가 세 OS에서 재확인되기 전에는 이전 성공만으로 릴리스 준비 완료라고 보지 않는다.
+
+배치 보강 로컬 집계는 Rust633·Vitest620(새 기하 oracle10개)·Node75, check 오류·경고0(4×580키), Rust 고지를 포함한 build 성공이다. toolbar intrinsic-height·viewport fill·detail 같은 행 검사를 각각 무력화하면 해당 oracle1개씩 실패했고 정확히 원복했다. native smoke는 CSV/text/collection과 빈/비어 있지 않은 필터의 상세 패널 왕복, 좁은 열의 toolbar 줄바꿈을 측정한다. wrapping은 배율·글꼴을 고정한 뒤 복원하고 ResizeObserver 반영을 기다린다. 최종 timing/scale 패치까지 독립 검토를 받았다. 실제 WebView에서 CSS를 깨뜨린 변형과 이 수정 후보의 세 OS native 검사는 아직 실행하지 않았다.

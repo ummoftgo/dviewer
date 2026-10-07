@@ -23,6 +23,8 @@
   import { headingPositions, trackHeading } from './toc';
   import MarkdownSearchBar from './MarkdownSearchBar.svelte';
   import { enhanceTables, interceptLinks, renderMath, renderMermaid, rewriteImages, type EnhancedTables } from "./enhance";
+  import ImageZoom from './ImageZoom.svelte';
+  import { enhanceImageZoom, type ZoomSource } from './imageZoomControls';
 
   interface Props {
     tab: DocTab;
@@ -45,6 +47,8 @@
   let enhancing = $state(false);
   let tables = $state<EnhancedTables>();
   let activeId = $state('');
+  let imageTarget = $state<ZoomSource | null>(null);
+  let imageControls: ReturnType<typeof enhanceImageZoom> | undefined;
 
   $effect(() => {
     void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody, settings.fontBodyFallback];
@@ -102,6 +106,7 @@
         tables = enhanceTables(host, target.tables, target.markdownTableMode);
         controls = enhanceBlocks(host, openCopy);
         codeControls = enhanceCode(host, target, openLanguage);
+        imageControls = enhanceImageZoom(host, source => { imageTarget = source; });
         const explicitAnchor = untrack(() => target.pendingAnchor);
         enhancing = false;
         if (untrack(() => target.pendingPosition)) await tick();
@@ -120,6 +125,9 @@
 
     return () => {
       cancelled = true;
+      imageTarget = null;
+      imageControls?.destroy();
+      imageControls = undefined;
       codeControls?.destroy();
       codeControls = undefined;
       codeAt = null;
@@ -138,7 +146,7 @@
     void [settings.docFontPx, settings.uiFontPx, settings.uiScale, settings.fontBody,
       settings.fontBodyFallback, settings.fontCode, settings.fontCodeFallback, i18n.locale];
     const current = tables;
-    untrack(() => { current?.refresh(); controls?.refresh(); codeControls?.refresh(); });
+    untrack(() => { current?.refresh(); controls?.refresh(); codeControls?.refresh(); imageControls?.refresh(); });
   });
 
   $effect(() => {
@@ -266,6 +274,9 @@
   <ContextMenu x={codeAt.x} y={codeAt.y} items={languageItems()}
     onClose={() => { codeAt?.control.button.focus(); codeAt = null; }} />
 {/if}
+{#if imageTarget && scroller}
+  <ImageZoom source={imageTarget} {scroller} onClose={() => { imageTarget = null; }} />
+{/if}
 {#if languageTarget}
   <LanguageDialog {languages} current={languageTarget.language.name} onChoose={(name) => {
     const target = languageTarget;
@@ -287,6 +298,8 @@
 {/if}
 
 <style>
+  :global(.markdown-body [data-dviewer-zoom]) { cursor: zoom-in; }
+  :global(.markdown-body [data-dviewer-zoom]:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
-  import { bookmarkDocument, selectBookmarks, type Bookmark, type BookmarkAnchor, type BookmarkSource } from '../bookmarks';
+  import { onMount, tick, untrack } from 'svelte';
+  import { bookmarkDocument, bookmarkLocationText, selectBookmarks, type Bookmark, type BookmarkTarget } from '../bookmarks';
   import { t } from '../i18n';
   import { sameSource } from '../source';
-  import { bookmarks, bookmarkTarget, canBookmark } from '../state/bookmarks.svelte';
+  import { bookmarks, canBookmark } from '../state/bookmarks.svelte';
+  import { toasts } from '../state/toast.svelte';
   import type { DocTab } from '../state/docs.svelte';
   import Icon from './Icon.svelte';
   import ContextMenu from './ContextMenu.svelte';
@@ -11,12 +12,19 @@
 
   interface Props {
     tab: DocTab | null;
-    draft: {source:BookmarkSource; anchor:BookmarkAnchor} | null;
+    draft: BookmarkTarget | null;
     onDone: () => void;
     onClose: () => void;
   }
   let {tab, draft, onDone, onClose}: Props = $props();
-  let label = $derived(draft ? (draft.anchor.id === '' ? t('bookmarks.top') : draft.anchor.text) : '');
+  function locationLabel(item: Pick<Bookmark,'target'|'anchor'>): string {
+    return item.target ? t(item.target.kind === 'log' && !item.target.sourceLine && !item.target.plain ? 'bookmarkLocation.logRecord' : `bookmarkLocation.${item.target.kind}`,{location:bookmarkLocationText(item)})
+      : item.anchor.id === '' ? t('bookmarks.top') : item.anchor.text;
+  }
+  let label = $derived(draft ? draft.treeNode !== undefined ? t('bookmarkLocation.treeSelection') : draft.logRow !== undefined ? t('bookmarkLocation.logSelection') : locationLabel(draft) : '');
+  let saving = $state(false);
+  let draftTabId: number | undefined;
+  let draftGeneration: number | undefined;
   let input = $state<HTMLInputElement>();
   let panel: HTMLElement;
   onMount(() => panel.focus());
@@ -35,14 +43,20 @@
 
   $effect(() => {
     if (!draft) return;
+    untrack(() => { draftTabId = tab?.id; draftGeneration = tab?.meta.generation ?? 0; });
     all = false; query = ''; editing = null;
     void tick().then(() => { input?.focus(); input?.select(); });
   });
 
-  function save() {
-    if (draft && bookmarks.add(draft.source, draft.anchor, label)) {
-      onDone(); panel.focus();
+  async function save() {
+    if (!draft || saving) return;
+    if (!tab || tab.id !== draftTabId || (tab.meta.generation ?? 0) !== draftGeneration) {
+      toasts.show(t('bookmarkLocation.captureFailed'),'error'); return;
     }
+    const captured = draft, capturedTab = tab.id;
+    saving = true;
+    try { if (await bookmarks.addCurrent(tab,captured,label,() => draft === captured && tab?.id === capturedTab)) { onDone(); panel.focus(); } }
+    finally { saving = false; }
   }
 
   function rename(item: Bookmark) {
@@ -57,7 +71,7 @@
     return [
       {label:t('bookmarks.rename'),hint:'F2',action:() => rename(item)},
       {label:t('bookmarks.reassign'),disabled:!canBookmark(tab) || !tab || !sameSource(item.source,tab.meta.source),
-        action:() => { const destination = bookmarkTarget(tab); if (destination) bookmarks.reassign(item.id,destination); }},
+        action:() => { void bookmarks.reassignCurrent(item.id,tab); }},
     ];
   }
 
@@ -88,7 +102,7 @@
       <label for="bookmark-label">{t('bookmarks.label')}</label>
       <input class="field" id="bookmark-label" data-action="bookmark-label" bind:this={input} bind:value={label} maxlength="65536" />
       <div class="actions">
-        <button class="btn" type="submit" disabled={!label.trim()}>{t('bookmarks.save')}</button>
+        <button class="btn" type="submit" disabled={!label.trim() || saving}>{t('bookmarks.save')}</button>
         <button class="btn" type="button" onclick={onDone}>{t('bookmarks.cancel')}</button>
       </div>
     </form>
@@ -110,8 +124,9 @@
           onkeydown={event => { if (event.key === 'F2') { event.preventDefault(); rename(item); } }}>
           <strong>{item.label}</strong>
           <span title={item.source.type === 'file' ? item.source.path : item.source.url}>{bookmarkDocument(item.source)}</span>
-          <span>{item.anchor.id === '' ? t('bookmarks.top') : item.anchor.text}</span>
-          {#if bookmarks.results[item.id] === false}<span class="missing">{t('bookmarks.missing')}</span>{/if}
+          <span>{locationLabel(item)}</span>
+          {#if item.fingerprint}<span class="verification" title={t('bookmarkLocation.sampledDetail')}>{t('bookmarkLocation.sampled')}</span>{/if}
+          {#if bookmarks.results[item.id] === false}<span class="missing">{t('bookmarkLocation.mismatch')}</span>{/if}
         </button>
         <div class="row-actions">
           <button class="icon-btn" aria-haspopup="menu" title={t('bookmarks.actions')} aria-label={t('bookmarks.actions')}

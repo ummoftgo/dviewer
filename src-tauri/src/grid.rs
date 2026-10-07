@@ -16,6 +16,24 @@ use std::sync::atomic::AtomicBool;
 
 pub mod array;
 pub mod order;
+pub mod predicate;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScalarKind { Text, Number, Boolean, Null, Missing, Structured, Binary }
+
+#[derive(Debug, Clone)]
+pub struct GridScalar { pub text: String, pub kind: ScalarKind }
+
+impl GridScalar {
+    pub fn checked(cell: CellText, kind: ScalarKind) -> Result<Self> {
+        if cell.truncated || cell.text.len() > MAX_CELL_TEXT_BYTES {
+            return Err(crate::error::Error::TooLarge { subject: crate::error::Subject::Table,
+                megabytes: MAX_CELL_TEXT_BYTES / (1024 * 1024) + 1, limit_mb: MAX_CELL_TEXT_BYTES / (1024 * 1024) });
+        }
+        Ok(Self { text: cell.text, kind })
+    }
+}
+
 
 use crate::error::Result;
 use crate::query::Interpretation;
@@ -53,6 +71,14 @@ pub fn hex_cell(bytes: &[u8], preview: bool) -> (String, bool) {
     (text, cut)
 }
 
+/// Selection maps contain increasing, unique original row numbers.
+pub fn validate_selected_rows(selected: Option<&[u32]>, count: u32) -> Result<()> {
+    if selected.is_some_and(|rows| rows.last().is_some_and(|&row| row >= count) || rows.windows(2).any(|r| r[0] >= r[1])) {
+        return Err(crate::error::Error::NoSuchRow);
+    }
+    Ok(())
+}
+
 pub trait Grid: Send + Sync {
     fn row_count(&self) -> u32;
     fn column_count(&self) -> u32;
@@ -62,6 +88,41 @@ pub trait Grid: Send + Sync {
 
     /// One cell in full, for copying — not the shortened line the grid draws.
     fn cell_text(&self, row: u32, column: u32) -> Result<CellText>;
+
+    /// A complete scalar with source type, never silently truncated. The existing
+    /// 8 MiB cell ceiling applies; callers must abort rather than compare a prefix.
+    fn scalar(&self, row: u32, column: u32) -> Result<GridScalar> {
+        let cell = self.cell_text(row, column)?;
+        let kind = if cell.missing { ScalarKind::Missing } else if cell.null { ScalarKind::Null } else { ScalarKind::Text };
+        GridScalar::checked(cell, kind)
+    }
+
+    fn scan_scalars(&self, columns: &[u32], cancel: &AtomicBool,
+        visit: &mut dyn FnMut(u32, u32, &GridScalar) -> Result<()>) -> Result<()> {
+        self.scan_selected_scalars(columns,None,cancel,visit)
+    }
+
+    /// Read only the requested increasing source rows. Filtering must happen before
+    /// decoding: an excluded oversized value cannot make exporting other rows fail.
+    fn scan_selected_scalars(&self, columns: &[u32], selected: Option<&[u32]>, cancel: &AtomicBool,
+        visit: &mut dyn FnMut(u32, u32, &GridScalar) -> Result<()>) -> Result<()> {
+        for &column in columns {
+            if column >= self.column_count() { return Err(crate::error::Error::NoSuchCell); }
+        }
+        validate_selected_rows(selected,self.row_count())?;
+        let rows: Box<dyn Iterator<Item=u32> + '_> = match selected {
+            Some(rows) => Box::new(rows.iter().copied()), None => Box::new(0..self.row_count()),
+        };
+        let mut visited = 0usize;
+        for row in rows {
+            for &column in columns {
+                if visited.is_multiple_of(4096) { order::check_cancel(cancel)?; }
+                visited += 1;
+                visit(row,column,&self.scalar(row,column)?)?;
+            }
+        }
+        order::check_cancel(cancel)
+    }
 
     /// A whole row as text.
     fn row_text(&self, row: u32) -> Result<CellText>;

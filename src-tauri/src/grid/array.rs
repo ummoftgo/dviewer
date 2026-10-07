@@ -114,6 +114,16 @@ impl Grid for JsonArrayGrid {
         Ok(CellText { text, truncated, ..CellText::default() })
     }
 
+    fn scalar(&self, row: u32, column: u32) -> Result<crate::grid::GridScalar> {
+        if column >= self.column_count() { return Err(Error::NoSuchCell); }
+        let id = self.element(row)?;
+        if self.map && column == 0 { return jsonl::node_scalar(&self.tree.bytes, &self.key_node(id)); }
+        match self.fields(id)[column as usize - usize::from(self.map)] {
+            Some(node) => jsonl::node_scalar(&self.tree.bytes, node),
+            None => Ok(crate::grid::GridScalar { text: String::new(), kind: crate::grid::ScalarKind::Missing }),
+        }
+    }
+
     fn row_text(&self, row: u32) -> Result<CellText> {
         self.element(row)?;
         let mut text = String::new();

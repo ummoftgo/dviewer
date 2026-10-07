@@ -18,6 +18,7 @@ import type { DocKind, DocMeta, DocSource, TreeRow } from "../ipc";
 import { settings } from "./settings.svelte";
 import { toasts } from './toast.svelte';
 import { i18n, t } from '../i18n';
+import type { SavedGridState } from '../grid-state';
 
 vi.mock("../persist", () => ({ getValue: vi.fn(async () => undefined), setValue: vi.fn() }));
 
@@ -935,4 +936,98 @@ test('relative HTML targets retain their anchor for FrameView to consume', async
   const target = await workspace.openLink(from,'other.html#part');
   expect(target?.pendingAnchor).toBe('part');
   expect(target?.mode).toBe('rendered');
+});
+
+describe('document grid state restoration', () => {
+  function table(path: string) {
+    const tab = new DocTab(meta({ type: 'file', path }, 'csv'));
+    tab.tableStats = { columnCount: 2, hasHeader: true, plain: false, expanded: false, logLayout: null } as never;
+    tab.header = ['name', 'age'];
+    return tab;
+  }
+  function snapshot(tab: InstanceType<typeof DocTab>, change: Partial<SavedGridState> = {}): SavedGridState {
+    return { identity: tab.gridIdentity!, collection: null, schema: tab.gridSchema!, widths: [240, 90], order: [1, 0],
+      hidden: [0], frozen: 1, widthMode: 'scroll', ratios: null, sort: null, filter: '', filterColumn: null,
+      predicates: [], hasHeader: true, plain: false, expanded: false, ...change };
+  }
+  test('schema mismatch restores neither layout nor expensive order', async () => {
+    const tab = table('/schema-change.csv');
+    const order = vi.mocked(ipc.gridOrder); order.mockClear();
+    await tab.restoreGridState(snapshot(tab, { schema: '["age","name"]', filter: 'value' }));
+    expect(tab.columnWidths).toEqual([]);
+    expect(tab.columnOrder).toEqual([]);
+    expect(tab.order.filter).toBe('');
+    expect(tab.gridStateNotice).toBe('schemaChanged');
+    expect(order).not.toHaveBeenCalled();
+    expect(tab.gridStateReady).toBe(true);
+  });
+  test('matching schema restores layout and committed predicates together', async () => {
+    const tab = table('/matching-grid.csv');
+    const state = snapshot(tab, { sort: { column: 1, descending: false }, filter: 'value', filterColumn: 0,
+      predicates: [{ column: 1, op: 'gte', value: '10' }] });
+    vi.mocked(ipc.gridOrder).mockResolvedValueOnce({ shown: 2, total: 10, indexBytes: 8, peakBytes: 8 });
+    await tab.restoreGridState(state);
+    expect(tab.columnWidths).toEqual([240, 90]);
+    expect(tab.hiddenColumns).toEqual([0]);
+    expect(tab.order.predicates).toEqual(state.predicates);
+    expect(tab.order.filter).toBe('value');
+    expect(tab.gridStateNotice).toBe('restored');
+  });
+  test('an applied condition above 1 MiB is captured and restored together with layout', async () => {
+    const tab = table('/long-condition-grid.csv');
+    tab.gridStateReady = true;
+    tab.columnWidths = [220, 90]; tab.columnOrder = [1, 0];
+    const predicates = [{ column: 0, op: 'contains' as const, value: 'x'.repeat(1024 * 1024 + 1) }];
+    vi.mocked(ipc.gridOrder).mockResolvedValueOnce({ shown: 1, total: 10, indexBytes: 4, peakBytes: 4 });
+    expect(await tab.applyOrder(null, '', null, predicates)).toBe(true);
+    await tab.rememberGridState();
+    const reopened = table('/long-condition-grid.csv');
+    const state = await reopened.savedGridState();
+    expect(state?.predicates[0].value.length).toBe(predicates[0].value.length);
+    expect(state?.widths).toEqual([220, 90]);
+    vi.mocked(ipc.gridOrder).mockResolvedValueOnce({ shown: 1, total: 10, indexBytes: 4, peakBytes: 4 });
+    await reopened.restoreGridState(state);
+    expect(reopened.order.predicates[0].value.length).toBe(predicates[0].value.length);
+    expect(reopened.columnOrder).toEqual([1, 0]);
+  });
+  test('bookmark source coordinates supersede saved scans but retain compatible layout', async () => {
+    const tab = table('/bookmarked-grid.csv');
+    tab.gridRestoreOrderAllowed = false;
+    const order = vi.mocked(ipc.gridOrder); order.mockClear();
+    await tab.restoreGridState(snapshot(tab, { filter: 'would hide target', sort: { column: 1, descending: true } }));
+    expect(tab.columnWidths).toEqual([240, 90]);
+    expect(tab.order.filter).toBe('');
+    expect(order).not.toHaveBeenCalled();
+    expect(tab.gridStateReady).toBe(true);
+  });
+  test('reread captures before resetting and reopened file restores its choices', async () => {
+    const tab = table('/reread-grid.csv');
+    tab.gridStateReady = true;
+    tab.columnWidths = [240, 90]; tab.columnOrder = [1, 0]; tab.hiddenColumns = [0]; tab.frozenCount = 1;
+    tab.order.filter = 'keep'; tab.order.filterColumn = 1;
+    tab.invalidate();
+    expect(tab.gridStateReady).toBe(false);
+    expect(tab.order.filter).toBe('');
+    const reopened = table('/reread-grid.csv');
+    const state = await reopened.savedGridState();
+    expect(state?.filter).toBe('keep');
+    expect(state?.widths).toEqual([240, 90]);
+    vi.mocked(ipc.gridOrder).mockResolvedValueOnce({ shown: 1, total: 10, indexBytes: 4, peakBytes: 4 });
+    await reopened.restoreGridState(state);
+    expect(reopened.columnOrder).toEqual([1, 0]);
+    expect(reopened.order.filterColumn).toBe(1);
+  });
+  test('invalidating during a restored scan rejects its result and keeps restoration deferred', async () => {
+    const tab = table('/stale-grid.csv');
+    let resolve!: (stats: { shown: number; total: number; indexBytes: number; peakBytes: number }) => void;
+    vi.mocked(ipc.gridOrder).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    tab.gridStateRestoring = true;
+    const restore = tab.restoreGridState(snapshot(tab, { filter: 'keep' }));
+    tab.invalidate(); tab.meta.generation = 1;
+    resolve({ shown: 1, total: 10, indexBytes: 4, peakBytes: 4 });
+    await restore;
+    expect(tab.gridStateReady).toBe(false);
+    expect(tab.order.stats).toBeNull();
+    expect(tab.gridStateNotice).toBeNull();
+  });
 });

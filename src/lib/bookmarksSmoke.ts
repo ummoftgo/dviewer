@@ -1,7 +1,8 @@
 import { tick } from 'svelte';
-import { readBookmarks } from './bookmarks';
+import { readBookmarks, type BookmarkTarget } from './bookmarks';
+import { bookmarkFingerprint, treeRows, treePositionPath } from './ipc';
 import { getValue, setValue } from './persist';
-import { bookmarks } from './state/bookmarks.svelte';
+import { bookmarks, bookmarkTarget } from './state/bookmarks.svelte';
 import { workspace, type DocTab } from './state/docs.svelte';
 import { waitSearch } from './components/markdown/searchSmoke';
 
@@ -93,5 +94,66 @@ export async function checkBookmarks(first: DocTab) {
     await tick();
     const open = !!document.querySelector('.bookmarks-panel');
     if (open !== wasOpen) document.dispatchEvent(new KeyboardEvent('keydown',{key:'B',ctrlKey:true,shiftKey:true,bubbles:true}));
+  }
+}
+
+
+/** Native typed-location navigation, reopen, mismatch and reassignment without loading full values. */
+export async function checkLocationBookmarks(first: DocTab) {
+  await bookmarks.flush();
+  const previous = await getValue('bookmarks');
+  const entries = readBookmarks(bookmarks.entries), results = {...bookmarks.results};
+  let current = first;
+  try {
+    require(bookmarks.ready,'Location bookmark store not ready');
+    const source = first.meta.source;
+    require(source.type === 'file' || source.type === 'url','Location bookmark requires a durable source');
+    if (source.type !== 'file' && source.type !== 'url') throw new Error('Unsupported source');
+    let target: BookmarkTarget['target'];
+    if (first.view === 'tree') {
+      const rows = await treeRows(first.id,0,3);
+      const path = await treePositionPath(first.id,rows[Math.min(1,rows.length - 1)].id);
+      require(path,'Tree source path is unavailable');
+      target = {kind:'tree',path:path!};
+    } else if (first.kind === 'pdf') {
+      await waitSearch(() => first.frameContentLoaded && first.framePages > 0,'PDF bookmark frame is not ready',15000);
+      target = {kind:'pdf',page:Math.min(2,first.framePages)};
+    } else {
+      const count = first.tableStats?.rowCount ?? first.gridStats?.rowCount ?? 0;
+      require(count > 0,'Grid bookmark has no rows');
+      const row = Math.min(2,count - 1), modes = first.tableStats ? {plain:first.tableStats.plain,expanded:first.tableStats.expanded} : {};
+      target = first.kind === 'text' ? {kind:'log',line:row,...modes}
+        : {kind:'grid',row,...(first.collection ? {collection:first.collection} : {}),
+          ...(first.tableStats ? {hasHeader:first.tableStats.hasHeader} : {}),...modes};
+    }
+    const item = bookmarks.add(source,{id:'',text:''},'native location bookmark',target,await bookmarkFingerprint(first.id));
+    require(item,'Typed bookmark did not save');
+    const arrived = () => bookmarks.results[item!.id] === true && current.pendingBookmark === null
+      && (target!.kind === 'pdf' ? current.framePage === target!.page
+        : target!.kind === 'tree' ? current.position?.kind === 'tree' && current.position.path === target!.path
+        : current.selectedCell?.sourceRow === (target!.kind === 'grid' ? target!.row : target!.line));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      delete bookmarks.results[item!.id];
+      await bookmarks.open(item!);
+      await waitSearch(arrived,'Typed bookmark did not complete repeat navigation',15000);
+    }
+    await bookmarks.flush();
+    require(readBookmarks(await getValue('bookmarks')).some(saved => saved.id === item!.id && !!saved.target),'Typed bookmark was not persisted');
+    await workspace.close(first.id); await tick();
+    delete bookmarks.results[item!.id];
+    await bookmarks.open(item!); current = workspace.active!;
+    require(current.id !== first.id,'Typed bookmark did not reopen the closed document');
+    await waitSearch(arrived,'Typed bookmark did not navigate after reopen',15000);
+    await bookmarks.open({...item!,fingerprint:item!.fingerprint + ':changed'});
+    require(bookmarks.results[item!.id] === false && current.pendingBookmark === null,'Changed source fingerprint did not mark mismatch');
+    await waitSearch(() => !!bookmarkTarget(current),'Reopened view does not supply a current location',15000);
+    require(await bookmarks.reassignCurrent(item!.id,current),'Typed bookmark reassignment failed');
+    require(bookmarks.results[item!.id] === true && bookmarks.entries.find(saved => saved.id === item!.id)?.created === item!.created,
+      'Reassignment did not preserve bookmark identity');
+    return {kind:target.kind,repeated:2,reopened:true,mismatch:true,reassigned:true};
+  } finally {
+    await bookmarks.flush(); bookmarks.entries = entries; bookmarks.results = results;
+    await setValue('bookmarks',previous ?? null);
+    if (current.id !== first.id) await workspace.close(current.id);
   }
 }

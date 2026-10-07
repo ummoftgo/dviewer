@@ -9,8 +9,11 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
     "core:webview:allow-internal-toggle-devtools",
     "dialog:allow-open",
+    "dialog:allow-save",
     "store:default",
     "opener:allow-open-url",
     "opener:allow-default-urls"

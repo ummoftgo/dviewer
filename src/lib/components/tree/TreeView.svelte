@@ -30,6 +30,7 @@
   import type { DocTab } from "../../state/docs.svelte";
   import { workspace } from "../../state/docs.svelte";
   import { settings } from "../../state/settings.svelte";
+  import { bookmarks } from "../../state/bookmarks.svelte";
 
   interface Props {
     tab: DocTab;
@@ -186,6 +187,34 @@
       if (!current()) return;
       target.error = errorMessage(err);
       target.indexing = null;
+    });
+  });
+
+  // Bookmarks are repeatable navigation requests, independent of the one-time restore.
+  let bookmarkRequest = -1;
+  $effect(() => {
+    const jump = tab.pendingBookmark;
+    if (!jump || jump.target?.kind !== 'tree' || !tab.treeStats || !viewport || bookmarkRequest === jump.request) return;
+    const path = jump.target.path;
+    bookmarkRequest = jump.request;
+    const active = () => current() && tab.pendingBookmark?.request === jump.request;
+    untrack(() => {
+      void treePositionResolve(tab.id,path).then(async node => {
+        if (!active()) return;
+        if (node === null) { bookmarks.complete(tab,jump,false); return; }
+        const result = await treeReveal(tab.id,node);
+        if (!active()) return;
+        tab.treeStats = result.stats;
+        await tick();
+        if (!active() || !viewport) return;
+        if (result.row === null) { bookmarks.complete(tab,jump,false); return; }
+        tab.selectedNode = node; selectedRow = result.row;
+        viewport.scrollTop = scrollTopForRow(metrics,result.row);
+        tab.treeScrollTop = viewport.scrollTop;
+        tab.rememberPosition({kind:'tree',path});
+        void ensureWindow(true);
+        bookmarks.complete(tab,jump,true);
+      }).catch(() => { if (active()) bookmarks.complete(tab,jump,false); });
     });
   });
 

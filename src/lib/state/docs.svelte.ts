@@ -36,6 +36,7 @@ import { recents } from "./recents.svelte";
 import { settings } from "./settings.svelte";
 import type { TableState } from "../components/markdown/tables";
 import type { SearchError } from '../components/markdown/search';
+import { GridStateStore, gridSourceKey, type SavedGridState } from '../grid-state';
 
 export type ViewMode = "rendered" | "raw";
 
@@ -207,11 +208,18 @@ class TableSearchState {
 }
 
 let nextKey = 0;
+export const gridStates = new GridStateStore(undefined, undefined, error => {
+  console.warn('[dviewer] could not persist grid state:', error);
+  toasts.show(t('gridState.saveFailed'), 'info');
+}, notice => {
+  toasts.show(t(notice === 'pruned' ? 'gridState.storagePruned' : 'gridState.conditionsNotSaved'), 'info', 6000);
+});
 
 class GridOrderState {
   sort = $state<GridSort | null>(null);
   filter = $state("");
   filterColumn = $state<number | null>(null);
+  predicates = $state<ipc.GridPredicate[]>([]);
   revision = $state(0);
   stats = $state<OrderStats | null>(null);
   running = $state(false);
@@ -225,6 +233,7 @@ class GridOrderState {
     this.sort = null;
     this.filter = "";
     this.filterColumn = null;
+    this.predicates = [];
     this.stats = null;
     this.running = false;
     this.progress = null;
@@ -386,6 +395,12 @@ export class DocTab {
   // Table (CSV, TSV)
   tableStats = $state<TableStats | null>(null);
   readonly order = new GridOrderState();
+  gridStateReady = $state(false);
+  gridStateRestoring = $state(false);
+  gridStateNotice = $state<'restored' | 'schemaChanged' | null>(null);
+  gridLayoutRevision = $state(0);
+  /** A bookmark explicitly requests source coordinates, superseding saved scans. */
+  gridRestoreOrderAllowed = $state(true);
   header = $state<string[]>([]);
   /** Pixel width per column, resizable by dragging a header edge. */
   columnWidths = $state<number[]>([]);
@@ -446,20 +461,24 @@ export class DocTab {
     return describeSource(this.meta.source);
   }
 
-  async applyOrder(sort: GridSort | null, filter: string, filterColumn: number | null): Promise<boolean> {
+  async applyOrder(sort: GridSort | null, filter: string, filterColumn: number | null, predicates: ipc.GridPredicate[] = this.order.predicates): Promise<boolean> {
     const state = this.order;
+    this.gridStateNotice = null;
     const request = ++state.request;
     state.running = true;
     state.progress = null;
     state.error = null;
     this.tableSearch.reset();
     try {
-      const stats = await ipc.gridOrder(this.id, sort, filter, filterColumn, request);
+      const stats = predicates.length
+        ? await ipc.gridOrder(this.id, sort, filter, filterColumn, request, predicates)
+        : await ipc.gridOrder(this.id, sort, filter, filterColumn, request);
       if (request !== state.request) return false;
-      state.stats = sort || filter ? stats : null;
+      state.stats = sort || filter || predicates.length ? stats : null;
       state.sort = sort;
       state.filter = filter;
       state.filterColumn = filter ? filterColumn : null;
+      state.predicates = predicates.map(p => ({ ...p }));
       this.selectedCell = null;
       this.pendingCell = null;
       this.tableScrollTop = 0;
@@ -482,8 +501,74 @@ export class DocTab {
     this.tableFillRatios = null;
   }
 
+  get gridIdentity(): string | null {
+    const source = this.meta.source;
+    const parent = source.type === 'treeSlice' ? workspace.tab(source.parent)?.meta.source : undefined;
+    const identity = gridSourceKey(source, parent);
+    return identity && JSON.stringify([identity, this.kind]);
+  }
+
+  get gridSchema(): string | null {
+    if (this.gridStats) return JSON.stringify(this.gridStats.columns);
+    if (!this.tableStats || this.tableStats.columnCount === 0) return null;
+    const layout = this.tableStats.plain ? null : this.tableStats.logLayout;
+    return JSON.stringify(Array.from({ length: this.tableStats.columnCount }, (_, column) => layout?.[column] ?? this.header[column] ?? null));
+  }
+
+  async savedGridState(): Promise<SavedGridState | null> {
+    const identity = this.gridIdentity;
+    return identity ? gridStates.get(identity, this.collection) : null;
+  }
+
+  async preferredGridCollection(): Promise<string | null> {
+    const identity = this.gridIdentity;
+    return identity ? gridStates.preferredCollection(identity) : null;
+  }
+
+  /** Call only after the table's interpretation switches have been restored. */
+  async restoreGridState(saved: SavedGridState | null): Promise<void> {
+    const generation = this.meta.generation ?? 0;
+    const collection = this.collection;
+    if (saved && saved.schema === this.gridSchema) {
+      this.columnWidths = [...saved.widths];
+      this.columnOrder = [...saved.order];
+      this.hiddenColumns = [...saved.hidden];
+      this.frozenCount = saved.frozen;
+      this.tableWidthMode = saved.widthMode;
+      this.tableFillRatios = saved.ratios && [...saved.ratios];
+      this.gridLayoutRevision++;
+      if (this.gridRestoreOrderAllowed && (saved.sort || saved.filter || saved.predicates.length)) {
+        const request = this.order.request + 1;
+        const applied = await this.applyOrder(saved.sort, saved.filter, saved.filterColumn, saved.predicates);
+        if (this.order.request !== request) return;
+        if (applied) this.gridStateNotice = 'restored';
+      }
+    } else if (saved) this.gridStateNotice = 'schemaChanged';
+    if (generation !== (this.meta.generation ?? 0) || collection !== this.collection) return;
+    this.gridStateRestoring = false;
+    this.gridStateReady = true;
+  }
+
+  rememberGridState(): Promise<void> {
+    const identity = this.gridIdentity, schema = this.gridSchema;
+    if (!identity || !schema || !this.gridStateReady || this.gridStateRestoring || this.order.error) return Promise.resolve();
+    return gridStates.remember({ identity, collection: this.collection, schema,
+      widths: [...this.columnWidths], order: [...this.columnOrder], hidden: [...this.hiddenColumns],
+      frozen: this.frozenCount, widthMode: this.tableWidthMode,
+      ratios: this.tableFillRatios && [...this.tableFillRatios],
+      sort: this.order.sort && { ...this.order.sort }, filter: this.order.filter,
+      filterColumn: this.order.filterColumn, predicates: this.order.predicates.map(p => ({ ...p })),
+      ...(this.tableStats ? { hasHeader: this.tableStats.hasHeader, plain: this.tableStats.plain, expanded: this.tableStats.expanded } : {}),
+      ...(this.kind === 'xlsx' && this.gridStats ? { formulas: this.gridStats.formulas } : {}) });
+  }
+
   /** Drop derived state so the tab reloads from scratch on the next view. */
   invalidate() {
+    void this.rememberGridState();
+    this.gridStateReady = false;
+    this.gridStateRestoring = false;
+    this.gridStateNotice = null;
+    this.gridRestoreOrderAllowed = true;
     this.order.reset();
     this.tables.clear();
     this.markdownRevision++;
@@ -781,6 +866,7 @@ class Workspace {
     if (!group) return;
     const isParent = group.parent.id === id;
     const closing = isParent ? [...group.children.map((tab) => tab.id), id] : [id];
+    const saves = this.tabs.filter(tab => closing.includes(tab.id)).map(tab => tab.rememberGridState());
     const mains = mainTabs(this.tabs);
     const index = mains.findIndex((tab) => tab.id === id);
     this.tabs = this.tabs.filter((tab) => !closing.includes(tab.id));
@@ -791,6 +877,8 @@ class Workspace {
     }
     // Remove placeholders together with the family before any IPC yields.
     // run() closes their eventual documents when the pending open completes.
+    await Promise.all(saves);
+    await gridStates.flush();
     for (const docId of closing) {
       forgetDoc(docId);
       if (docId <= 0) continue;

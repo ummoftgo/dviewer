@@ -2,6 +2,23 @@ import { tick } from 'svelte';
 import { t } from '../../i18n';
 import type { DocTab } from '../../state/docs.svelte';
 import { settings } from '../../state/settings.svelte';
+import { visibleColumns } from '../grid/columns';
+import { checkGridDockDetailStates } from '../grid/layoutSmoke';
+
+/** Restored hidden/reordered columns must match the rendered projection exactly. */
+export function collectionColumnsReady(
+  tab: Pick<DocTab, 'gridStats' | 'columnWidths' | 'columnOrder' | 'hiddenColumns'>,
+  ariaColumnCount: string | null,
+  renderedColumns: readonly number[],
+): boolean {
+  if (!tab.gridStats || tab.columnWidths.length !== tab.gridStats.columnCount) return false;
+  const expected = visibleColumns(tab, tab.gridStats.columnCount);
+  return ariaColumnCount === String(expected.length) && renderedColumns.length === expected.length
+    && expected.every((column, at) => renderedColumns[at] === column);
+}
+
+const columnView = (tab: DocTab) => JSON.stringify({ widths: tab.columnWidths, ratios: tab.tableFillRatios,
+  order: tab.columnOrder, hidden: tab.hiddenColumns, frozen: tab.frozenCount, mode: tab.tableWidthMode });
 
 async function waitFor(condition: () => boolean, message: string): Promise<void> {
   const deadline = Date.now() + 60_000;
@@ -14,24 +31,31 @@ async function waitFor(condition: () => boolean, message: string): Promise<void>
 export async function checkCollectionWidths(tab: DocTab): Promise<void> {
   const grid = () => document.querySelector<HTMLElement>('main .collection .grid');
   const picker = () => document.querySelector<HTMLSelectElement>('main .collection .picker select');
-  const settled = () => !!tab.gridStats && !picker()?.disabled
-    && grid()?.dataset.fitted === 'true'
-    && tab.columnWidths.length === tab.gridStats.columnCount
-    && grid()?.getAttribute('aria-colcount') === String(tab.gridStats.columnCount)
-    && (tab.gridStats.rowCount === 0 || !!grid()?.querySelector('.body .row'));
+  const settled = () => {
+    const host = grid();
+    return !!tab.gridStats && tab.gridStateReady && !tab.gridStateRestoring && !picker()?.disabled
+      && host?.dataset.fitted === 'true'
+      && collectionColumnsReady(tab, host.getAttribute('aria-colcount'),
+        [...host.querySelectorAll<HTMLElement>('.head [data-column]')].map(cell => Number(cell.dataset.column)))
+      && (tab.gridStats.rowCount === 0 || !!host.querySelector('.body .row'));
+  };
   await waitFor(() => !!picker() && settled(), 'collection did not finish its first page');
   const saved = { widthMode: settings.tableWidthMode, font: settings.docFontPx, scale: settings.uiScale,
     tabWidthMode: tab.tableWidthMode, collection: tab.collection, widths: [...tab.columnWidths], ratios: tab.tableFillRatios,
     columnOrder: [...tab.columnOrder], hiddenColumns: [...tab.hiddenColumns], revealedColumn: tab.revealedColumn, frozenCount: tab.frozenCount };
+  const collectionViews = new Map<string, string>();
   const select = async (name: string) => {
     const control = picker();
     if (!control || control.disabled) throw new Error('collection picker is not ready');
+    if (tab.collection) collectionViews.set(tab.collection, columnView(tab));
     control.value = name;
     control.dispatchEvent(new Event('change', { bubbles: true }));
     if (tab.columnWidths.length || tab.tableFillRatios !== null) throw new Error('collection switch retained previous widths or ratios');
     if (tab.columnOrder.length || tab.hiddenColumns.length || tab.frozenCount) throw new Error('collection switch retained column configuration');
     await tick();
     await waitFor(() => tab.collection === name && settled(), 'selected collection did not finish layout: ' + name);
+    const expected = collectionViews.get(name);
+    if (expected && columnView(tab) !== expected) throw new Error('collection did not restore its own column configuration: ' + name);
   };
   const saveDescriptor = Object.getOwnPropertyDescriptor(settings, 'save');
   const savedModes: string[] = [];
@@ -71,6 +95,12 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
       tab.columnOrder = Array.from({ length: tab.gridStats!.columnCount }, (_, i) => i).reverse();
       tab.hiddenColumns = [0]; tab.frozenCount = 1;
       await select(item.name);
+      // A previously visited collection now restores its own configuration.
+      // Width-menu geometry below deliberately tests the complete projection.
+      tab.resetColumnView();
+      await tick();
+      await waitFor(settled, 'reset collection columns did not finish layout: ' + item.name);
+      await checkGridDockDetailStates(tab, 'collection ' + item.name);
       const host = grid()!;
       const head = host.querySelector<HTMLElement>('.head')!;
       if (host.dataset.widthMode !== 'fill' || Math.abs(head.getBoundingClientRect().width - host.clientWidth) > 1) {
@@ -152,13 +182,18 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
     grid()!.querySelector<HTMLButtonElement>('.head .column-menu')!.click();
     await menuAction('grid.resetColumnView');
     await waitFor(() => grid()?.dataset.frozenCount === '0' && grid()?.dataset.fitted === 'true', 'frozen reset did not settle');
+    // Reselecting the first sheet above and this A -> B -> A round trip both
+    // retain each sheet's own widths, projection, frozen columns and ratios.
+    const current = tab.collection!;
+    await select(tab.collections[0].name);
+    await select(current);
   } finally {
     try {
       settings.tableWidthMode = saved.widthMode; settings.docFontPx = saved.font; settings.uiScale = saved.scale;
-      tab.tableWidthMode = saved.tabWidthMode;
       await tick();
       if (saved.collection && saved.collection !== tab.collection && !tab.error) await select(saved.collection);
     } finally {
+      tab.tableWidthMode = saved.tabWidthMode;
       tab.columnWidths = saved.widths; tab.tableFillRatios = saved.ratios;
       tab.columnOrder = saved.columnOrder; tab.hiddenColumns = saved.hiddenColumns; tab.revealedColumn = saved.revealedColumn;
       tab.frozenCount = saved.frozenCount;

@@ -24,9 +24,10 @@
     bookmarksOpen: boolean;
     onAddBookmark: () => void;
     onToggleBookmarks: () => void;
+    onCompare: () => void;
   }
 
-  let { tab, showToc, onToggleToc, onOpenSettings, onSearch, focusMode, onToggleFocus, bookmarksOpen, onAddBookmark, onToggleBookmarks }: Props = $props();
+  let { tab, showToc, onToggleToc, onOpenSettings, onSearch, focusMode, onToggleFocus, bookmarksOpen, onAddBookmark, onToggleBookmarks, onCompare }: Props = $props();
 
   let copyTarget = $state<{ tab: DocTab; revision: number } | null>(null);
   let copyButton = $state<HTMLButtonElement>();
@@ -97,6 +98,7 @@
   </div>
 
   <div class="controls">
+    <button class="btn btn-ghost" data-action="compare-open" onclick={onCompare}>{t('compare.title')}</button>
     {#if supportsRaw(tab.view, tab.kind)}
       <div class="segmented" role="group" aria-label={t("toolbar.mode.group")}>
         <button data-action="view-rendered" aria-pressed={tab.mode === "rendered"} onclick={() => (tab.mode = "rendered")}>
