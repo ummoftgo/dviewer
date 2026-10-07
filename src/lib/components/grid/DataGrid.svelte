@@ -632,6 +632,9 @@
 
 <svelte:window onresize={() => void ensureWindow(true)} onpointerup={() => { dragging = false; }} onpointercancel={() => { dragging = false; }} />
 
+<!-- One dock item: the toolbar takes only its content height, and the grid
+     owns the remaining scrollable viewport even beside the detail panel. -->
+<div class="data-grid">
 <div class="range-tools" role="toolbar" aria-label={t('gridRange.tools')}>
   <button type="button" onclick={() => void copyRange()} disabled={!range || copying || tab.order.running}>{t('gridRange.copy')}</button>
   <button type="button" onclick={() => void copyRange(true)} disabled={!range || copying || tab.order.running}>{t('gridRange.copyHeaders')}</button>
@@ -741,9 +744,16 @@
 {#if menu}
   <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
 {/if}
+</div>
 
 <style>
-  .range-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; padding: .25rem .5rem; border-bottom: 1px solid var(--border); font-family: var(--font-ui); font-size: .85em; }
+  .data-grid {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .range-tools { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; padding: .25rem .5rem; border-bottom: 1px solid var(--border); font-family: var(--font-ui); font-size: .85em; }
   .range-tools button { background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: .2rem .4rem; cursor: pointer; }
   .range-tools button:disabled { opacity: .5; cursor: default; }
   .range-tools span { color: var(--text-muted); margin-left: auto; }
@@ -753,6 +763,7 @@
   button.name { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
   .grid {
     flex: 1;
+    min-width: 0;
     min-height: 0;
     overflow: auto;
     outline: none;

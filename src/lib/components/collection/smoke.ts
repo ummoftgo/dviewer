@@ -3,6 +3,7 @@ import { t } from '../../i18n';
 import type { DocTab } from '../../state/docs.svelte';
 import { settings } from '../../state/settings.svelte';
 import { visibleColumns } from '../grid/columns';
+import { checkGridDockDetailStates } from '../grid/layoutSmoke';
 
 /** Restored hidden/reordered columns must match the rendered projection exactly. */
 export function collectionColumnsReady(
@@ -99,6 +100,7 @@ export async function checkCollectionWidths(tab: DocTab): Promise<void> {
       tab.resetColumnView();
       await tick();
       await waitFor(settled, 'reset collection columns did not finish layout: ' + item.name);
+      await checkGridDockDetailStates(tab, 'collection ' + item.name);
       const host = grid()!;
       const head = host.querySelector<HTMLElement>('.head')!;
       if (host.dataset.widthMode !== 'fill' || Math.abs(head.getBoundingClientRect().width - host.clientWidth) > 1) {

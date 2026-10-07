@@ -2,6 +2,7 @@ import { tick } from 'svelte';
 import type { DocTab } from '../../state/docs.svelte';
 import { waitSearch } from '../markdown/searchSmoke';
 import type { GridPredicate } from '../../ipc';
+import { checkGridDockDetailStates } from './layoutSmoke';
 
 function controls(): HTMLFormElement {
   const form = document.querySelector<HTMLFormElement>('main .grid-controls');
@@ -54,7 +55,13 @@ export async function checkGridPredicates(tab: DocTab) {
     await add({ column: 0, op: 'gt', value: '1.5' });
     await add({ column: 1, op: 'contains', value: 'keep' });
     await apply(tab, 1, 2);
+    await checkGridDockDetailStates(tab, 'nonempty typed filter');
     await clear(tab);
+    await add({ column: 0, op: 'gt', value: '999' });
+    await apply(tab, 0, 1);
+    await checkGridDockDetailStates(tab, 'empty typed filter');
+    await clear(tab);
+    await checkGridDockDetailStates(tab, 'cleared typed filter');
     for (const op of ['null', 'empty', 'missing'] as const) {
       await add({ column: 2, op, value: '' });
       await apply(tab, 1, 1);
@@ -70,7 +77,7 @@ export async function checkGridPredicates(tab: DocTab) {
     controls().querySelector<HTMLButtonElement>('.condition-row button')!.click(); await tick();
     button('grid-predicates').click(); await tick();
     if (controls().querySelector('.conditions')) throw new Error('filter builder did not close');
-    return { andShown: 1, distinctAbsenceKinds: 3, literalNullShown: 1 };
+    return { andShown: 1, distinctAbsenceKinds: 3, literalNullShown: 1, dockLayoutStates: 9 };
   } finally {
     await tab.applyOrder(saved.sort, saved.filter, saved.column, saved.predicates);
   }

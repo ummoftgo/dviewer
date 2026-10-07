@@ -3,6 +3,7 @@ import { t, type MessageKey } from '../../i18n';
 import { docSourceText } from '../../ipc';
 import type { DocTab } from '../../state/docs.svelte';
 import { settings } from '../../state/settings.svelte';
+import { assertGridDockLayout, settleGridDockLayout } from '../grid/layoutSmoke';
 
 async function waitFor(condition: () => boolean, message: string) {
   const deadline = Date.now() + 60_000;
@@ -25,6 +26,7 @@ export async function checkTextReading(tab: DocTab): Promise<void> {
     await waitFor(() => document.querySelector<HTMLElement>('main .grid')?.dataset.widthMode === 'fill'
       && document.querySelector<HTMLElement>('main .grid')?.dataset.fitted === 'true', 'text grid width did not settle');
     const grid = document.querySelector<HTMLElement>('main .grid')!;
+    assertGridDockLayout(tab, 'text reading');
     const head = grid.querySelector<HTMLElement>('.head')!;
     if (Math.abs(head.getBoundingClientRect().width - grid.clientWidth) > 1) throw new Error('text grid did not fill its viewport');
     const cut = grid.querySelector<HTMLElement>('[role="gridcell"][data-truncated="true"]');
@@ -117,12 +119,17 @@ const CELL_DETAIL_LONG = 5000;
  */
 export async function checkCellDetail(tab: DocTab): Promise<{ valueLength: number }> {
   const shown = tab.showCellDetail, selected = tab.selectedCell;
+  const inspectorWidth = settings.inspectorWidth;
+  const sizing = { scale: settings.uiScale, ui: settings.uiFontPx, doc: settings.docFontPx };
   try {
+    // Persisted zoom must not make the narrow-column wrapping probe vacuous.
+    settings.uiScale = 1; settings.uiFontPx = 13; settings.docFontPx = 15;
     tab.showCellDetail = false;
     tab.selectedCell = null;
     await tick();
     const rows = () => document.querySelectorAll<HTMLElement>('main .grid .body .row');
     await waitFor(() => rows().length >= 7, 'cell detail grid did not render');
+    assertGridDockLayout(tab, 'cell detail initially closed');
     const cell = (row: number) => rows()[row].querySelector<HTMLElement>('[role="gridcell"][data-column="1"]')!;
     const panel = () => document.querySelector<HTMLElement>('main .cell-detail');
     if (cell(0).dataset.truncated !== 'true') throw new Error('long cell was not a cut preview');
@@ -132,6 +139,14 @@ export async function checkCellDetail(tab: DocTab): Promise<{ valueLength: numbe
     if (!toggle) throw new Error('grid toolbar has no cell detail button');
     toggle.click();
     await waitFor(() => panel()?.dataset.ready === 'true', 'cell detail did not read the long value');
+    const layout = assertGridDockLayout(tab, 'cell detail open');
+    // Exercise wrapping at the narrowest grid column the dock splitter allows.
+    settings.inspectorWidth = Math.max(200, layout.dock.right - layout.dock.left - 281);
+    await settleGridDockLayout();
+    const narrow = assertGridDockLayout(tab, 'cell detail narrow grid');
+    if (!narrow.tools.some(tool => tool.top >= narrow.tools[0].bottom)) throw new Error('narrow range toolbar did not wrap its controls');
+    settings.inspectorWidth = inspectorWidth;
+    await settleGridDockLayout();
     const valueLength = panel()!.querySelector('.value')?.textContent?.length ?? -1;
     if (panel()!.dataset.kind !== 'value' || valueLength !== CELL_DETAIL_LONG) {
       throw new Error(`cell detail showed ${valueLength} of ${CELL_DETAIL_LONG} characters`);
@@ -148,10 +163,13 @@ export async function checkCellDetail(tab: DocTab): Promise<{ valueLength: numbe
     panel()!.querySelector<HTMLButtonElement>('[data-action="cell-detail-close"]')!.click();
     await tick();
     if (panel() || tab.showCellDetail) throw new Error('cell detail did not close');
+    assertGridDockLayout(tab, 'cell detail closed again');
     return { valueLength };
   } finally {
     tab.showCellDetail = shown;
     tab.selectedCell = selected;
-    await tick();
+    settings.inspectorWidth = inspectorWidth;
+    settings.uiScale = sizing.scale; settings.uiFontPx = sizing.ui; settings.docFontPx = sizing.doc;
+    await settleGridDockLayout();
   }
 }
