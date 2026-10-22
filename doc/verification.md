@@ -1796,3 +1796,5 @@ Windows updater E2E 첫 실행은 앱/CDP 연결 이전에 실패했다. 보강�
 후속 CI 검증은 실제 수집된 서명 payload를 앱의 streaming verifier로 읽고, 최종 서명 매니페스트와 payload를 공식 minisign으로 다시 확인한다. 작은 별도 기록에 파일·서명·설정·공개키 해시와 원본 build commit/run/attempt, 최종 release 실행을 남긴다. 잘못된 서명, 누락·추가 파일, 다른 실행의 기록이나 바뀐 매니페스트를 성공으로 바꾸지 않는다. 이 검사 코드를 포함한 새 최종 SHA의 서명 리허설과 실제 tag/release 경로 검증은 아직 남는다.
 
 이 CI 검증 보강의 로컬 검사는 새77개(기존 manifest 검사 포함78개)와 전체 Node152개, Vitest620개, check 오류·경고0(4×580키)를 통과했다. 실제 Tauri 시험 서명과 공식 minisign으로 바뀐 payload/manifest, 다른 키·서명, 누락·추가 파일·플랫폼, 잘못된 URL·버전·source SHA/run/해시를 거절했다. 격리된 스크립트 사본에서 서명 판정을 제거하면2개, manifest 버전·source SHA 판정을 제거하면 각각1개가 실패했다. 저장소 원본은 약화하지 않았으며 최종 독립 검토에서도 job 권한·자격 증명·서명 secret 환경·기존 배포 아티팩트 범위가 유지됨을 확인했다. Ubuntu22.04 테스트는 이미 만드는 앱 verifier를 사용하고, 공식 minisign 설치는 ubuntu-latest release 잡에 한정한다.
+
+후속 PR #3의 실제 Linux 검사에서 debug update 예제가309,188,880바이트로256MiB 검증기 상한을 넘었다(일반 파일이며 symlink가 아님). 검증 상한을 완화하지 않고 기존 서명 호환성 검사 뒤에 Linux 예제의 debug 정보만 제거한 다음 동일한 전체 검사를 실행하도록 보강했다. 최초 Windows 갱신 시험은 기존 preflight PowerShell 질의의15초 제한에서 멈췄고, 같은 SHA의 해당 잡 재실행은 성공했다. 최종 수정 SHA의 세 OS 검증 결과는 별도로 확인해야 한다.

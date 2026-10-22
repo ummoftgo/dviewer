@@ -204,6 +204,11 @@ jobs:
         run: |
           node --test scripts/updater-manifest.test.mjs
           node scripts/test-updater-signature.mjs
+          # The debug example can exceed the verifier file bound solely because
+          # of DWARF. Preserve the guard and executable code; remove debug data.
+          stat --printf='Verifier before debug stripping: %s bytes\n' src-tauri/target/debug/examples/update
+          strip --strip-debug src-tauri/target/debug/examples/update
+          stat --printf='Verifier after debug stripping: %s bytes\n' src-tauri/target/debug/examples/update
           DVIEWER_APP_VERIFIER=src-tauri/target/debug/examples/update node --test scripts/verify-updater-artifacts.test.mjs
       - name: Check portable replacement
         if: runner.os == 'Windows'
