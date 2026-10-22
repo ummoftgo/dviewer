@@ -31,7 +31,7 @@ const signatureLimit = 16 * 1024;
 function regularFile(path, max) {
   const stat = lstatSync(path);
   assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= max,
-    `invalid regular file or size: ${basename(path)}`);
+    `invalid regular file or size: ${basename(path)} (bytes=${stat.size}, regular=${stat.isFile()}, symlink=${stat.isSymbolicLink()}, max=${max})`);
   return stat;
 }
 function readRegular(path, max) {
