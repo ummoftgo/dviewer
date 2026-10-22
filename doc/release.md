@@ -41,6 +41,14 @@ release 잡은 태그/앱 버전·서명 키를 다시 검증한 뒤 내려받�
 
 전후 화면과 가린 결과/콘솔만 `updater-e2e-windows` 아티팩트에 남긴다. 중단 뒤의 독립 cleanup도 PID·실행 경로·인자·생성 시각·run 소유 정보를 대조해 시험 프로세스만 종료하며, 종료·시험 설치 제거를 재확인하고 시험키를 정리한다. 전체 시험 폴더·키·원본 로그는 업로드하지 않는다. 릴리스 판단에는 성공한 잡의 `head_sha`와 결과 JSON의 source/run 식별값을 함께 대조한다. 선택적 입력이 있다는 이유로 최종 후보의 검증을 생략하지 않는다.
 
+### 서명된 바이트의 검증 기록
+
+서명 번들 잡은 파일 수집과 Windows 포터블 서명 뒤에 기존 `update` Rust 예제를 사용해 각 플랫폼의 실제 payload와 `.sig`를 공개키로 대조한다. `scripts/verify-updater-artifacts.mjs`의 bundle 모드는 예상 파일·크기·버전과 SHA-256을 검사하고, `artifact-verification-bundle-<slug>`에 작은 `bundle-<slug>.json` 기록을 남긴다. 이 기록은 배포 파일 폴더 밖에 있으므로 기존 세 `dviewer-*` 아티팩트와 릴리스 자산 목록에 섞이지 않는다. 서명이 없는 추가 배포 파일도 해시를 기록하고 그 한계를 구분한다.
+
+release 잡은 배포 파일과 같은 원본 실행의 세 검증 기록을 내려받고, 매니페스트를 서명한 뒤 release 모드에서 Ubuntu 공식 minisign으로 원래 `latest.json`과 모든 updater payload의 서명을 확인한다. 원본 번들 기록의 파일·서명·공개키·설정 해시와 체크아웃 commit SHA, 선택된 원본 run ID를 대조한다. 원본 attempt와 event/workflow SHA는 각 번들 기록에 보존하고 최종 태그 실행의 식별값은 별도로 기록하므로, release 잡만 재실행해도 앞선 정상 bundle attempt를 사용할 수 있다. 실패·누락·다른 실행의 기록은 초안 생성 전에 중단한다. 예전 성공 리허설에 이 검증이 소급 적용되지는 않으므로, 이 코드를 포함한 최종 SHA의 새 서명 리허설이 필요하다.
+
+`artifact-verification-release`의 `release.json`은 최종 검증 결과다. 검증은 서명된 매니페스트와 서명 파일을 다시 쓰지 않는다. 기존 job 권한과 서명 설정을 사용하며 검증 기록에는 공개된 파일 이름·크기·해시와 CI 식별값만 남긴다. 이 검증은 업데이트 서명의 진위를 확인하며 OS 코드 서명·공증을 의미하지 않는다.
+
 ### 산출물
 
 OS마다 설치본과 포터블을 함께 냅니다.
@@ -105,7 +113,7 @@ Get-Content -Raw "$HOME/.tauri/dviewer.key.pub"
 
 `scripts/updater-manifest.mjs`가 형태별 자산의 존재·크기·서명 형식을 검사해 `latest.json`을 만들고 CI가 이 파일에도 서명해 `latest.json.sig`를 올린다. 플랫폼 키는 Windows 형태별 3개, macOS 두 아키텍처, Linux x86_64다. macOS 두 키는 같은 universal 아카이브를 가리킨다. `notes`는 비워 두므로 앱은 릴리스 페이지 링크를 제공한다. 나중에 노트를 매니페스트에 넣으면 매니페스트를 다시 서명해야 한다.
 
-릴리스 전에 [Windows 끝까지 시험](verification.md#업데이트-끝까지-시험)을 반복한다. 초안 자산은 고정 개수로 판정하지 않고, 매니페스트가 참조하는 모든 파일과 서명 및 `latest.json.sig`가 있는지 검사한다. 내려받은 자산 폴더에 `node scripts/updater-manifest.mjs <폴더> <태그>`를 실행하면 참조 검사를 반복할 수 있다(로컬 매니페스트를 재생성하므로 공개할 때는 다시 서명한다). 릴리스 공개 시 `gh release edit <태그> --draft=false --latest -R ummoftgo/dviewer`로 최신 릴리스임을 명시한다. `releases/latest/download/latest.json`과 `.sig`가 그 릴리스의 자산을 반환하는지 확인한다.
+릴리스 전에 [Windows 끝까지 시험](verification.md#업데이트-끝까지-시험)을 반복한다. 초안 자산은 고정 개수로 판정하지 않고, 매니페스트가 참조하는 모든 파일과 서명 및 `latest.json.sig`가 있는지 검사한다. 최종 참조·서명·해시 검사는 `verify-updater-artifacts.mjs`의 release 모드가 원래 매니페스트 바이트를 보존하면서 수행한다. `updater-manifest.mjs`의 생성 CLI를 검증 목적으로 다시 실행하면 서명된 매니페스트가 달라지므로 사용하지 않는다. 릴리스 공개 시 `gh release edit <태그> --draft=false --latest -R ummoftgo/dviewer`로 최신 릴리스임을 명시한다. `releases/latest/download/latest.json`과 `.sig`가 그 릴리스의 자산을 반환하는지 확인한다.
 
 
 ## 저장소에 들어가는 것
